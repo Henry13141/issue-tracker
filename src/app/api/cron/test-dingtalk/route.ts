@@ -71,10 +71,11 @@ export async function GET(request: Request) {
   }
 
   try {
+    const ts = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
     const { task_id } = await sendDingtalkWorkNotice(
       userid,
       "工作通知测试",
-      "## 钉钉工作通知测试\n\n来自 issue-tracker 的连通性测试。收到本条说明企业应用与工作通知配置正常。"
+      `## 钉钉工作通知测试\n\n来自 issue-tracker 的连通性测试（${ts}）。\n\n收到本条说明企业应用与工作通知配置正常。`
     );
     await new Promise((r) => setTimeout(r, 2500));
     const send_result = await getDingTalkWorkNoticeSendResult(task_id);
