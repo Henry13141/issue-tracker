@@ -18,7 +18,7 @@ export async function sendDingtalkMarkdown(title: string, markdown: string) {
   });
 }
 
-async function getAccessToken(): Promise<string> {
+export async function getAccessToken(): Promise<string> {
   if (!APP_KEY || !APP_SECRET) {
     throw new Error("DINGTALK_APP_KEY / DINGTALK_APP_SECRET 未配置");
   }
