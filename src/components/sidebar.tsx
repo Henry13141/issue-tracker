@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
-import { LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList } from "lucide-react";
+import { LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users } from "lucide-react";
 
 const nav = [
   { href: "/dashboard", label: "看板总览", icon: LayoutDashboard, adminOnly: true },
+  { href: "/members", label: "成员与钉钉", icon: Users, adminOnly: true },
   { href: "/issues", label: "问题列表", icon: ListTodo },
   { href: "/my-tasks", label: "我的任务", icon: ClipboardList },
   { href: "/reminders", label: "提醒中心", icon: Bell },

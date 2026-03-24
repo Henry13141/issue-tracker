@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createSupabaseMiddlewareClient } from "@/lib/supabase/middleware";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/issues", "/my-tasks", "/reminders"];
+const PROTECTED_PREFIXES = ["/dashboard", "/members", "/issues", "/my-tasks", "/reminders"];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

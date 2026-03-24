@@ -6,6 +6,12 @@ import { getCurrentUser } from "@/lib/auth";
 import { getChinaDayBounds } from "@/lib/dates";
 import { ACTIVE_STATUSES } from "@/lib/constants";
 import type { IssuePriority, IssueStatus, IssueUpdateWithUser, IssueWithRelations } from "@/types";
+import {
+  dingtalkAfterCreateIssue,
+  dingtalkAfterIssueResolvedOrClosed,
+  dingtalkAfterIssueUpdateToBlocked,
+  dingtalkAfterUpdateIssue,
+} from "@/lib/issue-dingtalk-notify";
 
 const issueSelect = `
   *,
@@ -103,10 +109,17 @@ export async function createIssue(input: {
     .single();
 
   if (error) throw new Error(error.message);
+  const newId = data?.id as string;
+  dingtalkAfterCreateIssue({
+    issueId: newId,
+    title: input.title,
+    assigneeId: input.assignee_id ?? null,
+    actorName: user.name,
+  });
   revalidatePath("/issues");
   revalidatePath("/dashboard");
   revalidatePath("/my-tasks");
-  return data?.id as string;
+  return newId;
 }
 
 export async function updateIssue(
@@ -120,7 +133,14 @@ export async function updateIssue(
     due_date: string | null;
   }>
 ) {
+  const user = await getCurrentUser();
   const supabase = await createClient();
+
+  const { data: beforeRow } = await supabase
+    .from("issues")
+    .select("title, creator_id, assignee_id, status, due_date")
+    .eq("id", id)
+    .single();
 
   const extra: Record<string, unknown> = {};
   if (patch.status === "resolved" && !("resolved_at" in patch)) {
@@ -142,6 +162,23 @@ export async function updateIssue(
     .eq("id", id);
 
   if (error) throw new Error(error.message);
+
+  if (beforeRow && user) {
+    dingtalkAfterUpdateIssue({
+      issueId: id,
+      before: beforeRow as {
+        title: string;
+        creator_id: string;
+        assignee_id: string | null;
+        status: IssueStatus;
+        due_date: string | null;
+      },
+      patch,
+      actorName: user.name,
+      actorUserId: user.id,
+    });
+  }
+
   revalidatePath("/issues");
   revalidatePath(`/issues/${id}`);
   revalidatePath("/dashboard");
@@ -164,7 +201,7 @@ export async function addIssueUpdate(issueId: string, content: string, statusTo?
 
   const { data: issue, error: gErr } = await supabase
     .from("issues")
-    .select("status")
+    .select("status, title, creator_id, assignee_id")
     .eq("id", issueId)
     .single();
 
@@ -190,6 +227,29 @@ export async function addIssueUpdate(issueId: string, content: string, statusTo?
     if (statusTo !== "closed") extra.closed_at = null;
     const { error: uErr } = await supabase.from("issues").update(extra).eq("id", issueId);
     if (uErr) throw new Error(uErr.message);
+  }
+
+  if (statusTo === "blocked" && prev !== "blocked") {
+    dingtalkAfterIssueUpdateToBlocked({
+      issueId,
+      title: issue.title as string,
+      assigneeId: (issue.assignee_id as string | null) ?? null,
+      actorName: user.name,
+    });
+  }
+
+  const terminalTo = statusTo === "resolved" || statusTo === "closed";
+  const prevTerminal = prev === "resolved" || prev === "closed";
+  if (terminalTo && !prevTerminal && statusTo) {
+    dingtalkAfterIssueResolvedOrClosed({
+      issueId,
+      title: issue.title as string,
+      status: statusTo,
+      creatorId: issue.creator_id as string,
+      assigneeId: (issue.assignee_id as string | null) ?? null,
+      actorName: user.name,
+      actorUserId: user.id,
+    });
   }
 
   revalidatePath(`/issues/${issueId}`);

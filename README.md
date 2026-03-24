@@ -37,6 +37,15 @@ Next.js App Router + TypeScript + Tailwind + shadcn/ui + Supabase（数据库与
 - 在 Vercel 环境变量中配置 **`SUPABASE_SERVICE_ROLE_KEY`**（服务端写入 `reminders` 表）。
 - 可选：配置 **`CRON_SECRET`**；请求头 `Authorization: Bearer <CRON_SECRET>` 或 Vercel Cron 自带的 `x-vercel-cron: 1` 可通过校验。
 - 本地手动触发：`curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/daily-reminder`
+- **验证钉钉工作通知（可选）**：配置好 `DINGTALK_*` 后，可请求  
+  `GET /api/cron/test-dingtalk?userid=钉钉通讯录userid`（未传 `userid` 时会从 `users.dingtalk_userid` 取第一条；需已执行下方迁移）。鉴权与 Cron 相同（若配置了 `CRON_SECRET` 则带 `Authorization: Bearer`）。
+- **钉钉群汇总（可选）**：配置 `DINGTALK_WEBHOOK_URL`，在有新催办写入时向群内发一条 Markdown 汇总。
+- **钉钉个人工作通知（可选）**：在 `.env.local` / Vercel 中配置 `DINGTALK_APP_KEY`、`DINGTALK_APP_SECRET`、`DINGTALK_AGENT_ID`（企业内部应用）。管理员在 **成员与钉钉**（`/members`）为每位成员填写钉钉通讯录 **userid** 后，Cron 会向对应员工发送私信催办。
+- **事件通知（可选）**：新建且已指派、指派变更、标为阻塞、截止日期变更时，会向负责人发工作通知并向群内发 Markdown（与 Cron 相同依赖上述配置）。**问题标记为已解决 / 已关闭时**，会向**创建人与负责人**发钉钉私信（工作通知，二者去重），**不发给操作者本人**；若配置了群 Webhook 会同时发一条群摘要。请在环境变量中配置 **`NEXT_PUBLIC_APP_URL`**（生产站点根 URL），消息中的问题标题才会是可点击链接。
+- **投递结果观测**：每次工作通知发送后会调用钉钉「查询发送结果」接口；**投递失败**（无效 userid、无权限等）会以 **`console.warn` + JSON** 打出，便于在 Vercel Logs 检索 `dingtalk_work_notice_delivery`。成功默认不打日志；设置 **`DINGTALK_LOG_SUCCESSFUL_DELIVERY=1`** 可打出成功记录。可选 **`DINGTALK_DELIVERY_POLL_DELAY_MS`** 调整轮询前等待毫秒数（默认 2000）。
+- **钉钉机器人导入问题（可选）**：在钉钉开放平台为你的企业内部应用启用「机器人」能力，消息接收模式选 **HTTP**，地址填 `https://你的域名/api/dingtalk/robot`。在与机器人的**单聊**中发送 Excel 文件，机器人自动解析并导入为新问题、回复导入结果。所需权限：「企业内机器人发送消息权限」。`robotCode` 默认取 `DINGTALK_APP_KEY`，若开放平台上不同可单独配置 `DINGTALK_ROBOT_CODE`。
+- **钉钉开放平台**：在应用 → **权限管理** 中开通与工作通知 / 企业内消息相关的权限（如「企业内机器人发送消息」等，以控制台实际名称为准）。**userid** 可在钉钉管理后台 → 通讯录 → 成员详情中查看。
+- 若数据库是早期创建的，请在 Supabase SQL 中执行：`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS dingtalk_userid TEXT;`（或执行 `supabase/migrations/` 下对应迁移）。
 
 ## 路由说明
 
@@ -48,6 +57,8 @@ Next.js App Router + TypeScript + Tailwind + shadcn/ui + Supabase（数据库与
 | `/issues/[id]` | 问题详情与进度时间线 |
 | `/my-tasks` | 我的任务与快速更新 |
 | `/reminders` | 提醒中心（管理员可见全员汇总） |
+| `/members` | 成员与钉钉 userid（仅 `admin`） |
+| `POST /api/dingtalk/robot` | 钉钉机器人回调（接收文件→导入问题） |
 
 ## 技术说明
 

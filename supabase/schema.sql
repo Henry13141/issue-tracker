@@ -15,6 +15,7 @@ CREATE TABLE public.users (
   name TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
   avatar_url TEXT,
+  dingtalk_userid TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
