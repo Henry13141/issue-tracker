@@ -104,7 +104,7 @@ export function dingtalkAfterIssueResolvedOrClosed(params: {
       } else {
         lines.push(`- 私信：处理人与相关方为同一人，未另发工作通知`);
       }
-      await webhook(`问题跟踪 · ${headline}`, lines.join("\n"));
+      await webhook(`米伽米 · ${headline}`, lines.join("\n"));
     }
   })().catch((e) => console.error("[dingtalk-event] resolved/closed", e));
 }
@@ -138,7 +138,7 @@ export function dingtalkAfterCreateIssue(params: {
 
     const assigneeName = await getUserName(params.assigneeId);
     await webhook(
-      "问题跟踪 · 新指派",
+      "米伽米 · 新指派",
       [`### 新问题`, `- ${ref}`, `- 负责人：**${assigneeName}**`, `- 创建人：**${params.actorName}**`].join("\n")
     );
   })().catch((e) => console.error("[dingtalk-event] create", e));
@@ -192,7 +192,7 @@ export function dingtalkAfterUpdateIssue(params: {
       );
       const name = await getUserName(patch.assignee_id);
       await webhook(
-        "问题跟踪 · 指派变更",
+        "米伽米 · 指派变更",
         [`### 指派变更`, `- ${ref}`, `- 新负责人：**${name}**`, `- 操作：**${actorName}**`].join("\n")
       );
     }
@@ -217,7 +217,7 @@ export function dingtalkAfterUpdateIssue(params: {
         `update_issue blocked issue=${issueId} assignee=${afterAssignee}`
       );
       await webhook(
-        "问题跟踪 · 阻塞",
+        "米伽米 · 阻塞",
         [`### 状态：阻塞`, `- ${ref}`, `- 操作：**${actorName}**`].join("\n")
       );
     }
@@ -243,7 +243,7 @@ export function dingtalkAfterUpdateIssue(params: {
         `update_issue due_date issue=${issueId} assignee=${afterAssignee}`
       );
       await webhook(
-        "问题跟踪 · 截止日期",
+        "米伽米 · 截止日期",
         [`### 截止日期变更`, `- ${ref}`, `- 新截止日：**${afterDue}**`, `- 操作：**${actorName}**`].join("\n")
       );
     }
@@ -294,7 +294,7 @@ export function dingtalkAfterIssueUpdateToBlocked(params: {
     );
 
     await webhook(
-      "问题跟踪 · 阻塞（进度）",
+      "米伽米 · 阻塞（进度）",
       [`### 状态：阻塞（进度更新）`, `- ${ref}`, `- 操作：**${params.actorName}**`].join("\n")
     );
   })().catch((e) => console.error("[dingtalk-event] issue_update blocked", e));

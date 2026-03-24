@@ -3,8 +3,8 @@ import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "问题跟踪与催办",
-  description: "团队内部问题记录、分配与每日催办",
+  title: "米伽米 · 工单管理系统",
+  description: "米伽米（上海）文化科技有限公司 — 内部工单管理与协同催办平台",
 };
 
 export default function RootLayout({

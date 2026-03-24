@@ -159,7 +159,7 @@ export async function POST(request: Request) {
       await reply(sessionWebhook, {
         title: "机器人帮助",
         text: [
-          "## 问题跟踪机器人",
+          "## 米伽米工单机器人",
           "",
           "**导入问题**：在与我的单聊中发送 Excel 文件（.xlsx/.xls），我会自动解析并导入为新问题。",
           "",

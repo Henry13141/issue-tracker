@@ -1,4 +1,4 @@
-# 内部问题跟踪与每日催办系统
+# 米伽米 · 工单管理系统
 
 Next.js App Router + TypeScript + Tailwind + shadcn/ui + Supabase（数据库与鉴权）。
 
