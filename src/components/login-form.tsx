@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import Image from "next/image";
 import { toast } from "sonner";
 
 export function LoginForm() {
@@ -51,14 +52,15 @@ export function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>问题跟踪与催办</CardTitle>
-          <CardDescription>使用团队账号登录或注册新用户</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex gap-2 rounded-lg bg-muted p-1">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
+      <Card className="w-full max-w-md overflow-hidden border-0 shadow-2xl">
+        <div className="bg-gradient-to-r from-slate-900 to-slate-800 px-6 py-8 text-center">
+          <Image src="/mgm-logo.png" alt="米伽米" width={120} height={120} className="mx-auto mb-4 h-[100px] w-auto object-contain drop-shadow-[0_0_12px_rgba(255,255,255,0.15)]" />
+          <h1 className="text-lg font-semibold text-white">米伽米 · 工单管理系统</h1>
+          <p className="mt-1 text-sm text-slate-400">米伽米（上海）文化科技有限公司</p>
+        </div>
+        <CardContent className="p-6">
+          <div className="mb-5 flex gap-2 rounded-lg bg-muted p-1">
             <Button
               type="button"
               variant={mode === "signin" ? "default" : "ghost"}
@@ -118,8 +120,8 @@ export function LoginForm() {
               {loading ? "请稍候…" : mode === "signup" ? "注册" : "登录"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-xs text-muted-foreground">
-            首次部署请在 Supabase 执行 <code className="rounded bg-muted px-1">schema.sql</code>
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            &copy; {new Date().getFullYear()} 米伽米（上海）文化科技有限公司
           </p>
         </CardContent>
       </Card>

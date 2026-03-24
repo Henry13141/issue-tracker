@@ -44,8 +44,8 @@ export default async function DashboardPage() {
       {allZero ? (
         <div className="mb-8">
           <EmptyState
-            title="欢迎使用问题跟踪系统"
-            description="创建问题并分配给成员后，这里将展示今日未更新、超期与最新进展等统计。"
+            title="欢迎使用米伽米工单管理系统"
+            description="创建工单并分配给成员后，这里将展示今日未更新、超期与最新进展等统计。"
           >
             <Link href="/issues" className={cn(buttonVariants())}>
               前往问题列表

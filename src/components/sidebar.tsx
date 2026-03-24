@@ -1,11 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
 import { LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users } from "lucide-react";
@@ -37,12 +37,10 @@ export function Sidebar({ user }: { user: User }) {
   return (
     <aside className="flex h-full w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-bold">
-          IT
-        </div>
+        <Image src="/mgm-logo.png" alt="米伽米" width={36} height={36} className="h-9 w-9 object-contain" />
         <div className="leading-tight">
-          <p className="text-sm font-semibold">问题跟踪</p>
-          <p className="text-xs text-muted-foreground">内部催办</p>
+          <p className="text-sm font-semibold">米伽米</p>
+          <p className="text-xs text-sidebar-foreground/60">工单管理</p>
         </div>
       </div>
       <nav className="flex flex-1 flex-col gap-0.5 p-2">
@@ -68,16 +66,16 @@ export function Sidebar({ user }: { user: User }) {
             );
           })}
       </nav>
-      <Separator />
+      <div className="border-t border-sidebar-border" />
       <div className="flex items-center gap-2 p-3">
-        <Avatar className="h-9 w-9">
-          <AvatarFallback>{initials || "?"}</AvatarFallback>
+        <Avatar className="h-9 w-9 border border-sidebar-border">
+          <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground text-xs">{initials || "?"}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{user.name}</p>
-          <p className="truncate text-xs text-muted-foreground">{user.role === "admin" ? "管理员" : "成员"}</p>
+          <p className="truncate text-xs text-sidebar-foreground/60">{user.role === "admin" ? "管理员" : "成员"}</p>
         </div>
-        <Button variant="ghost" size="icon" className="shrink-0" onClick={signOut} title="退出">
+        <Button variant="ghost" size="icon" className="shrink-0 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent" onClick={signOut} title="退出">
           <LogOut className="h-4 w-4" />
         </Button>
       </div>
