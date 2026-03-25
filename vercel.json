@@ -5,6 +5,10 @@
       "schedule": "0 1 * * *"
     },
     {
+      "path": "/api/cron/admin-escalation",
+      "schedule": "0 8 * * *"
+    },
+    {
       "path": "/api/cron/daily-reminder",
       "schedule": "30 9 * * *"
     },
