@@ -2,11 +2,9 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/reminder-logic";
 import {
-  sendDingtalkWorkNotice,
-  logDingTalkWorkNoticeDelivery,
-  dingtalkDeliveryPollDelayMs,
-  isDingtalkAppConfigured,
-} from "@/lib/dingtalk";
+  sendWecomWorkNotice,
+  isWecomAppConfigured,
+} from "@/lib/wecom";
 import { getPublicAppUrl } from "@/lib/app-url";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
 import type { IssueStatus } from "@/types";
@@ -66,11 +64,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY is not configured" }, { status: 503 });
   }
 
-  if (!isDingtalkAppConfigured()) {
+  if (!isWecomAppConfigured()) {
     return NextResponse.json({
       ok: true,
       skipped: true,
-      reason: "钉钉企业应用未配置",
+      reason: "企业微信应用未配置（WECOM_CORPID / WECOM_CORPSECRET / WECOM_AGENTID）",
     });
   }
 
@@ -97,14 +95,14 @@ export async function GET(request: Request) {
       });
     }
 
-    const { data: allUsers } = await supabase.from("users").select("id, name, role, dingtalk_userid");
+    const { data: allUsers } = await supabase.from("users").select("id, name, role, wecom_userid");
     const userMap = new Map(
       (allUsers ?? []).map((u) => [
         u.id as string,
         {
           name: (u.name as string) ?? "同事",
           role: u.role as string,
-          dingtalkUserid: ((u as { dingtalk_userid?: string | null }).dingtalk_userid ?? "").trim(),
+          wecomUserid: ((u as { wecom_userid?: string | null }).wecom_userid ?? "").trim(),
         },
       ])
     );
@@ -134,7 +132,7 @@ export async function GET(request: Request) {
       if (updatedUserIds.has(assigneeId)) continue;
 
       const u = userMap.get(assigneeId);
-      if (!u || !u.dingtalkUserid) continue;
+      if (!u || !u.wecomUserid) continue;
 
       noActionAssignees.push({
         userId: assigneeId,
@@ -156,7 +154,7 @@ export async function GET(request: Request) {
     const admins = (allUsers ?? []).filter(
       (u) =>
         u.role === "admin" &&
-        ((u as { dingtalk_userid?: string | null }).dingtalk_userid ?? "").trim()
+        ((u as { wecom_userid?: string | null }).wecom_userid ?? "").trim()
     );
 
     if (admins.length === 0) {
@@ -164,7 +162,7 @@ export async function GET(request: Request) {
         ok: true,
         date: todayStr,
         no_action_assignees: noActionAssignees.length,
-        message: "没有配置了钉钉的管理员，无法发送督促通知",
+        message: "没有配置了企业微信 userid 的管理员，无法发送督促通知",
       });
     }
 
@@ -173,29 +171,22 @@ export async function GET(request: Request) {
 
     let sent = 0;
     const errors: string[] = [];
-    const tasks: { task_id: number; context: string }[] = [];
 
     for (const admin of admins) {
-      const adminDt = ((admin as { dingtalk_userid?: string | null }).dingtalk_userid ?? "").trim();
+      const adminWc = ((admin as { wecom_userid?: string | null }).wecom_userid ?? "").trim();
       const adminName = (admin.name as string) ?? "管理员";
 
       const md = buildEscalationMarkdown(adminName, dateLabel, noActionAssignees, listUrl);
       const title = `督促提醒 · ${noActionAssignees.length} 位同事今日未更新`;
 
       try {
-        const { task_id } = await sendDingtalkWorkNotice(adminDt, title, md);
-        tasks.push({ task_id, context: `admin_escalation date=${todayStr} admin=${admin.id}` });
+        await sendWecomWorkNotice(adminWc, title, md);
         sent++;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         errors.push(`admin ${admin.id}: ${msg}`);
         console.error("[cron] admin-escalation:", admin.id, msg);
       }
-    }
-
-    if (tasks.length > 0) {
-      await new Promise((r) => setTimeout(r, dingtalkDeliveryPollDelayMs()));
-      await Promise.all(tasks.map((t) => logDingTalkWorkNoticeDelivery(t.task_id, t.context)));
     }
 
     return NextResponse.json({

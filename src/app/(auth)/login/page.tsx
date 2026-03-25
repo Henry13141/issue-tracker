@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { LoginForm } from "@/components/login-form";
-import { isDingtalkScanLoginConfigured } from "@/lib/dingtalk";
+import { isWecomScanLoginConfigured } from "@/lib/wecom";
 import { getPublicAppUrl } from "@/lib/app-url";
 
 export default function LoginPage() {
-  const showDingtalkLogin =
-    isDingtalkScanLoginConfigured() && Boolean(getPublicAppUrl());
+  const showWecomLogin =
+    isWecomScanLoginConfigured() && Boolean(getPublicAppUrl());
 
   return (
     <Suspense
@@ -15,7 +15,7 @@ export default function LoginPage() {
         </div>
       }
     >
-      <LoginForm showDingtalkLogin={showDingtalkLogin} />
+      <LoginForm showWecomLogin={showWecomLogin} />
     </Suspense>
   );
 }

@@ -1,5 +1,5 @@
 import { getPublicAppUrl } from "@/lib/app-url";
-import { isDingtalkAppConfigured, sendDingtalkWorkNotice } from "@/lib/dingtalk";
+import { isWecomAppConfigured, sendWecomWorkNotice } from "@/lib/wecom";
 
 function buildWelcomeMarkdown(displayName: string, appUrl: string): { title: string; markdown: string } {
   const loginUrl = appUrl ? `${appUrl}/login` : "";
@@ -13,7 +13,7 @@ function buildWelcomeMarkdown(displayName: string, appUrl: string): { title: str
     "- **记录与跟踪问题**：需求、缺陷、待办工单集中在一个列表里，方便查找与跟进",
     "- **指派与认领**：负责人明确，减少口头传达遗漏",
     "- **写进展与改状态**：随时更新进度，团队能看到最新情况",
-    "- **提醒与协同**：通过钉钉接收指派、进度与每日提醒，减少漏跟",
+    "- **提醒与协同**：通过企业微信接收指派、进度与每日提醒，减少漏跟",
     "",
   ];
   if (loginUrl) {
@@ -34,18 +34,18 @@ function buildWelcomeMarkdown(displayName: string, appUrl: string): { title: str
 }
 
 /**
- * 向新员工发送钉钉工作通知：欢迎 + 系统用途说明。
+ * 向新员工发送企业微信应用消息：欢迎 + 系统用途说明。
  * 不阻塞调用方；失败只打日志。
  */
-export function notifyNewMemberWelcome(dingtalkUserid: string, displayName: string): void {
-  const dt = dingtalkUserid?.trim();
-  if (!dt) return;
+export function notifyNewMemberWelcome(wecomUserid: string, displayName: string): void {
+  const wc = wecomUserid?.trim();
+  if (!wc) return;
   void (async () => {
-    if (!isDingtalkAppConfigured()) return;
+    if (!isWecomAppConfigured()) return;
     const base = getPublicAppUrl();
     const { title, markdown } = buildWelcomeMarkdown((displayName || "同事").trim(), base);
     try {
-      await sendDingtalkWorkNotice(dt, title, markdown);
+      await sendWecomWorkNotice(wc, title, markdown);
     } catch (e) {
       console.error("[new-member-welcome] send failed:", e);
     }

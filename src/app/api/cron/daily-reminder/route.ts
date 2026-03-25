@@ -2,13 +2,11 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds, chinaDateMinusDays } from "@/lib/reminder-logic";
 import {
-  sendDingtalkMarkdown,
-  sendDingtalkWorkNotice,
-  logDingTalkWorkNoticeDelivery,
-  dingtalkDeliveryPollDelayMs,
-  isDingtalkAppConfigured,
-  isDingtalkWebhookConfigured,
-} from "@/lib/dingtalk";
+  sendWecomMarkdown,
+  sendWecomWorkNotice,
+  isWecomAppConfigured,
+  isWecomWebhookConfigured,
+} from "@/lib/wecom";
 import type { IssueStatus } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -112,12 +110,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const { data: allUsers } = await supabase.from("users").select("id, name, dingtalk_userid");
+    const { data: allUsers } = await supabase.from("users").select("id, name, wecom_userid");
     const userNameMap = new Map((allUsers ?? []).map((u) => [u.id as string, u.name as string]));
-    const dingtalkIdMap = new Map(
+    const wecomIdMap = new Map(
       (allUsers ?? []).map((u) => [
         u.id as string,
-        ((u as { dingtalk_userid?: string | null }).dingtalk_userid ?? null) as string | null,
+        ((u as { wecom_userid?: string | null }).wecom_userid ?? null) as string | null,
       ])
     );
 
@@ -246,14 +244,13 @@ export async function GET(request: Request) {
     }
 
     const total = insertedNoUpdate + insertedOverdue + insertedStale;
-    let dingtalkWebhookSent = false;
+    let wecomWebhookSent = false;
     let workNoticeSent = 0;
     const workNoticeErrors: string[] = [];
-    const workNoticeTasks: { task_id: number; context: string }[] = [];
 
     if (total > 0) {
-      if (isDingtalkWebhookConfigured()) {
-        const lines: string[] = [`## 📋 每日催办提醒（${todayStr}）\n`];
+      if (isWecomWebhookConfigured()) {
+        const lines: string[] = [`## 每日催办提醒（${todayStr}）\n`];
         if (noUpdateItems.length > 0) {
           lines.push(`### 今日未更新（${noUpdateItems.length}个）`);
           noUpdateItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
@@ -271,40 +268,29 @@ export async function GET(request: Request) {
           staleItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
           lines.push("");
         }
-        await sendDingtalkMarkdown("每日催办提醒", lines.join("\n"));
-        dingtalkWebhookSent = true;
+        await sendWecomMarkdown(lines.join("\n"));
+        wecomWebhookSent = true;
       }
 
-      if (isDingtalkAppConfigured()) {
+      if (isWecomAppConfigured()) {
         const assigneeIds = new Set<string>();
         for (const i of noUpdateItems) assigneeIds.add(i.assigneeId);
         for (const i of overdueItems) assigneeIds.add(i.assigneeId);
         for (const i of staleItems) assigneeIds.add(i.assigneeId);
 
         for (const uid of assigneeIds) {
-          const dtUserid = dingtalkIdMap.get(uid);
-          if (!dtUserid) continue;
+          const wcUserid = wecomIdMap.get(uid);
+          if (!wcUserid) continue;
           const md = buildPersonalMarkdown(uid, todayStr, noUpdateItems, overdueItems, staleItems);
           if (!md) continue;
           try {
-            const { task_id } = await sendDingtalkWorkNotice(dtUserid, `每日催办 · ${todayStr}`, md);
-            workNoticeTasks.push({
-              task_id,
-              context: `daily_reminder date=${todayStr} assignee_user=${uid}`,
-            });
+            await sendWecomWorkNotice(wcUserid, `每日催办 · ${todayStr}`, md);
             workNoticeSent++;
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             workNoticeErrors.push(`${uid}: ${msg}`);
-            console.error("[cron] DingTalk work notice failed:", uid, msg);
+            console.error("[cron] 企业微信工作通知失败:", uid, msg);
           }
-        }
-
-        if (workNoticeTasks.length > 0) {
-          await new Promise((r) => setTimeout(r, dingtalkDeliveryPollDelayMs()));
-          await Promise.all(
-            workNoticeTasks.map((t) => logDingTalkWorkNoticeDelivery(t.task_id, t.context))
-          );
         }
       }
     }
@@ -317,8 +303,8 @@ export async function GET(request: Request) {
         overdue: insertedOverdue,
         stale_3_days: insertedStale,
       },
-      dingtalk_webhook_sent: dingtalkWebhookSent,
-      dingtalk_work_notice: {
+      wecom_webhook_sent: wecomWebhookSent,
+      wecom_work_notice: {
         sent: workNoticeSent,
         errors: workNoticeErrors.length ? workNoticeErrors : undefined,
       },

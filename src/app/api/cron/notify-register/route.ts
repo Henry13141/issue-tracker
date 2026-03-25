@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import { getAccessToken } from "@/lib/dingtalk";
+import { getAccessToken } from "@/lib/wecom";
 
 export const dynamic = "force-dynamic";
 
-const AGENT_ID = process.env.DINGTALK_AGENT_ID!;
+const AGENTID = process.env.WECOM_AGENTID!;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
+// 替换为企业微信通讯录中的实际 userid
 const USERS = [
-  "0113566156491177224",   // 郝毅
-  "1938652254845431",      // 方锐
-  "01064659504226268137",  // 李梦威
-  "224464334126278491",    // 李梦艳
+  "HaoYi",        // 郝毅（占位，请替换为企业微信通讯录 userid）
+  "FangRui",      // 方锐
+  "LiMengwei",    // 李梦威
+  "LiMengyan",    // 李梦艳
 ];
 
 export async function GET(request: Request) {
@@ -23,54 +24,47 @@ export async function GET(request: Request) {
     }
   }
 
-  if (!AGENT_ID) {
-    return NextResponse.json({ error: "DINGTALK_AGENT_ID 未配置" }, { status: 503 });
+  if (!AGENTID) {
+    return NextResponse.json({ error: "WECOM_AGENTID 未配置" }, { status: 503 });
   }
 
   const accessToken = await getAccessToken();
   const loginUrl = APP_URL ? `${APP_URL}/login` : "https://issue-tracker-nu-sandy.vercel.app/login";
 
-  const msg = JSON.stringify({
-    msgtype: "markdown",
-    markdown: {
-      title: "请注册米伽米工单管理系统",
-      text: [
-        "## 请注册米伽米工单管理系统",
-        "",
-        "各位同事好！",
-        "",
-        "我们启用了米伽米工单管理系统，用于管理日常工单与协同催办。**请在今天完成注册**，之后你会通过钉钉收到工单指派和进度提醒。",
-        "",
-        `### [点击这里注册](${loginUrl})`,
-        "",
-        "**请用电脑浏览器打开以上链接**",
-        "",
-        "- 注册时**姓名请填写真实姓名**，方便系统匹配",
-        "- 注册完成后即可查看和更新问题",
-        "",
-        "如有疑问请联系郝毅。",
-      ].join("\n"),
-    },
-  });
-
-  const body = new URLSearchParams();
-  body.set("agent_id", AGENT_ID);
-  body.set("userid_list", USERS.join(","));
-  body.set("msg", msg);
+  const content = [
+    "## 请注册米伽米工单管理系统",
+    "",
+    "各位同事好！",
+    "",
+    "我们启用了米伽米工单管理系统，用于管理日常工单与协同催办。**请在今天完成注册**，之后你会通过企业微信收到工单指派和进度提醒。",
+    "",
+    `### [点击这里注册](${loginUrl})`,
+    "",
+    "**请用电脑浏览器打开以上链接**",
+    "",
+    "- 注册时**姓名请填写真实姓名**，方便系统匹配",
+    "- 注册完成后即可查看和更新问题",
+    "",
+    "如有疑问请联系郝毅。",
+  ].join("\n");
 
   const res = await fetch(
-    `https://oapi.dingtalk.com/topapi/message/corpconversation/asyncsend_v2?access_token=${encodeURIComponent(accessToken)}`,
+    `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      body: body.toString(),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        touser: USERS.join("|"),
+        msgtype: "markdown",
+        agentid: Number(AGENTID),
+        markdown: { content },
+      }),
     }
   );
   const json = await res.json();
 
   return NextResponse.json({
     ok: json.errcode === 0,
-    task_id: json.task_id,
     errmsg: json.errmsg,
     notified: USERS.length,
   });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { updateUserDingtalkUserId } from "@/actions/members";
+import { updateUserWecomUserId } from "@/actions/members";
 import type { User } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,10 +20,10 @@ function MemberRow({ member }: { member: User }) {
   const [pending, startTransition] = useTransition();
 
   function save(formData: FormData) {
-    const value = (formData.get("dingtalk_userid") as string) ?? "";
+    const value = (formData.get("wecom_userid") as string) ?? "";
     startTransition(async () => {
-      const r = await updateUserDingtalkUserId(member.id, value);
-      if (r.ok) toast.success(`${member.name} 的钉钉 userid 已保存`);
+      const r = await updateUserWecomUserId(member.id, value);
+      if (r.ok) toast.success(`${member.name} 的企业微信 userid 已保存`);
       else toast.error(r.error ?? "保存失败");
     });
   }
@@ -38,9 +38,9 @@ function MemberRow({ member }: { member: User }) {
       <TableCell>
         <form action={save} className="flex flex-wrap items-center gap-2">
           <Input
-            name="dingtalk_userid"
-            defaultValue={member.dingtalk_userid ?? ""}
-            placeholder="钉钉通讯录 userid"
+            name="wecom_userid"
+            defaultValue={member.wecom_userid ?? ""}
+            placeholder="企业微信通讯录 userid"
             className="max-w-xs"
             disabled={pending}
           />
@@ -57,16 +57,16 @@ export function MembersClient({ members }: { members: User[] }) {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">成员与钉钉</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">成员与企业微信</h1>
         <p className="text-muted-foreground text-sm">
-          为每位成员填写钉钉通讯录中的 userid，每日催办 Cron 会向其发送工作通知（私信）。
+          为每位成员填写企业微信通讯录中的 userid，每日催办 Cron 会向其发送应用消息（私信）。
         </p>
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>钉钉 userid</CardTitle>
+          <CardTitle>企业微信 userid</CardTitle>
           <CardDescription>
-            获取方式：钉钉管理后台 → 通讯录 → 点击成员 → 查看 userid。需同时在钉钉开放平台为应用开通「工作通知 / 消息」相关权限。
+            获取方式：企业微信管理后台 → 通讯录 → 点击成员 → 查看 userid（或通过开放 API 获取）。需在企业微信开放平台为应用开通「发送应用消息」相关权限。
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -76,7 +76,7 @@ export function MembersClient({ members }: { members: User[] }) {
                 <TableHead>姓名</TableHead>
                 <TableHead>邮箱</TableHead>
                 <TableHead>角色</TableHead>
-                <TableHead>钉钉 userid</TableHead>
+                <TableHead>企业微信 userid</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

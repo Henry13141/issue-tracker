@@ -2,11 +2,9 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/reminder-logic";
 import {
-  sendDingtalkWorkNotice,
-  logDingTalkWorkNoticeDelivery,
-  dingtalkDeliveryPollDelayMs,
-  isDingtalkAppConfigured,
-} from "@/lib/dingtalk";
+  sendWecomWorkNotice,
+  isWecomAppConfigured,
+} from "@/lib/wecom";
 import { getPublicAppUrl } from "@/lib/app-url";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
 import type { IssueStatus } from "@/types";
@@ -72,11 +70,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY is not configured" }, { status: 503 });
   }
 
-  if (!isDingtalkAppConfigured()) {
+  if (!isWecomAppConfigured()) {
     return NextResponse.json({
       ok: true,
       skipped: true,
-      reason: "钉钉企业应用未配置（DINGTALK_APP_KEY / DINGTALK_APP_SECRET / DINGTALK_AGENT_ID）",
+      reason: "企业微信应用未配置（WECOM_CORPID / WECOM_CORPSECRET / WECOM_AGENTID）",
     });
   }
 
@@ -95,12 +93,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: issuesErr.message }, { status: 500 });
     }
 
-    const { data: allUsers } = await supabase.from("users").select("id, name, dingtalk_userid");
+    const { data: allUsers } = await supabase.from("users").select("id, name, wecom_userid");
     const nameMap = new Map((allUsers ?? []).map((u) => [u.id as string, (u.name as string) ?? "同事"]));
-    const dingMap = new Map(
+    const wecomMap = new Map(
       (allUsers ?? []).map((u) => [
         u.id as string,
-        ((u as { dingtalk_userid?: string | null }).dingtalk_userid ?? "").trim(),
+        ((u as { wecom_userid?: string | null }).wecom_userid ?? "").trim(),
       ])
     );
 
@@ -118,14 +116,13 @@ export async function GET(request: Request) {
     const listUrl = base || "";
 
     let sent = 0;
-    let skippedNoDingtalk = 0;
+    let skippedNoWecom = 0;
     const errors: string[] = [];
-    const tasks: { task_id: number; context: string }[] = [];
 
     for (const [assigneeUserId, rows] of byAssignee) {
-      const dt = dingMap.get(assigneeUserId);
-      if (!dt) {
-        skippedNoDingtalk++;
+      const wc = wecomMap.get(assigneeUserId);
+      if (!wc) {
+        skippedNoWecom++;
         continue;
       }
 
@@ -138,8 +135,7 @@ export async function GET(request: Request) {
       const title = `早安 · 今日未完成工单（${items.length}）`;
 
       try {
-        const { task_id } = await sendDingtalkWorkNotice(dt, title, md);
-        tasks.push({ task_id, context: `morning_assignee_digest date=${todayStr} user=${assigneeUserId}` });
+        await sendWecomWorkNotice(wc, title, md);
         sent++;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -148,17 +144,12 @@ export async function GET(request: Request) {
       }
     }
 
-    if (tasks.length > 0) {
-      await new Promise((r) => setTimeout(r, dingtalkDeliveryPollDelayMs()));
-      await Promise.all(tasks.map((t) => logDingTalkWorkNoticeDelivery(t.task_id, t.context)));
-    }
-
     return NextResponse.json({
       ok: true,
       date: todayStr,
       assignees_with_incomplete_issues: byAssignee.size,
-      dingtalk_work_notice_sent: sent,
-      skipped_no_dingtalk_userid: skippedNoDingtalk,
+      wecom_work_notice_sent: sent,
+      skipped_no_wecom_userid: skippedNoWecom,
       send_failed_count: errors.length,
       send_failures: errors.length ? errors : undefined,
     });

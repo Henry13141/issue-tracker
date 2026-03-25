@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import Image from "next/image";
 import { toast } from "sonner";
 
-export function LoginForm({ showDingtalkLogin = false }: { showDingtalkLogin?: boolean }) {
+export function LoginForm({ showWecomLogin = false }: { showWecomLogin?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/";
@@ -21,7 +21,7 @@ export function LoginForm({ showDingtalkLogin = false }: { showDingtalkLogin?: b
   useEffect(() => {
     const err = searchParams.get("error");
     const desc = searchParams.get("error_description");
-    if (err === "dingtalk" && desc) {
+    if ((err === "wecom" || err === "dingtalk") && desc) {
       try {
         toast.error(decodeURIComponent(desc));
       } catch {
@@ -135,7 +135,7 @@ export function LoginForm({ showDingtalkLogin = false }: { showDingtalkLogin?: b
               {loading ? "请稍候…" : mode === "signup" ? "注册" : "登录"}
             </Button>
           </form>
-          {showDingtalkLogin ? (
+          {showWecomLogin ? (
             <div className="mt-5 space-y-3">
               <div className="flex items-center gap-3">
                 <Separator className="flex-1" />
@@ -143,14 +143,14 @@ export function LoginForm({ showDingtalkLogin = false }: { showDingtalkLogin?: b
                 <Separator className="flex-1" />
               </div>
               <a
-                href={`/api/auth/dingtalk/start?redirect=${encodeURIComponent(redirectTo)}`}
+                href={`/api/auth/wecom/start?redirect=${encodeURIComponent(redirectTo)}`}
                 className={cn(buttonVariants({ variant: "outline" }), "w-full gap-2 no-underline")}
               >
-                <span className="text-[#0089ff] font-semibold">钉</span>
-                钉钉扫码登录
+                <span className="text-[#07c160] font-semibold">微</span>
+                企业微信扫码登录
               </a>
               <p className="text-center text-xs text-muted-foreground">
-                首次扫码将自动注册并绑定钉钉账号；请先在开放平台配置回调域名与扫码登录权限。
+                首次扫码将自动注册并绑定企业微信账号；请先在企业微信管理后台配置可信域名与 OAuth 权限。
               </p>
             </div>
           ) : null}
