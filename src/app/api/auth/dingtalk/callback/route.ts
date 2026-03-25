@@ -11,6 +11,7 @@ import {
   verifySelfVerifyingState,
 } from "@/lib/dingtalk";
 import { getPublicAppUrl } from "@/lib/app-url";
+import { notifyNewMemberWelcome } from "@/lib/new-member-welcome";
 
 function loginErrorRedirectUrl(base: string, message: string): string {
   const url = new URL("/login", base);
@@ -67,6 +68,7 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createAdminClient();
+  let isFirstDingtalkRegistration = false;
 
   const { data: existingProfile, error: findErr } = await admin
     .from("users")
@@ -82,6 +84,7 @@ export async function GET(request: NextRequest) {
   if (existingProfile) {
     userEmail = existingProfile.email as string;
   } else {
+    isFirstDingtalkRegistration = true;
     userEmail = syntheticEmailForDingtalkUserid(corpUserid);
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email: userEmail,
@@ -159,6 +162,10 @@ export async function GET(request: NextRequest) {
   if (lastOtpError) {
     console.error("[dingtalk-callback] verifyOtp:", lastOtpError.message);
     return NextResponse.redirect(loginErrorRedirectUrl(base, lastOtpError.message), 302);
+  }
+
+  if (isFirstDingtalkRegistration) {
+    notifyNewMemberWelcome(corpUserid, displayName);
   }
 
   return response;
