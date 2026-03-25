@@ -63,6 +63,7 @@ export interface IssueWithRelations extends Issue {
   creator?: User | null;
   issue_updates?: IssueUpdate[];
   last_update?: IssueUpdate | null;
+  attachments?: IssueAttachmentWithUrl[];
 }
 
 export interface UpdateComment {
@@ -80,8 +81,25 @@ export interface UpdateCommentWithUser extends UpdateComment {
 export interface IssueUpdateWithUser extends IssueUpdate {
   user?: User | null;
   comments?: UpdateCommentWithUser[];
+  attachments?: IssueAttachmentWithUrl[];
 }
 
 export interface ReminderWithIssue extends Reminder {
   issue?: Issue | null;
+}
+
+export interface IssueAttachment {
+  id: string;
+  issue_id: string;
+  issue_update_id: string | null;
+  storage_path: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  uploaded_by: string;
+  created_at: string;
+}
+
+export interface IssueAttachmentWithUrl extends IssueAttachment {
+  url?: string;
 }

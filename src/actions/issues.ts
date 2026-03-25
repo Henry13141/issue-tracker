@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getChinaDayBounds } from "@/lib/dates";
 import { ACTIVE_STATUSES } from "@/lib/constants";
-import type { IssuePriority, IssueStatus, IssueUpdateWithUser, IssueWithRelations, UpdateCommentWithUser } from "@/types";
+import type { IssuePriority, IssueAttachment, IssueAttachmentWithUrl, IssueStatus, IssueUpdateWithUser, IssueWithRelations, UpdateCommentWithUser } from "@/types";
 import {
   dingtalkAfterCreateIssue,
   dingtalkAfterIssueResolvedOrClosed,
@@ -92,14 +92,38 @@ export async function getIssueDetail(id: string): Promise<IssueWithRelations | n
     }
   }
 
+  // 加载附件并批量生成 signed URL（问题级 + 进展级）
+  const { data: rawAttachments } = await supabase
+    .from("issue_attachments")
+    .select("*")
+    .eq("issue_id", id)
+    .order("created_at", { ascending: true });
+
+  const attachmentsWithUrls: IssueAttachmentWithUrl[] = await Promise.all(
+    ((rawAttachments ?? []) as IssueAttachment[]).map(async (a) => {
+      const { data } = await supabase.storage
+        .from("issue-files")
+        .createSignedUrl(a.storage_path, 3600);
+      return { ...a, url: data?.signedUrl ?? undefined };
+    })
+  );
+
+  const issueAttachments = attachmentsWithUrls.filter((a) => !a.issue_update_id);
+  const updateAttachmentsMap: Record<string, IssueAttachmentWithUrl[]> = {};
+  for (const a of attachmentsWithUrls.filter((a) => a.issue_update_id)) {
+    (updateAttachmentsMap[a.issue_update_id!] ??= []).push(a);
+  }
+
   const updatesWithComments = (updates ?? []).map((u) => ({
     ...(u as IssueUpdateWithUser),
     comments: commentsMap[(u as IssueUpdateWithUser).id] ?? [],
+    attachments: updateAttachmentsMap[(u as IssueUpdateWithUser).id] ?? [],
   }));
 
   return {
     ...(issue as IssueWithRelations),
     issue_updates: updatesWithComments,
+    attachments: issueAttachments,
   };
 }
 
@@ -219,7 +243,12 @@ export async function deleteIssue(id: string) {
   revalidatePath("/dashboard");
 }
 
-export async function addIssueUpdate(issueId: string, content: string, statusTo?: IssueStatus) {
+export async function addIssueUpdate(
+  issueId: string,
+  content: string,
+  statusTo?: IssueStatus,
+  pendingStoragePaths?: string[]
+) {
   const user = await getCurrentUser();
   if (!user) throw new Error("未登录");
 
@@ -253,15 +282,36 @@ export async function addIssueUpdate(issueId: string, content: string, statusTo?
     }
   }
 
-  const { error: iErr } = await supabase.from("issue_updates").insert({
-    issue_id: issueId,
-    user_id: user.id,
-    content,
-    status_from: prev,
-    status_to: statusTo ?? prev,
-  });
+  const { data: newUpdate, error: iErr } = await supabase
+    .from("issue_updates")
+    .insert({
+      issue_id: issueId,
+      user_id: user.id,
+      content,
+      status_from: prev,
+      status_to: statusTo ?? prev,
+    })
+    .select("id")
+    .single();
 
-  if (iErr) throw new Error(iErr.message);
+  if (iErr || !newUpdate) throw new Error(iErr?.message ?? "写入进度失败");
+
+  // 将待附件（已上传到 Storage）关联到本次进度记录
+  if (pendingStoragePaths && pendingStoragePaths.length > 0) {
+    const { data: attachRows } = await supabase
+      .from("issue_attachments")
+      .select("id")
+      .eq("issue_id", issueId)
+      .in("storage_path", pendingStoragePaths)
+      .is("issue_update_id", null);
+
+    if (attachRows && attachRows.length > 0) {
+      await supabase
+        .from("issue_attachments")
+        .update({ issue_update_id: newUpdate.id as string })
+        .in("id", attachRows.map((r) => r.id as string));
+    }
+  }
 
   dingtalkAfterProgressUpdate({
     issueId,
