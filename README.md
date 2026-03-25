@@ -1,86 +1,356 @@
 # 米伽米 · 工单管理系统
 
-Next.js App Router + TypeScript + Tailwind + shadcn/ui + Supabase（数据库与鉴权）。
+> 内部工单协同平台，支持企业微信扫码登录、应用消息推送（兼容个人微信）、群机器人通知、每日 Cron 催办。
+
+**技术栈：** Next.js 16 (App Router) · TypeScript · Tailwind CSS · shadcn/ui · Supabase（PostgreSQL + Auth）· Vercel（部署 + Cron）· 企业微信开放平台
+
+**线上地址：** https://tracker.megami-tech.com  
+**历史版本（钉钉）：** 分支 `legacy/dingtalk`
+
+---
+
+## 目录
+
+- [功能概览](#功能概览)
+- [项目结构](#项目结构)
+- [数据库设计](#数据库设计)
+- [企业微信集成](#企业微信集成)
+- [Cron 定时任务](#cron-定时任务)
+- [环境变量](#环境变量)
+- [本地开发](#本地开发)
+- [部署（Vercel）](#部署vercel)
+- [API 路由一览](#api-路由一览)
+- [常见问题](#常见问题)
+
+---
+
+## 功能概览
+
+| 功能 | 说明 |
+|------|------|
+| 邮箱注册 / 登录 | 标准邮箱 + 密码（Supabase Auth） |
+| 企业微信扫码登录 | OAuth 扫码，首次自动注册，个人微信可收消息 |
+| 工单管理 | 创建、指派、更新状态、写进度、附件上传 |
+| 提醒中心 | 自动写入「今日未更新 / 超期 / 连续3天无更新」提醒 |
+| 管理看板 | 管理员可见全量工单统计 |
+| 企业微信私信催办 | 按人发应用消息（兼容个人微信 / 微信插件） |
+| 企业微信群机器人 | Webhook 往指定群推 Markdown 汇总 |
+| 每日 Cron 催办 | 早晨温和提醒 + 下午管理员督促 + 17:30 工单汇总 |
+| Excel 机器人导入 | 企业微信机器人接收 Excel 文件，自动创建工单 |
+
+---
+
+## 项目结构
+
+```
+src/
+├── app/
+│   ├── (auth)/login/          # 登录 / 注册页
+│   ├── (main)/
+│   │   ├── dashboard/         # 管理看板（admin only）
+│   │   ├── issues/            # 工单列表 + 详情
+│   │   ├── my-tasks/          # 我的任务
+│   │   ├── members/           # 成员与企业微信 userid 管理（admin only）
+│   │   └── reminders/         # 提醒中心
+│   └── api/
+│       ├── auth/wecom/        # 企业微信 OAuth（start + callback）
+│       ├── cron/
+│       │   ├── morning-assignee-digest/  # 09:00 早晨提醒
+│       │   ├── admin-escalation/         # 16:00 管理员督促
+│       │   ├── daily-reminder/           # 17:30 催办 + 提醒中心
+│       │   ├── test-dingtalk/            # 手动测试消息发送
+│       │   ├── check-ip/                 # 查询 Vercel 出口 IP
+│       │   └── notify-register/          # 手动群发注册通知
+│       └── wecom/robot/       # 企业微信机器人回调（Excel 导入）
+├── actions/
+│   ├── issues.ts              # 工单 CRUD Server Actions
+│   └── members.ts             # 成员管理 Server Actions
+├── components/                # UI 组件（shadcn/ui）
+├── lib/
+│   ├── wecom.ts               # 企业微信 API 核心库
+│   ├── issue-dingtalk-notify.ts  # 工单事件 → 企业微信通知
+│   ├── new-member-welcome.ts  # 新成员欢迎消息
+│   ├── dingtalk.ts            # 旧钉钉库（保留供参考，已不调用）
+│   └── ...
+├── types/index.ts             # 全局 TypeScript 类型
+supabase/
+├── schema.sql                 # 完整建表 SQL
+├── seed.sql                   # 示例数据
+└── migrations/
+    ├── add_wecom_userid.sql   # 新增 wecom_userid 列
+    └── ...
+```
+
+---
+
+## 数据库设计
+
+### 表结构
+
+```sql
+-- 用户（与 auth.users 一对一）
+public.users
+  id            UUID PK (= auth.users.id)
+  email         TEXT UNIQUE
+  name          TEXT
+  role          TEXT  -- 'admin' | 'member'
+  avatar_url    TEXT
+  wecom_userid  TEXT  -- 企业微信通讯录 userid，用于应用消息推送
+  created_at    TIMESTAMPTZ
+  updated_at    TIMESTAMPTZ
+
+-- 工单
+public.issues
+  id            UUID PK
+  title         TEXT
+  description   TEXT
+  status        TEXT  -- todo | in_progress | blocked | pending_review | resolved | closed
+  priority      TEXT  -- low | medium | high | urgent
+  assignee_id   UUID → users
+  creator_id    UUID → users
+  due_date      DATE
+  resolved_at   TIMESTAMPTZ
+  closed_at     TIMESTAMPTZ
+
+-- 进度更新（时间线）
+public.issue_updates
+  id            UUID PK
+  issue_id      UUID → issues
+  user_id       UUID → users
+  content       TEXT
+  status_from   TEXT
+  status_to     TEXT
+
+-- 提醒中心
+public.reminders
+  id            UUID PK
+  issue_id      UUID → issues
+  user_id       UUID → users
+  type          TEXT  -- no_update_today | overdue | stale_3_days
+  message       TEXT
+  is_read       BOOLEAN
+```
+
+### 权限（RLS）
+
+- 所有表开启 RLS；已登录用户可读自己相关数据；admin 可读写全量。
+- Cron 路由使用 **Service Role Key** 绕过 RLS 直接写入。
+
+---
+
+## 企业微信集成
+
+### 架构图
+
+```
+用户浏览器
+  │ 点「企业微信扫码登录」
+  ↓
+/api/auth/wecom/start
+  │ 302 redirect
+  ↓
+企业微信 OAuth 扫码页
+  │ 扫码成功，返回 code
+  ↓
+/api/auth/wecom/callback
+  │ 用 code 换 userid → 查/建 Supabase 用户 → 签发 session
+  ↓
+进入系统
+
+Cron / 工单事件
+  │ 调 sendWecomWorkNotice(userid, title, text)
+  ↓
+企业微信应用消息 API
+  │ 推送到用户企业微信
+  ↓
+若用户关注了「微信插件」→ 个人微信也收到
+```
+
+### 核心文件：`src/lib/wecom.ts`
+
+| 函数 | 作用 |
+|------|------|
+| `getAccessToken()` | 换取并缓存企业 access_token |
+| `sendWecomWorkNotice(userid, title, text)` | 发应用消息（text 类型，兼容个人微信） |
+| `sendWecomMarkdown(content)` | 发群机器人 Webhook 消息 |
+| `getUserInfoByCode(code)` | OAuth code → 企业内 userid |
+| `verifyWecomSignature(...)` | 机器人回调签名验证 |
+| `decryptWecomMessage(encrypted)` | AES-256-CBC 解密机器人消息 |
+
+### 个人微信接收消息（微信插件）
+
+1. 管理后台 → **我的企业 → 微信插件**，拿到关注二维码。
+2. 员工用**个人微信**扫码关注企业。
+3. 关注后，应用消息自动推送到个人微信。
+
+> 注意：消息类型必须是 `text`（纯文本），`markdown` 类型个人微信无法显示。
+
+### 企业微信可信 IP
+
+Vercel Serverless 出口 IP 会轮换，需加到企业微信后台「企业可信IP」白名单。
+
+实时查询当前出口 IP：
+```
+GET https://tracker.megami-tech.com/api/cron/check-ip
+```
+
+目前已加的 IP（随 Vercel 部署变化）：
+```
+52.207.195.54
+3.92.222.47
+18.209.102.18
+44.202.213.65
+```
+
+---
+
+## Cron 定时任务
+
+| 时间（北京时间）| 路由 | 功能 |
+|----------------|------|------|
+| 09:00 每天 | `/api/cron/morning-assignee-digest` | 向有未完成工单的负责人发温和早晨提醒 |
+| 16:00 每天 | `/api/cron/admin-escalation` | 向管理员推送「今日未更新」督促汇总 |
+| 17:30 每天 | `/api/cron/daily-reminder` | 写提醒中心 + 推个人通知 + 推群汇总 |
+
+触发条件：Vercel Cron 自动触发（`vercel.json`），或带 `Authorization: Bearer $CRON_SECRET` 手动调用。
+
+手动测试消息发送：
+```
+GET https://tracker.megami-tech.com/api/cron/test-dingtalk?userid=你的wecom_userid
+```
+
+---
+
+## 环境变量
+
+### 必须配置
+
+| 变量 | 说明 |
+|------|------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase 项目 URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 匿名 Key（前端） |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Service Role Key（Cron 服务端） |
+| `NEXT_PUBLIC_APP_URL` | 线上根 URL，无尾斜杠，如 `https://tracker.megami-tech.com` |
+
+### 企业微信（应用消息 + 扫码登录）
+
+| 变量 | 说明 | 获取位置 |
+|------|------|----------|
+| `WECOM_CORPID` | 企业 ID | 管理后台 → 我的企业 → 企业信息 |
+| `WECOM_CORPSECRET` | 应用 Secret | 管理后台 → 应用管理 → 自建应用 → Secret |
+| `WECOM_AGENTID` | 应用 AgentID（数字）| 管理后台 → 应用管理 → 自建应用 → AgentId |
+
+### 企业微信（可选）
+
+| 变量 | 说明 |
+|------|------|
+| `WECOM_WEBHOOK_URL` | 群机器人 Webhook URL（群里「添加机器人」获取） |
+| `WECOM_TOKEN` | 机器人回调 Token（接收消息 / Excel 导入时配置） |
+| `WECOM_ENCODING_AES_KEY` | 机器人回调 AES 密钥（43 位，接收消息时配置） |
+| `WECOM_LOG_SUCCESSFUL_DELIVERY` | 设为 `1` 时打印成功发送日志 |
+
+### 其他（可选）
+
+| 变量 | 说明 |
+|------|------|
+| `CRON_SECRET` | Cron 鉴权密钥，请求头带 `Authorization: Bearer <值>` |
+
+---
 
 ## 本地开发
 
-1. 复制环境变量：
+```bash
+# 1. 安装依赖
+npm install
 
-   ```bash
-   cp .env.local.example .env.local
-   ```
+# 2. 复制环境变量
+cp .env.local.example .env.local
+# 填入 NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY
+# 填入企业微信相关变量（可选，不配则无通知功能）
 
-   填入 Supabase 项目的 `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`。
+# 3. 初始化数据库（在 Supabase SQL 编辑器执行）
+# supabase/schema.sql           → 建表
+# supabase/migrations/add_wecom_userid.sql → 加 wecom_userid 列
 
-2. 在 Supabase SQL 编辑器中执行 [`supabase/schema.sql`](supabase/schema.sql) 创建表、触发器与 RLS。
+# 4. 把第一个账号设为管理员（在 Supabase SQL 编辑器执行）
+UPDATE public.users SET role = 'admin' WHERE email = '你的邮箱';
 
-3. （可选）将第一个账号设为管理员：
+# 5. 启动
+npm run dev
+```
 
-   ```sql
-   UPDATE public.users SET role = 'admin' WHERE email = '你的邮箱';
-   ```
+访问 http://localhost:3000
 
-4. （可选）执行 [`supabase/seed.sql`](supabase/seed.sql) 插入示例问题（需已至少注册一名用户）。
+---
 
-5. 安装依赖并启动：
+## 部署（Vercel）
 
-   ```bash
-   npm install
-   npm run dev
-   ```
+```bash
+# 首次关联（仅需一次）
+npx vercel link
 
-6. 打开 [http://localhost:3000](http://localhost:3000)，注册/登录。
+# 写入环境变量
+printf 'https://tracker.megami-tech.com' | npx vercel env add NEXT_PUBLIC_APP_URL production
+printf 'your_corpid'    | npx vercel env add WECOM_CORPID production
+printf 'your_agentid'   | npx vercel env add WECOM_AGENTID production
+printf 'your_secret'    | npx vercel env add WECOM_CORPSECRET production
 
-## 自动部署
+# 部署
+npx vercel --prod
+```
 
-- 仓库已通过 Vercel Git 集成连接。每次 `git push origin main`，**Vercel 会自动拉取构建并部署到 Production**，无需额外操作。
-- **[`.github/workflows/ci.yml`](.github/workflows/ci.yml)**：向 `main` 推送或提 PR 时执行 `lint` + `build` 检查（使用占位 Supabase 环境变量，无需在 GitHub 配密钥）。
+**每次推送到 `main` 分支，Vercel 自动构建部署。**
 
-## 每日催办（Cron）
+### 企业微信后台配置清单
 
-- **早晨温和提醒（未完成工单）**：[`vercel.json`](vercel.json) 在 **UTC 01:00**（北京时间 **09:00**）请求 `/api/cron/morning-assignee-digest`。会向每位**名下仍有未完成工单**（待处理 / 处理中 / 卡住 / 待验证）且已在「成员与企业微信」配置 **企业微信 userid** 的负责人，发送一条**语气温和**的应用消息（助理式文案），并附上问题列表与系统链接。需配置 `WECOM_*` 与 `NEXT_PUBLIC_APP_URL`。
-- 部署到 Vercel 时，[`vercel.json`](vercel.json) 还会在 **UTC 09:30**（北京时间 **17:30**）请求 `/api/cron/daily-reminder`（按规则写入「提醒中心」并可选发催办类应用消息 / 群汇总）。
-- 在 Vercel 环境变量中配置 **`SUPABASE_SERVICE_ROLE_KEY`**（服务端写入 `reminders` 表）。
-- 可选：配置 **`CRON_SECRET`**；请求头 `Authorization: Bearer <CRON_SECRET>` 或 Vercel Cron 自带的 `x-vercel-cron: 1` 可通过校验。
-- 本地手动触发：`curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/daily-reminder`
-- **验证企业微信消息（可选）**：配置好 `WECOM_*` 后，可请求  
-  `GET /api/cron/test-dingtalk?userid=企业微信通讯录userid`（未传 `userid` 时会从 `users.wecom_userid` 取第一条；需已执行下方迁移）。鉴权与 Cron 相同（若配置了 `CRON_SECRET` 则带 `Authorization: Bearer`）。
-- **企业微信群汇总（可选）**：配置 `WECOM_WEBHOOK_URL`（群机器人 Webhook），在有新催办写入时向群内发一条 Markdown 汇总。
-- **企业微信个人应用消息（可选）**：在 `.env.local` / Vercel 中配置 `WECOM_CORPID`、`WECOM_CORPSECRET`、`WECOM_AGENTID`（企业内部应用）。管理员在 **成员与企业微信**（`/members`）为每位成员填写企业微信通讯录 **userid** 后，Cron 会向对应员工发送私信催办。
-- **事件通知（可选）**：新建且已指派、指派变更、标为阻塞、截止日期变更时，会向负责人发应用消息并向群内发 Markdown（与 Cron 相同依赖上述配置）。**问题标记为已解决 / 已关闭时**，会向**创建人与负责人**发企业微信私信（应用消息，二者去重），**不发给操作者本人**；若配置了群 Webhook 会同时发一条群摘要。请在环境变量中配置 **`NEXT_PUBLIC_APP_URL`**（生产站点根 URL），消息中的问题标题才会是可点击链接。
-- **投递失败观测**：发送失败时会以 **`console.warn` + JSON** 打出（`scope: wecom_work_notice_delivery`），便于在 Vercel Logs 检索。成功默认不打日志；设置 **`WECOM_LOG_SUCCESSFUL_DELIVERY=1`** 可打出成功记录。
-- **企业微信机器人导入问题（可选）**：在企业微信管理后台为应用配置「接收消息」能力，服务器 URL 填 `https://你的域名/api/wecom/robot`，配置 `WECOM_TOKEN` 和 `WECOM_ENCODING_AES_KEY`。在与应用的**单聊**中发送 Excel 文件，机器人自动解析并导入为新问题、回复导入结果。
-- **企业微信扫码登录（可选）**：配置 `WECOM_CORPID`、`WECOM_AGENTID` 与 `NEXT_PUBLIC_APP_URL`，在企业微信管理后台 → 应用 → 网页授权 中配置可信域名（`你的域名`），登录页将显示「企业微信扫码登录」按钮，首次扫码自动注册绑定账号。
-- **数据库迁移**：执行 `supabase/migrations/add_wecom_userid.sql` 添加 `wecom_userid` 列。
+| 配置项 | 填写内容 | 位置 |
+|--------|----------|------|
+| 可信域名（OAuth）| `tracker.megami-tech.com` | 应用 → 网页授权及JS-SDK |
+| 授权回调域名 | `tracker.megami-tech.com` | 应用 → 企业微信授权登录 |
+| 域名验证文件 | 已放在 `public/WW_verify_*.txt` | Vercel 自动托管 |
+| 企业可信 IP | 见上方 IP 列表 | 应用 → 企业可信IP |
+| 应用可见范围 | 全公司或指定部门 | 应用 → 可见范围 |
 
-## 环境变量（企业微信）
+---
 
-| 变量 | 必须 | 说明 |
-|------|------|------|
-| `WECOM_CORPID` | 应用消息 / 扫码登录 | 企业微信 CorpID |
-| `WECOM_CORPSECRET` | 应用消息 / 扫码登录 | 企业内部应用 Secret |
-| `WECOM_AGENTID` | 应用消息 / 扫码登录 | 企业内部应用 AgentID（数字） |
-| `WECOM_WEBHOOK_URL` | 群消息 | 群机器人 Webhook 地址 |
-| `WECOM_TOKEN` | 机器人回调 | 回调校验 Token |
-| `WECOM_ENCODING_AES_KEY` | 机器人回调 | 回调 AES 解密密钥（43位） |
-| `WECOM_LOG_SUCCESSFUL_DELIVERY` | 可选 | 设为 `1` 打印成功发送日志 |
+## API 路由一览
 
-## 路由说明
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| GET | `/login` | 登录 / 注册页 | 无 |
+| GET | `/api/auth/wecom/start` | 企业微信扫码登录发起 | 无 |
+| GET | `/api/auth/wecom/callback` | 企业微信 OAuth 回调 | 无 |
+| GET/POST | `/api/wecom/robot` | 企业微信机器人（Excel 导入） | WeCom 签名 |
+| GET | `/api/cron/morning-assignee-digest` | 早晨工单提醒 | Cron Secret |
+| GET | `/api/cron/admin-escalation` | 管理员督促通知 | Cron Secret |
+| GET | `/api/cron/daily-reminder` | 每日催办 + 提醒中心 | Cron Secret |
+| GET | `/api/cron/test-dingtalk` | 手动发测试消息 `?userid=xxx` | Cron Secret |
+| GET | `/api/cron/check-ip` | 查询 Vercel 当前出口 IP | Cron Secret |
 
-| 路径 | 说明 |
-|------|------|
-| `/login` | 登录 / 注册 |
-| `/dashboard` | 管理看板（仅 `admin`） |
-| `/issues` | 问题列表 |
-| `/issues/[id]` | 问题详情与进度时间线 |
-| `/my-tasks` | 我的任务与快速更新 |
-| `/reminders` | 提醒中心（管理员可见全员汇总） |
-| `/members` | 成员与企业微信 userid（仅 `admin`） |
-| `GET /api/auth/wecom/start` | 企业微信扫码登录发起 |
-| `GET /api/auth/wecom/callback` | 企业微信 OAuth 回调 |
-| `GET/POST /api/wecom/robot` | 企业微信机器人回调（接收文件→导入问题） |
+---
+
+## 常见问题
+
+**Q: 企业微信报「not allow to access from your ip」**  
+A: Vercel 出口 IP 轮换。访问 `/api/cron/check-ip` 查当前 IP，加到企业微信「企业可信IP」白名单。
+
+**Q: 个人微信收到「暂不支持此消息类型」**  
+A: 应用消息需用 `text` 类型，`markdown` 类型个人微信不支持。当前代码已处理。
+
+**Q: 扫码登录报「redirect_uri 与配置不一致」**  
+A: 企业微信应用 → 企业微信授权登录 → 授权回调域名，填 `tracker.megami-tech.com`（无 `https://`）。
+
+**Q: Cron 没有发消息**  
+A: 检查以下三项：① `/members` 里成员的 `wecom_userid` 是否已填；② 应用「可见范围」是否包含该成员；③ Vercel 出口 IP 是否在白名单。
+
+**Q: 想查看旧版钉钉代码**  
+A: 切换到 GitHub 分支 `legacy/dingtalk`。
+
+---
 
 ## 技术说明
 
 - `public.users.id` 与 `auth.users.id` 一致，由 `on_auth_user_created` 触发器自动建档。
-- 定时任务使用 **Service Role** 绕过 RLS；请勿在前端暴露 Service Role Key。
+- 企业微信扫码用户的邮箱格式为 `wecom.{userid}@mgm-wecom.placeholder`（虚拟邮箱，用于对接 Supabase Auth）。
+- 定时任务使用 **Service Role Key** 绕过 RLS，**不要在前端暴露该 Key**。
+- 应用消息使用 `text` 类型（非 `markdown`），确保在个人微信（微信插件）中正常显示。
