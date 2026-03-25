@@ -21,31 +21,31 @@ export const getMembers = cache(async (): Promise<User[]> => {
   return (data ?? []) as User[];
 });
 
-export async function updateUserDingtalkUserId(
+export async function updateUserWecomUserId(
   userId: string,
-  dingtalkUserid: string
+  wecomUserid: string
 ): Promise<{ ok: boolean; error?: string }> {
   const me = await getCurrentUser();
   if (!me || me.role !== "admin") {
     return { ok: false, error: "无权限" };
   }
-  const trimmed = dingtalkUserid.trim();
+  const trimmed = wecomUserid.trim();
   const supabase = await createClient();
   const { data: beforeRow } = await supabase
     .from("users")
-    .select("name, dingtalk_userid")
+    .select("name, wecom_userid")
     .eq("id", userId)
     .single();
 
-  const hadDingtalk = Boolean((beforeRow?.dingtalk_userid as string | null)?.trim());
+  const hadWecom = Boolean((beforeRow?.wecom_userid as string | null)?.trim());
   const { error } = await supabase
     .from("users")
-    .update({ dingtalk_userid: trimmed === "" ? null : trimmed })
+    .update({ wecom_userid: trimmed === "" ? null : trimmed })
     .eq("id", userId);
   if (error) {
     return { ok: false, error: error.message };
   }
-  if (trimmed && !hadDingtalk) {
+  if (trimmed && !hadWecom) {
     notifyNewMemberWelcome(trimmed, (beforeRow?.name as string) || "同事");
   }
   revalidatePath("/members");

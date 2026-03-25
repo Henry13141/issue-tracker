@@ -1,10 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import {
-  sendDingtalkMarkdown,
-  sendDingtalkWorkNoticeAndLogDelivery,
-  isDingtalkAppConfigured,
-  isDingtalkWebhookConfigured,
-} from "@/lib/dingtalk";
+  sendWecomMarkdown,
+  sendWecomWorkNoticeAndLog,
+  isWecomAppConfigured,
+  isWecomWebhookConfigured,
+} from "@/lib/wecom";
 import { getIssueDetailUrl } from "@/lib/app-url";
 import type { IssueStatus } from "@/types";
 
@@ -14,10 +14,10 @@ function formatIssueRef(issueId: string, title: string): string {
   return `**${title}**（路径 \`/issues/${issueId}\`，请配置 NEXT_PUBLIC_APP_URL 以生成可点击链接）`;
 }
 
-async function getDingtalkUserid(userId: string): Promise<string | null> {
+async function getWecomUserid(userId: string): Promise<string | null> {
   const supabase = await createClient();
-  const { data } = await supabase.from("users").select("dingtalk_userid").eq("id", userId).maybeSingle();
-  const v = data?.dingtalk_userid?.trim();
+  const { data } = await supabase.from("users").select("wecom_userid").eq("id", userId).maybeSingle();
+  const v = (data?.wecom_userid as string | null | undefined)?.trim();
   return v || null;
 }
 
@@ -33,9 +33,9 @@ async function getAdminUserIds(): Promise<string[]> {
   return (data ?? []).map((u) => u.id as string);
 }
 
-async function webhook(title: string, markdown: string) {
-  if (!isDingtalkWebhookConfigured()) return;
-  await sendDingtalkMarkdown(title, markdown);
+async function webhook(content: string) {
+  if (!isWecomWebhookConfigured()) return;
+  await sendWecomMarkdown(content);
 }
 
 async function workNoticeToUser(
@@ -44,10 +44,10 @@ async function workNoticeToUser(
   markdown: string,
   logContext: string
 ) {
-  if (!isDingtalkAppConfigured()) return;
-  const dt = await getDingtalkUserid(userId);
-  if (!dt) return;
-  await sendDingtalkWorkNoticeAndLogDelivery(dt, title, markdown, logContext);
+  if (!isWecomAppConfigured()) return;
+  const wc = await getWecomUserid(userId);
+  if (!wc) return;
+  await sendWecomWorkNoticeAndLog(wc, title, markdown, logContext);
 }
 
 function isTerminalStatus(s: IssueStatus): boolean {
@@ -65,7 +65,7 @@ export function dingtalkAfterIssueResolvedOrClosed(params: {
   actorUserId: string;
 }): void {
   void (async () => {
-    if (!isDingtalkAppConfigured() && !isDingtalkWebhookConfigured()) return;
+    if (!isWecomAppConfigured() && !isWecomWebhookConfigured()) return;
 
     const recipientIds = new Set<string>();
     recipientIds.add(params.creatorId);
@@ -93,7 +93,7 @@ export function dingtalkAfterIssueResolvedOrClosed(params: {
       );
     }
 
-    if (isDingtalkWebhookConfigured()) {
+    if (isWecomWebhookConfigured()) {
       const lines = [`### ${headline}`, `- ${ref}`, `- 操作：**${params.actorName}**`];
       if (recipientIds.size > 0) {
         const names: string[] = [];
@@ -102,11 +102,11 @@ export function dingtalkAfterIssueResolvedOrClosed(params: {
         }
         lines.push(`- 已私信：**${names.join("、")}**`);
       } else {
-        lines.push(`- 私信：处理人与相关方为同一人，未另发工作通知`);
+        lines.push(`- 私信：处理人与相关方为同一人，未另发应用通知`);
       }
-      await webhook(`米伽米 · ${headline}`, lines.join("\n"));
+      await webhook(`### 米伽米 · ${headline}\n${lines.join("\n")}`);
     }
-  })().catch((e) => console.error("[dingtalk-event] resolved/closed", e));
+  })().catch((e) => console.error("[wecom-event] resolved/closed", e));
 }
 
 /** 新建问题且已指派：通知负责人 + 可选群摘要 */
@@ -118,7 +118,7 @@ export function dingtalkAfterCreateIssue(params: {
 }): void {
   void (async () => {
     if (!params.assigneeId) return;
-    if (!isDingtalkAppConfigured() && !isDingtalkWebhookConfigured()) return;
+    if (!isWecomAppConfigured() && !isWecomWebhookConfigured()) return;
 
     const ref = formatIssueRef(params.issueId, params.title);
     const md = [
@@ -138,10 +138,9 @@ export function dingtalkAfterCreateIssue(params: {
 
     const assigneeName = await getUserName(params.assigneeId);
     await webhook(
-      "米伽米 · 新指派",
-      [`### 新问题`, `- ${ref}`, `- 负责人：**${assigneeName}**`, `- 创建人：**${params.actorName}**`].join("\n")
+      [`### 米伽米 · 新指派`, `- ${ref}`, `- 负责人：**${assigneeName}**`, `- 创建人：**${params.actorName}**`].join("\n")
     );
-  })().catch((e) => console.error("[dingtalk-event] create", e));
+  })().catch((e) => console.error("[wecom-event] create", e));
 }
 
 export type IssueRowBeforeUpdate = {
@@ -166,7 +165,7 @@ export function dingtalkAfterUpdateIssue(params: {
   actorUserId: string;
 }): void {
   void (async () => {
-    if (!isDingtalkAppConfigured() && !isDingtalkWebhookConfigured()) return;
+    if (!isWecomAppConfigured() && !isWecomWebhookConfigured()) return;
 
     const { issueId, before, patch, actorName, actorUserId } = params;
     const title = patch.title ?? before.title;
@@ -191,8 +190,7 @@ export function dingtalkAfterUpdateIssue(params: {
       );
       const name = await getUserName(patch.assignee_id);
       await webhook(
-        "米伽米 · 指派变更",
-        [`### 指派变更`, `- ${ref}`, `- 新负责人：**${name}**`, `- 操作：**${actorName}**`].join("\n")
+        [`### 米伽米 · 指派变更`, `- ${ref}`, `- 新负责人：**${name}**`, `- 操作：**${actorName}**`].join("\n")
       );
     }
 
@@ -216,8 +214,7 @@ export function dingtalkAfterUpdateIssue(params: {
         `update_issue blocked issue=${issueId} assignee=${afterAssignee}`
       );
       await webhook(
-        "米伽米 · 阻塞",
-        [`### 状态：阻塞`, `- ${ref}`, `- 操作：**${actorName}**`].join("\n")
+        [`### 米伽米 · 阻塞`, `- ${ref}`, `- 操作：**${actorName}**`].join("\n")
       );
     }
 
@@ -242,8 +239,7 @@ export function dingtalkAfterUpdateIssue(params: {
         `update_issue due_date issue=${issueId} assignee=${afterAssignee}`
       );
       await webhook(
-        "米伽米 · 截止日期",
-        [`### 截止日期变更`, `- ${ref}`, `- 新截止日：**${afterDue}**`, `- 操作：**${actorName}**`].join("\n")
+        [`### 米伽米 · 截止日期`, `- ${ref}`, `- 新截止日：**${afterDue}**`, `- 操作：**${actorName}**`].join("\n")
       );
     }
 
@@ -262,7 +258,7 @@ export function dingtalkAfterUpdateIssue(params: {
         actorUserId,
       });
     }
-  })().catch((e) => console.error("[dingtalk-event] update", e));
+  })().catch((e) => console.error("[wecom-event] update", e));
 }
 
 /** 有人提交了进度更新：实时通知所有管理员（操作者本人除外） */
@@ -276,7 +272,7 @@ export function dingtalkAfterProgressUpdate(params: {
   actorUserId: string;
 }): void {
   void (async () => {
-    if (!isDingtalkAppConfigured()) return;
+    if (!isWecomAppConfigured()) return;
 
     const admins = await getAdminUserIds();
     const recipients = admins.filter((id) => id !== params.actorUserId);
@@ -317,7 +313,7 @@ export function dingtalkAfterProgressUpdate(params: {
         `progress_update issue=${params.issueId} actor=${params.actorUserId} notify_admin=${uid}`
       );
     }
-  })().catch((e) => console.error("[dingtalk-event] progress_update", e));
+  })().catch((e) => console.error("[wecom-event] progress_update", e));
 }
 
 /** 进度记录里把状态改为阻塞 */
@@ -329,7 +325,7 @@ export function dingtalkAfterIssueUpdateToBlocked(params: {
 }): void {
   void (async () => {
     if (!params.assigneeId) return;
-    if (!isDingtalkAppConfigured() && !isDingtalkWebhookConfigured()) return;
+    if (!isWecomAppConfigured() && !isWecomWebhookConfigured()) return;
 
     const ref = formatIssueRef(params.issueId, params.title);
     const md = [
@@ -348,8 +344,7 @@ export function dingtalkAfterIssueUpdateToBlocked(params: {
     );
 
     await webhook(
-      "米伽米 · 阻塞（进度）",
-      [`### 状态：阻塞（进度更新）`, `- ${ref}`, `- 操作：**${params.actorName}**`].join("\n")
+      [`### 米伽米 · 阻塞（进度）`, `- ${ref}`, `- 操作：**${params.actorName}**`].join("\n")
     );
-  })().catch((e) => console.error("[dingtalk-event] issue_update blocked", e));
+  })().catch((e) => console.error("[wecom-event] issue_update blocked", e));
 }

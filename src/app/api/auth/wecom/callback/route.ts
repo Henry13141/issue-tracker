@@ -3,46 +3,44 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  getCorpUserDetail,
-  getCorpUseridByUnionid,
-  getUserTokenByAuthCode,
-  getUserInfoByToken,
-  isDingtalkScanLoginConfigured,
+  getUserInfoByCode,
+  getUserDetailByUserid,
+  isWecomScanLoginConfigured,
   verifySelfVerifyingState,
-} from "@/lib/dingtalk";
+} from "@/lib/wecom";
 import { getPublicAppUrl } from "@/lib/app-url";
 import { notifyNewMemberWelcome } from "@/lib/new-member-welcome";
 
 function loginErrorRedirectUrl(base: string, message: string): string {
   const url = new URL("/login", base);
-  url.searchParams.set("error", "dingtalk");
+  url.searchParams.set("error", "wecom");
   url.searchParams.set("error_description", message);
   return url.toString();
 }
 
-function syntheticEmailForDingtalkUserid(userid: string): string {
+function syntheticEmailForWecomUserid(userid: string): string {
   const safe = userid.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return `dingtalk.${safe}@mgm-ding.placeholder`;
+  return `wecom.${safe}@mgm-wecom.placeholder`;
 }
 
 export async function GET(request: NextRequest) {
   const base = getPublicAppUrl() || request.nextUrl.origin;
 
-  if (!isDingtalkScanLoginConfigured()) {
-    return NextResponse.redirect(loginErrorRedirectUrl(base, "钉钉未配置"), 302);
+  if (!isWecomScanLoginConfigured()) {
+    return NextResponse.redirect(loginErrorRedirectUrl(base, "企业微信未配置"), 302);
   }
 
   const urlObj = new URL(request.url);
-  const authCode = urlObj.searchParams.get("authCode");
+  const code = urlObj.searchParams.get("code");
   const state = urlObj.searchParams.get("state") || "";
 
-  if (!authCode) {
+  if (!code) {
     return NextResponse.redirect(loginErrorRedirectUrl(base, "缺少授权码"), 302);
   }
 
   const afterLogin = verifySelfVerifyingState(state);
   if (afterLogin === null) {
-    console.warn("[dingtalk-callback] state 校验失败, state=", state.slice(0, 40));
+    console.warn("[wecom-callback] state 校验失败, state=", state.slice(0, 40));
     return NextResponse.redirect(
       loginErrorRedirectUrl(base, "状态校验失败，请重新扫码"),
       302
@@ -54,38 +52,35 @@ export async function GET(request: NextRequest) {
   let userEmail: string;
 
   try {
-    const userToken = await getUserTokenByAuthCode(authCode);
-    const userInfo = await getUserInfoByToken(userToken);
-    const unionId = userInfo.unionId!;
-
-    corpUserid = await getCorpUseridByUnionid(unionId);
-    const detail = await getCorpUserDetail(corpUserid);
-    displayName = (detail?.name ?? userInfo.nick ?? corpUserid).trim() || corpUserid;
+    const userInfo = await getUserInfoByCode(code);
+    corpUserid = userInfo.UserId!;
+    const detail = await getUserDetailByUserid(corpUserid);
+    displayName = (detail?.name ?? corpUserid).trim() || corpUserid;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[dingtalk-callback] 获取用户信息失败:", msg);
+    console.error("[wecom-callback] 获取用户信息失败:", msg);
     return NextResponse.redirect(loginErrorRedirectUrl(base, msg), 302);
   }
 
   const admin = createAdminClient();
-  let isFirstDingtalkRegistration = false;
+  let isFirstWecomRegistration = false;
 
   const { data: existingProfile, error: findErr } = await admin
     .from("users")
     .select("id, email")
-    .eq("dingtalk_userid", corpUserid)
+    .eq("wecom_userid", corpUserid)
     .maybeSingle();
 
   if (findErr) {
-    console.error("[dingtalk-callback] find user:", findErr.message);
+    console.error("[wecom-callback] find user:", findErr.message);
     return NextResponse.redirect(loginErrorRedirectUrl(base, "查询用户失败"), 302);
   }
 
   if (existingProfile) {
     userEmail = existingProfile.email as string;
   } else {
-    isFirstDingtalkRegistration = true;
-    userEmail = syntheticEmailForDingtalkUserid(corpUserid);
+    isFirstWecomRegistration = true;
+    userEmail = syntheticEmailForWecomUserid(corpUserid);
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email: userEmail,
       password: randomUUID() + randomUUID(),
@@ -93,7 +88,7 @@ export async function GET(request: NextRequest) {
       user_metadata: { name: displayName },
     });
     if (createErr || !created.user) {
-      console.error("[dingtalk-callback] createUser:", createErr?.message);
+      console.error("[wecom-callback] createUser:", createErr?.message);
       return NextResponse.redirect(
         loginErrorRedirectUrl(base, createErr?.message ?? "创建用户失败"),
         302
@@ -102,12 +97,12 @@ export async function GET(request: NextRequest) {
 
     const { error: upErr } = await admin
       .from("users")
-      .update({ dingtalk_userid: corpUserid, name: displayName })
+      .update({ wecom_userid: corpUserid, name: displayName })
       .eq("id", created.user.id);
 
     if (upErr) {
-      console.error("[dingtalk-callback] update profile:", upErr.message);
-      return NextResponse.redirect(loginErrorRedirectUrl(base, "同步钉钉账号失败"), 302);
+      console.error("[wecom-callback] update profile:", upErr.message);
+      return NextResponse.redirect(loginErrorRedirectUrl(base, "同步企业微信账号失败"), 302);
     }
   }
 
@@ -117,7 +112,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (linkErr || !linkData?.properties?.hashed_token) {
-    console.error("[dingtalk-callback] generateLink:", linkErr?.message);
+    console.error("[wecom-callback] generateLink:", linkErr?.message);
     return NextResponse.redirect(
       loginErrorRedirectUrl(base, linkErr?.message ?? "签发登录链接失败"),
       302
@@ -160,11 +155,11 @@ export async function GET(request: NextRequest) {
     lastOtpError = otpErr;
   }
   if (lastOtpError) {
-    console.error("[dingtalk-callback] verifyOtp:", lastOtpError.message);
+    console.error("[wecom-callback] verifyOtp:", lastOtpError.message);
     return NextResponse.redirect(loginErrorRedirectUrl(base, lastOtpError.message), 302);
   }
 
-  if (isFirstDingtalkRegistration) {
+  if (isFirstWecomRegistration) {
     notifyNewMemberWelcome(corpUserid, displayName);
   }
 

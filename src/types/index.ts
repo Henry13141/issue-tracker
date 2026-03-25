@@ -18,7 +18,7 @@ export interface User {
   name: string;
   role: UserRole;
   avatar_url: string | null;
-  dingtalk_userid: string | null;
+  wecom_userid: string | null;
   created_at: string;
   updated_at: string;
 }
