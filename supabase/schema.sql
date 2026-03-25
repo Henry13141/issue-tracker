@@ -176,19 +176,12 @@ CREATE POLICY "issues_insert_authenticated"
   TO authenticated
   WITH CHECK (creator_id = auth.uid());
 
-CREATE POLICY "issues_update_roles"
+-- 所有已登录成员可更新问题（便于认领、改状态、写进度）；删除仍为仅管理员
+CREATE POLICY "issues_update_authenticated"
   ON public.issues FOR UPDATE
   TO authenticated
-  USING (
-    public.is_admin()
-    OR assignee_id = auth.uid()
-    OR creator_id = auth.uid()
-  )
-  WITH CHECK (
-    public.is_admin()
-    OR assignee_id = auth.uid()
-    OR creator_id = auth.uid()
-  );
+  USING (true)
+  WITH CHECK (true);
 
 CREATE POLICY "issues_delete_admin"
   ON public.issues FOR DELETE
@@ -228,3 +221,34 @@ CREATE POLICY "reminders_insert_admin"
   ON public.reminders FOR INSERT
   TO authenticated
   WITH CHECK (public.is_admin());
+
+-- ---------------------------------------------------------------------------
+-- 进度评论
+-- ---------------------------------------------------------------------------
+CREATE TABLE public.issue_update_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  update_id UUID NOT NULL REFERENCES public.issue_updates (id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.users (id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_update_comments_update ON public.issue_update_comments (update_id);
+CREATE INDEX idx_update_comments_created ON public.issue_update_comments (created_at);
+
+ALTER TABLE public.issue_update_comments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "update_comments_select_authenticated"
+  ON public.issue_update_comments FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "update_comments_insert_authenticated"
+  ON public.issue_update_comments FOR INSERT
+  TO authenticated
+  WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "update_comments_delete_own_or_admin"
+  ON public.issue_update_comments FOR DELETE
+  TO authenticated
+  USING (user_id = auth.uid() OR public.is_admin());

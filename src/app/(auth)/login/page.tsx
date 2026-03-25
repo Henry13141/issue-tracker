@@ -1,7 +1,12 @@
 import { Suspense } from "react";
 import { LoginForm } from "@/components/login-form";
+import { isDingtalkScanLoginConfigured } from "@/lib/dingtalk";
+import { getPublicAppUrl } from "@/lib/app-url";
 
 export default function LoginPage() {
+  const showDingtalkLogin =
+    isDingtalkScanLoginConfigured() && Boolean(getPublicAppUrl());
+
   return (
     <Suspense
       fallback={
@@ -10,7 +15,7 @@ export default function LoginPage() {
         </div>
       }
     >
-      <LoginForm />
+      <LoginForm showDingtalkLogin={showDingtalkLogin} />
     </Suspense>
   );
 }

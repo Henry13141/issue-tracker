@@ -5,14 +5,12 @@ import { useRouter } from "next/navigation";
 import { createIssue } from "@/actions/issues";
 import type { IssuePriority, User } from "@/types";
 import { Button } from "@/components/ui/button";
-import { buttonVariants } from "@/lib/button-variants";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +23,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 
 export function IssueFormDialog({ members }: { members: User[] }) {
   const router = useRouter();
@@ -67,9 +64,12 @@ export function IssueFormDialog({ members }: { members: User[] }) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger className={cn(buttonVariants())}>新建问题</DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+    <>
+      <Button type="button" onClick={() => setOpen(true)}>
+        新建问题
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>新建问题</DialogTitle>
         </DialogHeader>
@@ -138,7 +138,8 @@ export function IssueFormDialog({ members }: { members: User[] }) {
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

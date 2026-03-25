@@ -65,8 +65,21 @@ export interface IssueWithRelations extends Issue {
   last_update?: IssueUpdate | null;
 }
 
+export interface UpdateComment {
+  id: string;
+  update_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+}
+
+export interface UpdateCommentWithUser extends UpdateComment {
+  user?: User | null;
+}
+
 export interface IssueUpdateWithUser extends IssueUpdate {
   user?: User | null;
+  comments?: UpdateCommentWithUser[];
 }
 
 export interface ReminderWithIssue extends Reminder {

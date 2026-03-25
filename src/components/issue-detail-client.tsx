@@ -2,8 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { addIssueUpdate, updateIssue } from "@/actions/issues";
-import type { IssuePriority, IssueStatus, IssueUpdateWithUser, IssueWithRelations, User } from "@/types";
+import { addIssueUpdate, addUpdateComment, updateIssue } from "@/actions/issues";
+import type { IssuePriority, IssueStatus, IssueUpdateWithUser, IssueWithRelations, UpdateCommentWithUser, User } from "@/types";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/lib/button-variants";
@@ -25,7 +25,7 @@ import { ISSUE_STATUS_LABELS } from "@/lib/constants";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, MessageSquare, Send } from "lucide-react";
 import { toast } from "sonner";
 
 export function IssueDetailClient({
@@ -235,23 +235,26 @@ export function IssueDetailClient({
               <p className="text-sm text-muted-foreground">暂无进度记录</p>
             ) : (
               updates.map((u) => (
-                <div key={u.id} className="flex gap-3 rounded-lg border bg-muted/20 p-3">
-                  <Avatar className="h-9 w-9 shrink-0">
-                    <AvatarFallback>{u.user?.name?.slice(0, 2) ?? "?"}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium">{u.user?.name ?? "成员"}</span>
-                      {u.status_from && u.status_to && u.status_from !== u.status_to ? (
-                        <span className="text-xs text-muted-foreground">
-                          <StatusBadge status={u.status_from} /> →{" "}
-                          <StatusBadge status={u.status_to} />
-                        </span>
-                      ) : null}
+                <div key={u.id} className="rounded-lg border bg-muted/20 p-3 space-y-2">
+                  <div className="flex gap-3">
+                    <Avatar className="h-9 w-9 shrink-0">
+                      <AvatarFallback>{u.user?.name?.slice(0, 2) ?? "?"}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium">{u.user?.name ?? "成员"}</span>
+                        {u.status_from && u.status_to && u.status_from !== u.status_to ? (
+                          <span className="text-xs text-muted-foreground">
+                            <StatusBadge status={u.status_from} /> →{" "}
+                            <StatusBadge status={u.status_to} />
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap">{u.content}</p>
+                      <p className="text-xs text-muted-foreground">{formatDateTime(u.created_at)}</p>
                     </div>
-                    <p className="text-sm whitespace-pre-wrap">{u.content}</p>
-                    <p className="text-xs text-muted-foreground">{formatDateTime(u.created_at)}</p>
                   </div>
+                  <UpdateCommentsSection updateId={u.id} comments={u.comments ?? []} />
                 </div>
               ))
             )}
@@ -290,6 +293,89 @@ export function IssueDetailClient({
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function UpdateCommentsSection({
+  updateId,
+  comments,
+}: {
+  updateId: string;
+  comments: UpdateCommentWithUser[];
+}) {
+  const router = useRouter();
+  const [showInput, setShowInput] = useState(false);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function submit() {
+    if (!text.trim()) return;
+    setSending(true);
+    try {
+      await addUpdateComment(updateId, text.trim());
+      setText("");
+      setShowInput(false);
+      toast.success("评论已发送");
+      router.refresh();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "评论失败");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="ml-12 space-y-2">
+      {comments.length > 0 && (
+        <div className="space-y-1.5">
+          {comments.map((c) => (
+            <div key={c.id} className="flex items-start gap-2 rounded-md bg-background/60 px-2.5 py-1.5">
+              <Avatar className="h-6 w-6 shrink-0">
+                <AvatarFallback className="text-[10px]">{c.user?.name?.slice(0, 2) ?? "?"}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <span className="text-xs font-medium">{c.user?.name ?? "成员"}</span>
+                <span className="mx-1.5 text-xs text-muted-foreground">{formatDateTime(c.created_at)}</span>
+                <p className="text-sm whitespace-pre-wrap">{c.content}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showInput ? (
+        <div className="flex items-center gap-2">
+          <Input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="写评论…"
+            className="h-8 text-sm"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            autoFocus
+          />
+          <Button size="xs" disabled={sending || !text.trim()} onClick={submit}>
+            <Send className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="xs" variant="ghost" onClick={() => { setShowInput(false); setText(""); }}>
+            取消
+          </Button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowInput(true)}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          {comments.length > 0 ? `${comments.length} 条评论` : "评论"}
+        </button>
+      )}
     </div>
   );
 }

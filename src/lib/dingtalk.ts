@@ -1,3 +1,5 @@
+import { createHmac, randomBytes } from "node:crypto";
+
 const WEBHOOK_URL = process.env.DINGTALK_WEBHOOK_URL;
 const APP_KEY = process.env.DINGTALK_APP_KEY;
 const APP_SECRET = process.env.DINGTALK_APP_SECRET;
@@ -122,6 +124,168 @@ export async function getDingTalkWorkNoticeSendResult(taskId: number): Promise<D
 
 export function isDingtalkAppConfigured(): boolean {
   return Boolean(APP_KEY && APP_SECRET && AGENT_ID);
+}
+
+/** 扫码登录需要 AppKey/AppSecret + 可公网/内网访问的站点根 URL（用于 redirect_uri） */
+export function isDingtalkScanLoginConfigured(): boolean {
+  return Boolean(APP_KEY && APP_SECRET);
+}
+
+/** 个人免登 / 扫码 SNS 签名：HmacSHA256(appSecret, timestamp) → Base64 → URL 编码（钉钉要求替换部分字符） */
+export function computeDingtalkSnsSignature(timestamp: string, appSecret: string): string {
+  const sig = createHmac("sha256", appSecret).update(timestamp, "utf8").digest("base64");
+  return encodeURIComponent(sig)
+    .replace(/\+/g, "%20")
+    .replace(/\*/g, "%2A")
+    .replace(/~/g, "%7E")
+    .replace(/\//g, "%2F");
+}
+
+export type DingTalkSnsUserInfo = {
+  nick?: string;
+  unionid?: string;
+  openid?: string;
+  main_org_auth_high_level?: boolean;
+};
+
+/**
+ * 新版 OAuth2：用 authCode 换取用户级 accessToken
+ * POST https://api.dingtalk.com/v1.0/oauth2/userAccessToken
+ */
+export async function getUserTokenByAuthCode(authCode: string): Promise<string> {
+  if (!APP_KEY || !APP_SECRET) {
+    throw new Error("DINGTALK_APP_KEY / DINGTALK_APP_SECRET 未配置");
+  }
+  const res = await fetch("https://api.dingtalk.com/v1.0/oauth2/userAccessToken", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      clientId: APP_KEY,
+      clientSecret: APP_SECRET,
+      code: authCode,
+      grantType: "authorization_code",
+    }),
+  });
+  const json = (await res.json()) as {
+    accessToken?: string;
+    code?: string;
+    message?: string;
+  };
+  if (!json.accessToken) {
+    throw new Error(json.message ?? `钉钉 userAccessToken 失败: ${json.code}`);
+  }
+  return json.accessToken;
+}
+
+export type DingTalkOAuth2UserInfo = {
+  nick?: string;
+  unionId?: string;
+  openId?: string;
+  avatarUrl?: string;
+  mobile?: string;
+  stateCode?: string;
+};
+
+/**
+ * 新版 OAuth2：用用户级 accessToken 获取当前用户信息
+ * GET https://api.dingtalk.com/v1.0/contact/users/me
+ */
+export async function getUserInfoByToken(userAccessToken: string): Promise<DingTalkOAuth2UserInfo> {
+  const res = await fetch("https://api.dingtalk.com/v1.0/contact/users/me", {
+    method: "GET",
+    headers: { "x-acs-dingtalk-access-token": userAccessToken },
+  });
+  const json = (await res.json()) as DingTalkOAuth2UserInfo & { code?: string; message?: string };
+  if (!json.unionId) {
+    throw new Error(json.message ?? `钉钉获取用户信息失败: ${json.code}`);
+  }
+  return json;
+}
+
+/**
+ * 用 unionid 换企业内 userid（与通讯录、工作通知一致）
+ */
+export async function getCorpUseridByUnionid(unionid: string): Promise<string> {
+  const accessToken = await getAccessToken();
+  const body = new URLSearchParams();
+  body.set("unionid", unionid);
+  const url = `https://oapi.dingtalk.com/topapi/user/getbyunionid?access_token=${encodeURIComponent(accessToken)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+    body: body.toString(),
+  });
+  const json = (await res.json()) as {
+    errcode?: number;
+    errmsg?: string;
+    result?: { userid?: string; contact_type?: number };
+  };
+  if (json.errcode !== 0 || !json.result?.userid) {
+    throw new Error(json.errmsg ?? `钉钉 getbyunionid 失败 errcode=${json.errcode}`);
+  }
+  return json.result.userid;
+}
+
+/**
+ * 读取通讯录姓名等（失败时返回 null，由调用方用 nick 兜底）
+ */
+export async function getCorpUserDetail(userid: string): Promise<{ name: string } | null> {
+  try {
+    const accessToken = await getAccessToken();
+    const url = `https://oapi.dingtalk.com/topapi/v2/user/get?access_token=${encodeURIComponent(accessToken)}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json;charset=UTF-8" },
+      body: JSON.stringify({ userid, language: "zh_CN" }),
+    });
+    const json = (await res.json()) as {
+      errcode?: number;
+      errmsg?: string;
+      result?: { name?: string };
+    };
+    if (json.errcode !== 0 || !json.result?.name) return null;
+    return { name: json.result.name };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 生成自校验 OAuth state（不依赖 Cookie，避免 307 重定向 Set-Cookie 丢失问题）。
+ * 格式：{timestamp}.{nonce}.{afterLogin_base64url}.{hmac}
+ */
+export function generateSelfVerifyingState(afterLogin = "/"): string {
+  const ts = Date.now().toString();
+  const nonce = randomBytes(16).toString("hex");
+  const payload64 = Buffer.from(afterLogin, "utf8").toString("base64url");
+  const sig = createHmac("sha256", APP_SECRET || "")
+    .update(`${ts}.${nonce}.${payload64}`)
+    .digest("hex");
+  return `${ts}.${nonce}.${payload64}.${sig}`;
+}
+
+/**
+ * 校验 state 签名、有效期（10 分钟），返回 afterLogin 路径。
+ * 失败返回 null。
+ */
+export function verifySelfVerifyingState(state: string): string | null {
+  const parts = state.split(".");
+  if (parts.length !== 4) return null;
+  const [ts, nonce, payload64, sig] = parts;
+
+  const age = Date.now() - parseInt(ts, 10);
+  if (isNaN(age) || age < 0 || age > 600_000) return null;
+
+  const expected = createHmac("sha256", APP_SECRET || "")
+    .update(`${ts}.${nonce}.${payload64}`)
+    .digest("hex");
+  if (sig !== expected) return null;
+
+  try {
+    return Buffer.from(payload64, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
 }
 
 export function getDingtalkAppSecret(): string {

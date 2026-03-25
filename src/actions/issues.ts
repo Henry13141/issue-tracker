@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getChinaDayBounds } from "@/lib/dates";
 import { ACTIVE_STATUSES } from "@/lib/constants";
-import type { IssuePriority, IssueStatus, IssueUpdateWithUser, IssueWithRelations } from "@/types";
+import type { IssuePriority, IssueStatus, IssueUpdateWithUser, IssueWithRelations, UpdateCommentWithUser } from "@/types";
 import {
   dingtalkAfterCreateIssue,
   dingtalkAfterIssueResolvedOrClosed,
@@ -76,9 +76,29 @@ export async function getIssueDetail(id: string): Promise<IssueWithRelations | n
     console.error(uErr);
   }
 
+  const updateIds = (updates ?? []).map((u) => u.id as string);
+  let commentsMap: Record<string, UpdateCommentWithUser[]> = {};
+
+  if (updateIds.length > 0) {
+    const { data: comments } = await supabase
+      .from("issue_update_comments")
+      .select(`*, user:users!issue_update_comments_user_id_fkey(id, email, name, role, avatar_url, created_at, updated_at)`)
+      .in("update_id", updateIds)
+      .order("created_at", { ascending: true });
+
+    for (const c of (comments ?? []) as UpdateCommentWithUser[]) {
+      (commentsMap[c.update_id] ??= []).push(c);
+    }
+  }
+
+  const updatesWithComments = (updates ?? []).map((u) => ({
+    ...(u as IssueUpdateWithUser),
+    comments: commentsMap[(u as IssueUpdateWithUser).id] ?? [],
+  }));
+
   return {
     ...(issue as IssueWithRelations),
-    issue_updates: (updates ?? []) as IssueUpdateWithUser[],
+    issue_updates: updatesWithComments,
   };
 }
 
@@ -108,7 +128,12 @@ export async function createIssue(input: {
     .select("id")
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.code === "23503") {
+      throw new Error("账户未与成员表同步，无法创建问题。请联系管理员检查你的登录账号是否在「成员」列表中。");
+    }
+    throw new Error(error.message);
+  }
   const newId = data?.id as string;
   dingtalkAfterCreateIssue({
     issueId: newId,
@@ -209,6 +234,24 @@ export async function addIssueUpdate(issueId: string, content: string, statusTo?
 
   const prev = issue.status as IssueStatus;
 
+  // 先同步问题状态，再写入进度记录，避免出现「进度里写了新状态但问题行未更新」的不一致
+  if (statusTo && statusTo !== prev) {
+    const extra: Record<string, unknown> = { status: statusTo };
+    if (statusTo === "resolved") extra.resolved_at = new Date().toISOString();
+    if (statusTo === "closed") extra.closed_at = new Date().toISOString();
+    if (statusTo !== "resolved") extra.resolved_at = null;
+    if (statusTo !== "closed") extra.closed_at = null;
+    const { error: uErr } = await supabase.from("issues").update(extra).eq("id", issueId);
+    if (uErr) {
+      if (uErr.code === "42501" || /row-level security/i.test(uErr.message ?? "")) {
+        throw new Error(
+          "无权限更新该问题状态。请在 Supabase 控制台执行仓库内 supabase/migrations/issues_update_all_authenticated.sql，允许已登录成员更新问题。"
+        );
+      }
+      throw new Error(uErr.message);
+    }
+  }
+
   const { error: iErr } = await supabase.from("issue_updates").insert({
     issue_id: issueId,
     user_id: user.id,
@@ -218,16 +261,6 @@ export async function addIssueUpdate(issueId: string, content: string, statusTo?
   });
 
   if (iErr) throw new Error(iErr.message);
-
-  if (statusTo && statusTo !== prev) {
-    const extra: Record<string, unknown> = { status: statusTo };
-    if (statusTo === "resolved") extra.resolved_at = new Date().toISOString();
-    if (statusTo === "closed") extra.closed_at = new Date().toISOString();
-    if (statusTo !== "resolved") extra.resolved_at = null;
-    if (statusTo !== "closed") extra.closed_at = null;
-    const { error: uErr } = await supabase.from("issues").update(extra).eq("id", issueId);
-    if (uErr) throw new Error(uErr.message);
-  }
 
   if (statusTo === "blocked" && prev !== "blocked") {
     dingtalkAfterIssueUpdateToBlocked({
@@ -359,4 +392,27 @@ export async function issueHasUpdateToday(issueId: string): Promise<boolean> {
 
   if (error) return false;
   return (count ?? 0) > 0;
+}
+
+export async function addUpdateComment(updateId: string, content: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("未登录");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("issue_update_comments").insert({
+    update_id: updateId,
+    user_id: user.id,
+    content,
+  });
+  if (error) throw new Error(error.message);
+
+  const { data: upRow } = await supabase
+    .from("issue_updates")
+    .select("issue_id")
+    .eq("id", updateId)
+    .single();
+
+  if (upRow?.issue_id) {
+    revalidatePath(`/issues/${upRow.issue_id}`);
+  }
 }

@@ -1,19 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/lib/button-variants";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import Image from "next/image";
 import { toast } from "sonner";
 
-export function LoginForm() {
+export function LoginForm({ showDingtalkLogin = false }: { showDingtalkLogin?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/";
+
+  useEffect(() => {
+    const err = searchParams.get("error");
+    const desc = searchParams.get("error_description");
+    if (err === "dingtalk" && desc) {
+      try {
+        toast.error(decodeURIComponent(desc));
+      } catch {
+        toast.error(desc);
+      }
+    }
+  }, [searchParams]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -120,6 +135,25 @@ export function LoginForm() {
               {loading ? "请稍候…" : mode === "signup" ? "注册" : "登录"}
             </Button>
           </form>
+          {showDingtalkLogin ? (
+            <div className="mt-5 space-y-3">
+              <div className="flex items-center gap-3">
+                <Separator className="flex-1" />
+                <span className="text-xs text-muted-foreground">或</span>
+                <Separator className="flex-1" />
+              </div>
+              <a
+                href={`/api/auth/dingtalk/start?redirect=${encodeURIComponent(redirectTo)}`}
+                className={cn(buttonVariants({ variant: "outline" }), "w-full gap-2 no-underline")}
+              >
+                <span className="text-[#0089ff] font-semibold">钉</span>
+                钉钉扫码登录
+              </a>
+              <p className="text-center text-xs text-muted-foreground">
+                首次扫码将自动注册并绑定钉钉账号；请先在开放平台配置回调域名与扫码登录权限。
+              </p>
+            </div>
+          ) : null}
           <p className="mt-6 text-center text-xs text-muted-foreground">
             &copy; {new Date().getFullYear()} 米伽米（上海）文化科技有限公司
           </p>
