@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createIssue } from "@/actions/issues";
+import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
 import type { IssuePriority, User } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,16 +23,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
 
 export function IssueFormDialog({ members }: { members: User[] }) {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<IssuePriority>("medium");
   const [assigneeId, setAssigneeId] = useState<string>("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+
+  function addFiles(files: FileList | null) {
+    if (!files) return;
+    setPendingFiles((prev) => [
+      ...prev,
+      ...Array.from(files).filter((f) => f.size <= 20 * 1024 * 1024),
+    ]);
+  }
+
+  function removeFile(idx: number) {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== idx));
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -48,12 +64,42 @@ export function IssueFormDialog({ members }: { members: User[] }) {
         assignee_id: assigneeId && assigneeId !== "__none__" ? assigneeId : null,
         due_date: null,
       });
+
+      // 上传附件（问题级）
+      for (const file of pendingFiles) {
+        try {
+          const { signedUrl, storagePath } = await createSignedUploadUrl(
+            id,
+            file.name,
+            file.type || "application/octet-stream",
+            file.size
+          );
+          const res = await fetch(signedUrl, {
+            method: "PUT",
+            headers: { "Content-Type": file.type || "application/octet-stream" },
+            body: file,
+          });
+          if (res.ok) {
+            await saveAttachmentMeta({
+              issueId: id,
+              storagePath,
+              filename: file.name,
+              contentType: file.type || "application/octet-stream",
+              sizeBytes: file.size,
+            });
+          }
+        } catch {
+          // 单个文件失败不影响创建
+        }
+      }
+
       toast.success("已创建问题");
       setOpen(false);
       setTitle("");
       setDescription("");
       setPriority("medium");
       setAssigneeId("");
+      setPendingFiles([]);
       router.push(`/issues/${id}`);
       router.refresh();
     } catch (err: unknown) {
@@ -128,6 +174,40 @@ export function IssueFormDialog({ members }: { members: User[] }) {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="space-y-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => addFiles(e.target.files)}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5 text-xs text-muted-foreground"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+              添加附件（可选）
+            </Button>
+            {pendingFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {pendingFiles.map((f, i) => (
+                  <span
+                    key={i}
+                    className="flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs"
+                  >
+                    {f.name}
+                    <button type="button" onClick={() => removeFile(i)}>
+                      <X className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>

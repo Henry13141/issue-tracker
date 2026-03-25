@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { addIssueUpdate, addUpdateComment, updateIssue } from "@/actions/issues";
-import type { IssuePriority, IssueStatus, IssueUpdateWithUser, IssueWithRelations, UpdateCommentWithUser, User } from "@/types";
+import { deleteAttachment } from "@/actions/attachments";
+import type { IssuePriority, IssueAttachmentWithUrl, IssueStatus, IssueUpdateWithUser, IssueWithRelations, UpdateCommentWithUser, User } from "@/types";
+import { AttachmentUploadButton, AttachmentList } from "@/components/attachment-upload";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/lib/button-variants";
@@ -53,6 +55,17 @@ export function IssueDetailClient({
   const [savingUpdate, setSavingUpdate] = useState(false);
 
   const updates = (initial.issue_updates ?? []) as IssueUpdateWithUser[];
+  const [issueAttachments, setIssueAttachments] = useState<IssueAttachmentWithUrl[]>(
+    (initial.attachments ?? []) as IssueAttachmentWithUrl[]
+  );
+  const [updateAttachments, setUpdateAttachments] = useState<
+    Record<string, IssueAttachmentWithUrl[]>
+  >(
+    Object.fromEntries(
+      updates.map((u) => [u.id, (u.attachments ?? []) as IssueAttachmentWithUrl[]])
+    )
+  );
+  const [pendingAttachments, setPendingAttachments] = useState<IssueAttachmentWithUrl[]>([]);
 
   const canEdit =
     currentUser.role === "admin" ||
@@ -98,16 +111,34 @@ export function IssueDetailClient({
       await addIssueUpdate(
         initial.id,
         updateContent.trim(),
-        updateStatus === "__keep__" ? undefined : updateStatus
+        updateStatus === "__keep__" ? undefined : updateStatus,
+        pendingAttachments.map((a) => a.storage_path)
       );
       setUpdateContent("");
       setUpdateStatus("__keep__");
+      setPendingAttachments([]);
       toast.success("已记录进度");
       router.refresh();
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "提交失败");
     } finally {
       setSavingUpdate(false);
+    }
+  }
+
+  async function handleDeleteAttachment(attachmentId: string, updateId?: string) {
+    try {
+      await deleteAttachment(attachmentId);
+      if (updateId) {
+        setUpdateAttachments((prev) => ({
+          ...prev,
+          [updateId]: (prev[updateId] ?? []).filter((a) => a.id !== attachmentId),
+        }));
+      } else {
+        setIssueAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "删除失败");
     }
   }
 
@@ -225,6 +256,27 @@ export function IssueDetailClient({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-base">附件</CardTitle>
+          <AttachmentUploadButton
+            issueId={initial.id}
+            onUploaded={(a) => setIssueAttachments((prev) => [...prev, a])}
+          />
+        </CardHeader>
+        <CardContent>
+          {issueAttachments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">暂无附件，点击右上角添加</p>
+          ) : (
+            <AttachmentList
+              attachments={issueAttachments}
+              canDelete={currentUser.role === "admin" || currentUser.id === initial.creator_id}
+              onDelete={(id) => handleDeleteAttachment(id)}
+            />
+          )}
+        </CardContent>
+      </Card>
+
       <Card className="flex flex-col">
         <CardHeader>
           <CardTitle>进度时间线</CardTitle>
@@ -254,6 +306,15 @@ export function IssueDetailClient({
                       <p className="text-xs text-muted-foreground">{formatDateTime(u.created_at)}</p>
                     </div>
                   </div>
+                  {(updateAttachments[u.id] ?? []).length > 0 && (
+                    <div className="ml-12 mt-1">
+                      <AttachmentList
+                        attachments={updateAttachments[u.id] ?? []}
+                        canDelete={currentUser.role === "admin" || currentUser.id === u.user?.id}
+                        onDelete={(id) => handleDeleteAttachment(id, u.id)}
+                      />
+                    </div>
+                  )}
                   <UpdateCommentsSection updateId={u.id} comments={u.comments ?? []} />
                 </div>
               ))
@@ -287,9 +348,27 @@ export function IssueDetailClient({
                 </SelectContent>
               </Select>
             </div>
-            <Button onClick={submitUpdate} disabled={savingUpdate}>
-              {savingUpdate ? "提交中…" : "提交进度"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={submitUpdate} disabled={savingUpdate}>
+                {savingUpdate ? "提交中…" : "提交进度"}
+              </Button>
+              <AttachmentUploadButton
+                issueId={initial.id}
+                onUploaded={(a) => setPendingAttachments((prev) => [...prev, a])}
+              />
+            </div>
+            {pendingAttachments.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">待附上的图片/文件（提交后关联到本次进度）：</p>
+                <AttachmentList
+                  attachments={pendingAttachments}
+                  canDelete
+                  onDelete={(id) =>
+                    setPendingAttachments((prev) => prev.filter((a) => a.id !== id))
+                  }
+                />
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
