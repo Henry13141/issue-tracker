@@ -11,7 +11,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Table,
@@ -223,12 +222,13 @@ export function ImportExcelDialog() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setRows([]); setFileName(""); } }}>
-      <DialogTrigger className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-xs hover:bg-accent hover:text-accent-foreground">
+    <>
+      <Button type="button" variant="outline" className="gap-1.5 shadow-xs" onClick={() => setOpen(true)}>
         <Upload className="h-4 w-4" />
         Excel 导入
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
+      </Button>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setRows([]); setFileName(""); } }}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5" />
@@ -289,7 +289,8 @@ export function ImportExcelDialog() {
             {loading ? "导入中…" : `导入 ${rows.length} 条`}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
