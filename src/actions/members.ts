@@ -1,33 +1,24 @@
 "use server";
 
+import { cache } from "react";
 import { revalidatePath } from "next/cache";
-import { unstable_cache } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth";
 import type { User } from "@/types";
 
-const getCachedMembers = unstable_cache(
-  async (): Promise<User[]> => {
-    const supabase = createAdminClient();
-    const { data, error } = await supabase
-      .from("users")
-      .select("*")
-      .order("name", { ascending: true });
+export const getMembers = cache(async (): Promise<User[]> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("users")
+    .select("*")
+    .order("name", { ascending: true });
 
-    if (error) {
-      if (error.message) console.error("getMembers:", error.message);
-      return [];
-    }
-    return (data ?? []) as User[];
-  },
-  ["members-list"],
-  { revalidate: 60, tags: ["members"] }
-);
-
-export async function getMembers(): Promise<User[]> {
-  return getCachedMembers();
-}
+  if (error) {
+    if (error.message) console.error("getMembers:", error.message);
+    return [];
+  }
+  return (data ?? []) as User[];
+});
 
 export async function updateUserDingtalkUserId(
   userId: string,
@@ -47,6 +38,5 @@ export async function updateUserDingtalkUserId(
     return { ok: false, error: error.message };
   }
   revalidatePath("/members");
-  revalidatePath("/issues");
   return { ok: true };
 }
