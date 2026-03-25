@@ -10,6 +10,7 @@ import {
   dingtalkAfterCreateIssue,
   dingtalkAfterIssueResolvedOrClosed,
   dingtalkAfterIssueUpdateToBlocked,
+  dingtalkAfterProgressUpdate,
   dingtalkAfterUpdateIssue,
 } from "@/lib/issue-dingtalk-notify";
 
@@ -261,6 +262,16 @@ export async function addIssueUpdate(issueId: string, content: string, statusTo?
   });
 
   if (iErr) throw new Error(iErr.message);
+
+  dingtalkAfterProgressUpdate({
+    issueId,
+    issueTitle: issue.title as string,
+    content,
+    statusFrom: prev,
+    statusTo: statusTo ?? prev,
+    actorName: user.name,
+    actorUserId: user.id,
+  });
 
   if (statusTo === "blocked" && prev !== "blocked") {
     dingtalkAfterIssueUpdateToBlocked({
