@@ -31,9 +31,29 @@ Next.js App Router + TypeScript + Tailwind + shadcn/ui + Supabase（数据库与
 
 6. 打开 [http://localhost:3000](http://localhost:3000)，注册/登录。
 
+## 自动部署（GitHub Actions）
+
+仓库已包含：
+
+- **[`.github/workflows/ci.yml`](.github/workflows/ci.yml)**：向 `main` 推送或提 PR 时执行 `lint` + `build`（使用占位 Supabase 环境变量，无需在 GitHub 配密钥）。
+- **[`.github/workflows/vercel-production.yml`](.github/workflows/vercel-production.yml)**：向 `main` 推送时用 Vercel CLI 部署 **Production**。
+
+在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中新建：
+
+| Secret | 说明 |
+|--------|------|
+| `VERCEL_TOKEN` | [Vercel Account → Tokens](https://vercel.com/account/tokens) 创建 |
+| `VERCEL_ORG_ID` | 本地项目根目录执行 `npx vercel link` 后，`.vercel/project.json` 里的 `orgId` |
+| `VERCEL_PROJECT_ID` | 同上文件里的 `projectId` |
+
+配置完成后，每次 `git push origin main` 会触发自动部署。
+
+**说明**：若已在 Vercel 控制台把本仓库接好 Git，推送时 Vercel 也会自动部署一次。若不想重复部署，可在 Vercel 项目 **Settings → Git** 中关闭 **Automatic deployments**，仅保留 GitHub Actions；或删除 `vercel-production.yml`、只用 Vercel 自带集成。
+
 ## 每日催办（Cron）
 
-- 部署到 Vercel 时，[`vercel.json`](vercel.json) 会在 **UTC 09:30**（北京时间 **17:30**）请求 `/api/cron/daily-reminder`。
+- **早晨温和提醒（未完成工单）**：[`vercel.json`](vercel.json) 在 **UTC 01:00**（北京时间 **09:00**）请求 `/api/cron/morning-assignee-digest`。会向每位**名下仍有未完成工单**（待处理 / 处理中 / 卡住 / 待验证）且已在「成员与钉钉」配置 **钉钉 userid** 的负责人，发送一条**语气温和**的钉钉工作通知（助理式文案），并附上问题列表与系统链接。需配置 `DINGTALK_*` 与 `NEXT_PUBLIC_APP_URL`（或 Vercel 自动的 `VERCEL_URL`）。
+- 部署到 Vercel 时，[`vercel.json`](vercel.json) 还会在 **UTC 09:30**（北京时间 **17:30**）请求 `/api/cron/daily-reminder`（按规则写入「提醒中心」并可选发催办类工作通知 / 群汇总）。
 - 在 Vercel 环境变量中配置 **`SUPABASE_SERVICE_ROLE_KEY`**（服务端写入 `reminders` 表）。
 - 可选：配置 **`CRON_SECRET`**；请求头 `Authorization: Bearer <CRON_SECRET>` 或 Vercel Cron 自带的 `x-vercel-cron: 1` 可通过校验。
 - 本地手动触发：`curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/daily-reminder`
