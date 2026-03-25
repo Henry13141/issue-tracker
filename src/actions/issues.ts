@@ -78,7 +78,7 @@ export async function getIssueDetail(id: string): Promise<IssueWithRelations | n
   }
 
   const updateIds = (updates ?? []).map((u) => u.id as string);
-  let commentsMap: Record<string, UpdateCommentWithUser[]> = {};
+  const commentsMap: Record<string, UpdateCommentWithUser[]> = {};
 
   if (updateIds.length > 0) {
     const { data: comments } = await supabase
