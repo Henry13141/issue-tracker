@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
 
   const redirectPath = afterLogin.startsWith("/") ? afterLogin : "/";
   const redirectTarget = new URL(redirectPath, base);
-  let response = NextResponse.redirect(redirectTarget, 302);
+  const response = NextResponse.redirect(redirectTarget, 302);
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

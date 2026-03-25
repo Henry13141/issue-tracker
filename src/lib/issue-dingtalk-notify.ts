@@ -5,7 +5,7 @@ import {
   isDingtalkAppConfigured,
   isDingtalkWebhookConfigured,
 } from "@/lib/dingtalk";
-import { getIssueDetailUrl, getPublicAppUrl } from "@/lib/app-url";
+import { getIssueDetailUrl } from "@/lib/app-url";
 import type { IssueStatus } from "@/types";
 
 function formatIssueRef(issueId: string, title: string): string {
@@ -173,7 +173,6 @@ export function dingtalkAfterUpdateIssue(params: {
     const ref = formatIssueRef(issueId, title);
     const afterAssignee =
       patch.assignee_id !== undefined ? patch.assignee_id : before.assignee_id;
-    const afterStatus = patch.status !== undefined ? patch.status : before.status;
     const afterDue = patch.due_date !== undefined ? patch.due_date : before.due_date;
 
     if (patch.assignee_id !== undefined && patch.assignee_id !== before.assignee_id && patch.assignee_id) {
