@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { getMembers } from "@/actions/members";
+import { getMembers, getMemberWorkloadForPage, getNotificationCoverageForPage } from "@/actions/members";
 import { MembersClient } from "@/components/members-client";
 
 export default async function MembersPage() {
@@ -8,6 +8,11 @@ export default async function MembersPage() {
   if (!user) redirect("/login");
   if (user.role !== "admin") redirect("/issues");
 
-  const members = await getMembers();
-  return <MembersClient members={members} />;
+  const [members, workload, coverage] = await Promise.all([
+    getMembers(),
+    getMemberWorkloadForPage(),
+    getNotificationCoverageForPage(),
+  ]);
+
+  return <MembersClient members={members} workload={workload} coverage={coverage} />;
 }

@@ -1,27 +1,45 @@
+/**
+ * daily-reminder Cron（P1 升级版）
+ *
+ * 职责分离：
+ * 1. 写 reminders 记录（hasReminderToday 幂等保护）
+ * 2. 发通知（通过 notification-service，留下 notification_deliveries 日志）
+ * 两步完全独立，写 reminder 失败不影响不通知，反之亦然。
+ */
+
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds, chinaDateMinusDays } from "@/lib/reminder-logic";
 import {
-  sendWecomMarkdown,
-  sendWecomWorkNotice,
   isWecomAppConfigured,
   isWecomWebhookConfigured,
 } from "@/lib/wecom";
+import { writeIssueEvent } from "@/lib/issue-events";
+import {
+  sendGroupDigest,
+  sendReminderNotification,
+} from "@/lib/notification-service";
 import type { IssueStatus } from "@/types";
 
 export const dynamic = "force-dynamic";
 
 type IssueRow = {
   id: string;
+  title: string;
   status: IssueStatus;
   assignee_id: string | null;
   due_date: string | null;
   created_at: string;
+  /**
+   * P0 中由触发器维护（仅人工 issue_updates 触发），与 dashboard stale 定义一致。
+   * cron stale 检测统一用此字段，避免与 dashboard 口径漂移。
+   */
+  last_activity_at: string | null;
 };
 
-type ItemNoUpdate = { title: string; assignee: string; assigneeId: string };
-type ItemOverdue = { title: string; assignee: string; assigneeId: string; dueDate: string };
-type ItemStale = { title: string; assignee: string; assigneeId: string };
+type ItemNoUpdate = { title: string; assignee: string; assigneeId: string; reminderId: string | null };
+type ItemOverdue  = { title: string; assignee: string; assigneeId: string; dueDate: string; reminderId: string | null; issueId: string };
+type ItemStale    = { title: string; assignee: string; assigneeId: string; reminderId: string | null; issueId: string };
 
 function buildPersonalMarkdown(
   assigneeId: string,
@@ -42,18 +60,18 @@ function buildPersonalMarkdown(
     "",
   ];
   if (nu.length > 0) {
-    lines.push(`### 今日未更新进度（${nu.length}）`);
+    lines.push(`### 今日未更新进度（${nu.length}个）`);
     nu.forEach((i) => lines.push(`- ${i.title}`));
     lines.push("");
   }
   if (od.length > 0) {
-    lines.push(`### 超期未关闭（${od.length}）`);
-    od.forEach((i) => lines.push(`- ${i.title}（截止 ${i.dueDate}）`));
+    lines.push(`### 已超期未关闭（${od.length}个）`);
+    od.forEach((i) => lines.push(`- ${i.title}（截止日期：${i.dueDate}，请尽快关闭或更新截止日期）`));
     lines.push("");
   }
   if (st.length > 0) {
-    lines.push(`### 连续 3 天无进度更新（${st.length}）`);
-    st.forEach((i) => lines.push(`- ${i.title}`));
+    lines.push(`### 连续 3 天无进度更新（${st.length}个）`);
+    st.forEach((i) => lines.push(`- ${i.title}（已超过 3 个自然日未提交任何进展）`));
     lines.push("");
   }
   return lines.join("\n");
@@ -80,39 +98,34 @@ async function hasReminderToday(
 }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
+  const secret     = process.env.CRON_SECRET;
   const vercelCron = request.headers.get("x-vercel-cron") === "1";
   if (secret) {
     const header = request.headers.get("authorization");
-    const ok = vercelCron || header === `Bearer ${secret}`;
-    if (!ok) {
+    if (!vercelCron && header !== `Bearer ${secret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
 
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY is not configured" }, { status: 503 });
+  }
+
   try {
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { error: "SUPABASE_SERVICE_ROLE_KEY is not configured" },
-        { status: 503 }
-      );
-    }
-    const supabase = createAdminClient();
+    const supabase   = createAdminClient();
     const { startIso, endIso, dateStr: todayStr } = getChinaDayBounds();
     const windowStartStr = `${chinaDateMinusDays(todayStr, 2)}T00:00:00+08:00`;
-    const windowStart = new Date(windowStartStr).toISOString();
+    const windowStart    = new Date(windowStartStr).toISOString();
 
     const { data: issues, error } = await supabase
       .from("issues")
-      .select("id, status, assignee_id, due_date, created_at");
+      .select("id, title, status, assignee_id, due_date, created_at, last_activity_at");
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     const { data: allUsers } = await supabase.from("users").select("id, name, wecom_userid");
     const userNameMap = new Map((allUsers ?? []).map((u) => [u.id as string, u.name as string]));
-    const wecomIdMap = new Map(
+    const wecomIdMap  = new Map(
       (allUsers ?? []).map((u) => [
         u.id as string,
         ((u as { wecom_userid?: string | null }).wecom_userid ?? null) as string | null,
@@ -120,197 +133,190 @@ export async function GET(request: Request) {
     );
 
     const list = (issues ?? []) as IssueRow[];
+
+    // ─── 步骤一：写 reminders（幂等）────────────────────────────────────
     let insertedNoUpdate = 0;
-    let insertedOverdue = 0;
-    let insertedStale = 0;
+    let insertedOverdue  = 0;
+    let insertedStale    = 0;
 
     const noUpdateItems: ItemNoUpdate[] = [];
-    const overdueItems: ItemOverdue[] = [];
-    const staleItems: ItemStale[] = [];
-
-    const { data: allIssueRows } = await supabase.from("issues").select("id, title");
-    const issueTitleMap = new Map((allIssueRows ?? []).map((i) => [i.id as string, i.title as string]));
+    const overdueItems:  ItemOverdue[]  = [];
+    const staleItems:    ItemStale[]    = [];
 
     for (const issue of list) {
       const assignee = issue.assignee_id;
       if (!assignee) continue;
 
-      const { data: updatesToday } = await supabase
-        .from("issue_updates")
-        .select("id")
-        .eq("issue_id", issue.id)
-        .gte("created_at", startIso)
-        .lte("created_at", endIso);
+      // no_update_today：只统计人工更新（is_system_generated=false），与 dashboard 定义一致
+      if (["in_progress", "blocked", "pending_review"].includes(issue.status)) {
+        const { data: updatesToday } = await supabase
+          .from("issue_updates")
+          .select("id")
+          .eq("issue_id", issue.id)
+          .eq("is_system_generated", false)
+          .gte("created_at", startIso)
+          .lte("created_at", endIso);
 
-      const hasTodayUpdate = (updatesToday?.length ?? 0) > 0;
-
-      if (
-        ["in_progress", "blocked", "pending_review"].includes(issue.status) &&
-        !hasTodayUpdate
-      ) {
-        const dup = await hasReminderToday(
-          supabase,
-          issue.id,
-          assignee,
-          "no_update_today",
-          startIso,
-          endIso
-        );
-        if (!dup) {
-          await supabase.from("reminders").insert({
-            issue_id: issue.id,
-            user_id: assignee,
-            type: "no_update_today",
-            message: "今日尚未提交进度更新",
-            is_read: false,
-          });
-          insertedNoUpdate++;
-          noUpdateItems.push({
-            title: issueTitleMap.get(issue.id) ?? issue.id,
-            assignee: userNameMap.get(assignee) ?? "未知",
-            assigneeId: assignee,
-          });
-        }
-      }
-
-      if (
-        issue.due_date &&
-        issue.due_date < todayStr &&
-        issue.status !== "resolved" &&
-        issue.status !== "closed"
-      ) {
-        const dup = await hasReminderToday(
-          supabase,
-          issue.id,
-          assignee,
-          "overdue",
-          startIso,
-          endIso
-        );
-        if (!dup) {
-          await supabase.from("reminders").insert({
-            issue_id: issue.id,
-            user_id: assignee,
-            type: "overdue",
-            message: `问题已超期（截止 ${issue.due_date}）`,
-            is_read: false,
-          });
-          insertedOverdue++;
-          overdueItems.push({
-            title: issueTitleMap.get(issue.id) ?? issue.id,
-            assignee: userNameMap.get(assignee) ?? "未知",
-            assigneeId: assignee,
-            dueDate: issue.due_date!,
-          });
-        }
-      }
-
-      const { data: lastUp } = await supabase
-        .from("issue_updates")
-        .select("created_at")
-        .eq("issue_id", issue.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const lastTs = lastUp?.created_at ?? issue.created_at;
-      if (new Date(lastTs).getTime() < new Date(windowStart).getTime()) {
-        if (["in_progress", "blocked", "pending_review"].includes(issue.status)) {
-          const dup = await hasReminderToday(
-            supabase,
-            issue.id,
-            assignee,
-            "stale_3_days",
-            startIso,
-            endIso
-          );
+        if ((updatesToday?.length ?? 0) === 0) {
+          const dup = await hasReminderToday(supabase, issue.id, assignee, "no_update_today", startIso, endIso);
           if (!dup) {
-            await supabase.from("reminders").insert({
+            const { data: newReminder, error: remErr } = await supabase
+              .from("reminders")
+              .insert({
+                issue_id: issue.id,
+                user_id:  assignee,
+                type:     "no_update_today",
+                message:  `今日（${todayStr}）尚未提交任何进度更新`,
+                is_read:  false,
+              })
+              .select("id")
+              .single();
+
+            if (remErr) {
+              console.error("[cron] reminders insert failed (no_update_today):", remErr.message, issue.id);
+            } else {
+              insertedNoUpdate++;
+              const rid = (newReminder as { id: string } | null)?.id ?? null;
+              noUpdateItems.push({ title: issue.title, assignee: userNameMap.get(assignee) ?? "未知", assigneeId: assignee, reminderId: rid });
+              await writeIssueEvent(supabase, {
+                issueId: issue.id, actorId: null, eventType: "reminder_created",
+                payload: { type: "no_update_today", reminder_id: rid, date: todayStr },
+              });
+            }
+          }
+        }
+      }
+
+      // overdue
+      if (issue.due_date && issue.due_date < todayStr && issue.status !== "resolved" && issue.status !== "closed") {
+        const dup = await hasReminderToday(supabase, issue.id, assignee, "overdue", startIso, endIso);
+        if (!dup) {
+          const { data: newReminder, error: remErr } = await supabase
+            .from("reminders")
+            .insert({
               issue_id: issue.id,
-              user_id: assignee,
-              type: "stale_3_days",
-              message: "连续 3 天无进度更新（按上海日历日）",
-              is_read: false,
+              user_id:  assignee,
+              type:     "overdue",
+              message:  `问题已超期（截止日期：${issue.due_date}），请尽快处理或更新截止日期`,
+              is_read:  false,
+            })
+            .select("id")
+            .single();
+
+          if (remErr) {
+            console.error("[cron] reminders insert failed (overdue):", remErr.message, issue.id);
+          } else {
+            insertedOverdue++;
+            const rid = (newReminder as { id: string } | null)?.id ?? null;
+            overdueItems.push({ title: issue.title, assignee: userNameMap.get(assignee) ?? "未知", assigneeId: assignee, dueDate: issue.due_date!, reminderId: rid, issueId: issue.id });
+            await writeIssueEvent(supabase, {
+              issueId: issue.id, actorId: null, eventType: "reminder_created",
+              payload: { type: "overdue", reminder_id: rid, due_date: issue.due_date, date: todayStr },
             });
-            insertedStale++;
-            staleItems.push({
-              title: issueTitleMap.get(issue.id) ?? issue.id,
-              assignee: userNameMap.get(assignee) ?? "未知",
-              assigneeId: assignee,
-            });
+          }
+        }
+      }
+
+      // stale_3_days：使用 last_activity_at（P0 触发器维护，只含人工活动），
+      // 与 dashboard 和 issues 页的 stale 定义保持口径一致，同时消除了逐条查询 issue_updates 的 N+1 问题。
+      if (["in_progress", "blocked", "pending_review"].includes(issue.status)) {
+        const lastTs = issue.last_activity_at ?? issue.created_at;
+        if (new Date(lastTs).getTime() < new Date(windowStart).getTime()) {
+          const dup = await hasReminderToday(supabase, issue.id, assignee, "stale_3_days", startIso, endIso);
+          if (!dup) {
+            const { data: newReminder, error: remErr } = await supabase
+              .from("reminders")
+              .insert({
+                issue_id: issue.id,
+                user_id:  assignee,
+                type:     "stale_3_days",
+                message:  `已连续超过 3 个自然日（上海时间）无人工进度更新，请关注`,
+                is_read:  false,
+              })
+              .select("id")
+              .single();
+
+            if (remErr) {
+              console.error("[cron] reminders insert failed (stale_3_days):", remErr.message, issue.id);
+            } else {
+              insertedStale++;
+              const rid = (newReminder as { id: string } | null)?.id ?? null;
+              staleItems.push({ title: issue.title, assignee: userNameMap.get(assignee) ?? "未知", assigneeId: assignee, reminderId: rid, issueId: issue.id });
+              await writeIssueEvent(supabase, {
+                issueId: issue.id, actorId: null, eventType: "reminder_created",
+                payload: { type: "stale_3_days", reminder_id: rid, stale_since: lastTs, date: todayStr },
+              });
+            }
           }
         }
       }
     }
 
+    // ─── 步骤二：发通知（独立于 reminder 写入）──────────────────────────
     const total = insertedNoUpdate + insertedOverdue + insertedStale;
-    let wecomWebhookSent = false;
+    let webhookSent   = false;
     let workNoticeSent = 0;
     const workNoticeErrors: string[] = [];
 
-    if (total > 0) {
-      if (isWecomWebhookConfigured()) {
-        const lines: string[] = [`## 每日催办提醒（${todayStr}）\n`];
-        if (noUpdateItems.length > 0) {
-          lines.push(`### 今日未更新（${noUpdateItems.length}个）`);
-          noUpdateItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
-          lines.push("");
-        }
-        if (overdueItems.length > 0) {
-          lines.push(`### 超期未关闭（${overdueItems.length}个）`);
-          overdueItems.forEach((i) =>
-            lines.push(`- ${i.title}（截止 ${i.dueDate}）→ **${i.assignee}**`)
-          );
-          lines.push("");
-        }
-        if (staleItems.length > 0) {
-          lines.push(`### 连续3天未更新（${staleItems.length}个）`);
-          staleItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
-          lines.push("");
-        }
-        await sendWecomMarkdown(lines.join("\n"));
-        wecomWebhookSent = true;
+    if (total > 0 && isWecomWebhookConfigured()) {
+      const lines: string[] = [`## 每日催办提醒（${todayStr}）\n`];
+      if (noUpdateItems.length > 0) {
+        lines.push(`### 今日未更新（${noUpdateItems.length}个）`);
+        noUpdateItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
+        lines.push("");
       }
+      if (overdueItems.length > 0) {
+        lines.push(`### 超期未关闭（${overdueItems.length}个）`);
+        overdueItems.forEach((i) => lines.push(`- ${i.title}（截止 ${i.dueDate}）→ **${i.assignee}**`));
+        lines.push("");
+      }
+      if (staleItems.length > 0) {
+        lines.push(`### 连续3天未更新（${staleItems.length}个）`);
+        staleItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
+        lines.push("");
+      }
+      const result = await sendGroupDigest({ content: lines.join("\n"), triggerSource: "cron_daily" });
+      webhookSent = result.success;
+    }
 
-      if (isWecomAppConfigured()) {
-        const assigneeIds = new Set<string>();
-        for (const i of noUpdateItems) assigneeIds.add(i.assigneeId);
-        for (const i of overdueItems) assigneeIds.add(i.assigneeId);
-        for (const i of staleItems) assigneeIds.add(i.assigneeId);
+    if (total > 0 && isWecomAppConfigured()) {
+      const assigneeIds = new Set<string>();
+      for (const i of [...noUpdateItems, ...overdueItems, ...staleItems]) assigneeIds.add(i.assigneeId);
 
-        for (const uid of assigneeIds) {
-          const wcUserid = wecomIdMap.get(uid);
-          if (!wcUserid) continue;
-          const md = buildPersonalMarkdown(uid, todayStr, noUpdateItems, overdueItems, staleItems);
-          if (!md) continue;
-          try {
-            await sendWecomWorkNotice(wcUserid, `每日催办 · ${todayStr}`, md);
-            workNoticeSent++;
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            workNoticeErrors.push(`${uid}: ${msg}`);
-            console.error("[cron] 企业微信工作通知失败:", uid, msg);
-          }
+      for (const uid of assigneeIds) {
+        const wcUserid = wecomIdMap.get(uid);
+        if (!wcUserid) continue;
+        const md = buildPersonalMarkdown(uid, todayStr, noUpdateItems, overdueItems, staleItems);
+        if (!md) continue;
+
+        const result = await sendReminderNotification({
+          targetWecomUserid: wcUserid,
+          targetUserId:      uid,
+          title:             `每日催办 · ${todayStr}`,
+          content:           md,
+          triggerSource:     "cron_daily",
+        });
+
+        if (result.success) {
+          workNoticeSent++;
+        } else {
+          workNoticeErrors.push(`${uid}: ${result.errorMessage ?? result.errorCode}`);
+          console.error("[cron] 企业微信工作通知失败:", uid, result.errorCode);
         }
       }
     }
 
     return NextResponse.json({
-      ok: true,
+      ok:    true,
       today: todayStr,
-      inserted: {
-        no_update_today: insertedNoUpdate,
-        overdue: insertedOverdue,
-        stale_3_days: insertedStale,
-      },
-      wecom_webhook_sent: wecomWebhookSent,
+      inserted: { no_update_today: insertedNoUpdate, overdue: insertedOverdue, stale_3_days: insertedStale },
+      wecom_webhook_sent: webhookSent,
       wecom_work_notice: {
-        sent: workNoticeSent,
+        sent:   workNoticeSent,
         errors: workNoticeErrors.length ? workNoticeErrors : undefined,
       },
     });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Cron failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Cron failed" }, { status: 500 });
   }
 }
