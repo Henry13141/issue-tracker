@@ -1,7 +1,8 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { User } from "@/types";
 
-export async function getCurrentUser(): Promise<User | null> {
+export const getCurrentUser = cache(async (): Promise<User | null> => {
   let supabase;
   try {
     supabase = await createClient();
@@ -21,4 +22,4 @@ export async function getCurrentUser(): Promise<User | null> {
 
   if (error || !data) return null;
   return data as User;
-}
+});
