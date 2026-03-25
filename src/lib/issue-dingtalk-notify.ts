@@ -266,6 +266,61 @@ export function dingtalkAfterUpdateIssue(params: {
   })().catch((e) => console.error("[dingtalk-event] update", e));
 }
 
+/** 有人提交了进度更新：实时通知所有管理员（操作者本人除外） */
+export function dingtalkAfterProgressUpdate(params: {
+  issueId: string;
+  issueTitle: string;
+  content: string;
+  statusFrom: IssueStatus;
+  statusTo: IssueStatus;
+  actorName: string;
+  actorUserId: string;
+}): void {
+  void (async () => {
+    if (!isDingtalkAppConfigured()) return;
+
+    const admins = await getAdminUserIds();
+    const recipients = admins.filter((id) => id !== params.actorUserId);
+    if (recipients.length === 0) return;
+
+    const ref = formatIssueRef(params.issueId, params.issueTitle);
+    const statusChanged = params.statusFrom !== params.statusTo;
+    const LABELS: Record<string, string> = {
+      todo: "待处理",
+      in_progress: "处理中",
+      blocked: "卡住",
+      pending_review: "待验证",
+      resolved: "已解决",
+      closed: "已关闭",
+    };
+
+    const lines = [
+      `## 进度更新`,
+      "",
+      `- 问题：${ref}`,
+      `- 更新人：**${params.actorName}**`,
+    ];
+    if (statusChanged) {
+      lines.push(
+        `- 状态：${LABELS[params.statusFrom] ?? params.statusFrom} → **${LABELS[params.statusTo] ?? params.statusTo}**`
+      );
+    }
+    lines.push("", `> ${params.content.length > 200 ? params.content.slice(0, 200) + "…" : params.content}`);
+
+    const md = lines.join("\n");
+    const shortTitle = `进度更新 · ${params.issueTitle.slice(0, 16)}${params.issueTitle.length > 16 ? "…" : ""}`;
+
+    for (const uid of recipients) {
+      await workNoticeToUser(
+        uid,
+        shortTitle,
+        md,
+        `progress_update issue=${params.issueId} actor=${params.actorUserId} notify_admin=${uid}`
+      );
+    }
+  })().catch((e) => console.error("[dingtalk-event] progress_update", e));
+}
+
 /** 进度记录里把状态改为阻塞 */
 export function dingtalkAfterIssueUpdateToBlocked(params: {
   issueId: string;
