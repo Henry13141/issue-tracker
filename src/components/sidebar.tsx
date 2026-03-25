@@ -8,14 +8,15 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
-import { LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users } from "lucide-react";
+import { LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send } from "lucide-react";
 
 const nav = [
-  { href: "/dashboard", label: "看板总览", icon: LayoutDashboard, adminOnly: true },
-  { href: "/members", label: "成员与钉钉", icon: Users, adminOnly: true },
-  { href: "/issues", label: "问题列表", icon: ListTodo },
-  { href: "/my-tasks", label: "我的任务", icon: ClipboardList },
-  { href: "/reminders", label: "提醒中心", icon: Bell },
+  { href: "/dashboard",               label: "看板总览",   icon: LayoutDashboard, adminOnly: true },
+  { href: "/members",                 label: "成员与钉钉", icon: Users,            adminOnly: true },
+  { href: "/dashboard/notifications", label: "通知日志",   icon: Send,             adminOnly: true },
+  { href: "/issues",                  label: "问题列表",   icon: ListTodo },
+  { href: "/my-tasks",                label: "我的任务",   icon: ClipboardList },
+  { href: "/reminders",               label: "提醒中心",   icon: Bell },
 ];
 
 export function Sidebar({ user }: { user: User }) {

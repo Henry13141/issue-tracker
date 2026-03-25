@@ -5,7 +5,23 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { notifyNewMemberWelcome } from "@/lib/new-member-welcome";
+import { getMemberWorkload, getNotificationCoverage } from "@/lib/dashboard-queries";
+import type { MemberWorkloadRow, NotificationCoverage } from "@/lib/dashboard-queries";
 import type { User } from "@/types";
+
+export type { MemberWorkloadRow, NotificationCoverage };
+
+export async function getMemberWorkloadForPage(): Promise<MemberWorkloadRow[]> {
+  const user = await getCurrentUser();
+  if (!user || user.role !== "admin") return [];
+  return getMemberWorkload();
+}
+
+export async function getNotificationCoverageForPage(): Promise<NotificationCoverage> {
+  const user = await getCurrentUser();
+  if (!user || user.role !== "admin") return { total: 0, withWecom: 0, withoutWecom: 0, coverageRate: 0 };
+  return getNotificationCoverage();
+}
 
 export const getMembers = cache(async (): Promise<User[]> => {
   const supabase = await createClient();

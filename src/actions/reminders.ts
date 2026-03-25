@@ -72,3 +72,19 @@ export async function markAllRemindersRead() {
   if (error) throw new Error(error.message);
   revalidatePath("/reminders");
 }
+
+export async function markMultipleRemindersRead(ids: string[]) {
+  if (ids.length === 0) return;
+  const user = await getCurrentUser();
+  if (!user) return;
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("reminders")
+    .update({ is_read: true })
+    .in("id", ids)
+    .eq("user_id", user.id);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/reminders");
+}

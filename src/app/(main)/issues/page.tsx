@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { getIssues, type IssueFilters } from "@/actions/issues";
+import { getIssues, type IssueFilters, type IssueSortBy, type IssueRisk } from "@/actions/issues";
 import { getMembers } from "@/actions/members";
 import { getCurrentUser } from "@/lib/auth";
 import { IssuesToolbar } from "@/components/issues-toolbar";
@@ -9,21 +9,29 @@ import { ImportExcelDialog } from "@/components/import-excel-dialog";
 import { EmptyState } from "@/components/empty-state";
 import type { IssuePriority, IssueStatus } from "@/types";
 
+function str(v: string | string[] | undefined): string | undefined {
+  return typeof v === "string" && v ? v : undefined;
+}
+
+const VALID_SORT_BY: IssueSortBy[] = ["updated_at", "created_at", "due_date", "last_activity_at", "priority"];
+const VALID_RISK: IssueRisk[]      = ["overdue", "stale", "blocked", "urgent"];
+
 function parseFilters(sp: Record<string, string | string[] | undefined>): IssueFilters {
-  const status =
-    typeof sp.status === "string" && sp.status ? ([sp.status] as IssueStatus[]) : undefined;
-  const priority =
-    typeof sp.priority === "string" && sp.priority
-      ? ([sp.priority] as IssuePriority[])
-      : undefined;
-  const assigneeId = typeof sp.assignee === "string" && sp.assignee ? sp.assignee : undefined;
-  const q = typeof sp.q === "string" ? sp.q : undefined;
+  const rawSortBy = str(sp.sortBy);
+  const rawRisk   = str(sp.risk);
 
   return {
-    status,
-    priority,
-    assigneeId,
-    q,
+    status:     str(sp.status)   ? ([str(sp.status)] as IssueStatus[])   : undefined,
+    priority:   str(sp.priority) ? ([str(sp.priority)] as IssuePriority[]) : undefined,
+    assigneeId: str(sp.assignee),
+    reviewerId: str(sp.reviewer),
+    category:   str(sp.category),
+    module:     str(sp.module),
+    source:     str(sp.source),
+    risk:       (rawRisk && VALID_RISK.includes(rawRisk as IssueRisk)) ? rawRisk as IssueRisk : undefined,
+    sortBy:     (rawSortBy && VALID_SORT_BY.includes(rawSortBy as IssueSortBy)) ? rawSortBy as IssueSortBy : undefined,
+    sortDir:    str(sp.sortDir) === "asc" ? "asc" : "desc",
+    q:          str(sp.q),
   };
 }
 

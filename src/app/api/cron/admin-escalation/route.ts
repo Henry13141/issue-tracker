@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/reminder-logic";
-import {
-  sendWecomWorkNotice,
-  isWecomAppConfigured,
-} from "@/lib/wecom";
+import { isWecomAppConfigured } from "@/lib/wecom";
+import { sendAdminDigest } from "@/lib/notification-service";
 import { getPublicAppUrl } from "@/lib/app-url";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
 import type { IssueStatus } from "@/types";
@@ -51,10 +49,6 @@ function buildEscalationMarkdown(
   return lines.join("\n");
 }
 
-/**
- * 每天下午：检查早晨提醒过的负责人是否在今天有进度更新，
- * 将"零响应"的负责人汇总通知管理员，方便及时督促。
- */
 export async function GET(request: Request) {
   if (!authorizeCron(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -66,8 +60,7 @@ export async function GET(request: Request) {
 
   if (!isWecomAppConfigured()) {
     return NextResponse.json({
-      ok: true,
-      skipped: true,
+      ok: true, skipped: true,
       reason: "企业微信应用未配置（WECOM_CORPID / WECOM_CORPSECRET / WECOM_AGENTID）",
     });
   }
@@ -83,16 +76,10 @@ export async function GET(request: Request) {
       .in("status", INCOMPLETE_ISSUE_STATUSES)
       .not("assignee_id", "is", null);
 
-    if (issuesErr) {
-      return NextResponse.json({ error: issuesErr.message }, { status: 500 });
-    }
+    if (issuesErr) return NextResponse.json({ error: issuesErr.message }, { status: 500 });
 
     if (!issues || issues.length === 0) {
-      return NextResponse.json({
-        ok: true,
-        date: todayStr,
-        message: "没有未完成且已指派的工单，无需督促",
-      });
+      return NextResponse.json({ ok: true, date: todayStr, message: "没有未完成且已指派的工单，无需督促" });
     }
 
     const { data: allUsers } = await supabase.from("users").select("id, name, role, wecom_userid");
@@ -100,8 +87,8 @@ export async function GET(request: Request) {
       (allUsers ?? []).map((u) => [
         u.id as string,
         {
-          name: (u.name as string) ?? "同事",
-          role: u.role as string,
+          name:        (u.name as string) ?? "同事",
+          role:        u.role as string,
           wecomUserid: ((u as { wecom_userid?: string | null }).wecom_userid ?? "").trim(),
         },
       ])
@@ -127,79 +114,80 @@ export async function GET(request: Request) {
 
     const updatedUserIds = new Set((todayUpdates ?? []).map((u) => u.user_id as string));
 
-    const noActionAssignees: { userId: string; name: string; issues: { title: string; status: IssueStatus }[] }[] = [];
+    const noActionAssignees: {
+      userId: string;
+      name: string;
+      wecomUserid: string;
+      issues: { title: string; status: IssueStatus }[];
+    }[] = [];
+
     for (const [assigneeId, rows] of byAssignee) {
       if (updatedUserIds.has(assigneeId)) continue;
-
       const u = userMap.get(assigneeId);
       if (!u || !u.wecomUserid) continue;
-
       noActionAssignees.push({
-        userId: assigneeId,
-        name: u.name,
-        issues: rows
+        userId:      assigneeId,
+        name:        u.name,
+        wecomUserid: u.wecomUserid,
+        issues:      rows
           .map((r) => ({ title: r.title, status: r.status }))
           .sort((a, b) => a.title.localeCompare(b.title, "zh-CN")),
       });
     }
 
     if (noActionAssignees.length === 0) {
-      return NextResponse.json({
-        ok: true,
-        date: todayStr,
-        message: "所有负责人今天都已更新进度，无需督促",
-      });
+      return NextResponse.json({ ok: true, date: todayStr, message: "所有负责人今天都已更新进度，无需督促" });
     }
 
     const admins = (allUsers ?? []).filter(
-      (u) =>
-        u.role === "admin" &&
-        ((u as { wecom_userid?: string | null }).wecom_userid ?? "").trim()
+      (u) => u.role === "admin" && ((u as { wecom_userid?: string | null }).wecom_userid ?? "").trim()
     );
 
     if (admins.length === 0) {
       return NextResponse.json({
-        ok: true,
-        date: todayStr,
+        ok: true, date: todayStr,
         no_action_assignees: noActionAssignees.length,
         message: "没有配置了企业微信 userid 的管理员，无法发送督促通知",
       });
     }
 
     const base = getPublicAppUrl();
-    const listUrl = base || "";
-
     let sent = 0;
     const errors: string[] = [];
 
     for (const admin of admins) {
-      const adminWc = ((admin as { wecom_userid?: string | null }).wecom_userid ?? "").trim();
+      const adminWc   = ((admin as { wecom_userid?: string | null }).wecom_userid ?? "").trim();
       const adminName = (admin.name as string) ?? "管理员";
 
-      const md = buildEscalationMarkdown(adminName, dateLabel, noActionAssignees, listUrl);
+      const md    = buildEscalationMarkdown(adminName, dateLabel, noActionAssignees, base || "");
       const title = `督促提醒 · ${noActionAssignees.length} 位同事今日未更新`;
 
-      try {
-        await sendWecomWorkNotice(adminWc, title, md);
+      const result = await sendAdminDigest({
+        targetWecomUserid: adminWc,
+        targetUserId:      admin.id as string,
+        title,
+        content:           md,
+        triggerSource:     "cron_admin",
+      });
+
+      if (result.success) {
         sent++;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        errors.push(`admin ${admin.id}: ${msg}`);
-        console.error("[cron] admin-escalation:", admin.id, msg);
+      } else {
+        errors.push(`admin ${admin.id}: ${result.errorMessage ?? result.errorCode}`);
+        console.error("[cron] admin-escalation:", admin.id, result.errorCode);
       }
     }
 
     return NextResponse.json({
-      ok: true,
-      date: todayStr,
-      no_action_assignees: noActionAssignees.length,
-      no_action_names: noActionAssignees.map((a) => a.name),
-      admin_notified: sent,
-      send_failed_count: errors.length,
-      send_failures: errors.length ? errors : undefined,
+      ok:                   true,
+      date:                 todayStr,
+      no_action_assignees:  noActionAssignees.length,
+      no_action_names:      noActionAssignees.map((a) => a.name),
+      admin_notified:       sent,
+      send_failed_count:    errors.length,
+      send_failures:        errors.length ? errors : undefined,
     });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Cron failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Cron failed" }, { status: 500 });
   }
 }

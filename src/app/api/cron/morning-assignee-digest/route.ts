@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/reminder-logic";
-import {
-  sendWecomWorkNotice,
-  isWecomAppConfigured,
-} from "@/lib/wecom";
+import { isWecomAppConfigured } from "@/lib/wecom";
+import { sendAdminDigest } from "@/lib/notification-service";
 import { getPublicAppUrl } from "@/lib/app-url";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
 import type { IssueStatus } from "@/types";
@@ -57,10 +55,6 @@ function buildGentleMorningMarkdown(
   return lines.join("\n");
 }
 
-/**
- * 每个工作日早晨：向所有「名下有未完成工单」且配置了钉钉 userid 的负责人
- * 发一条语气温和的工作通知（钉钉工作通知，非普通单聊）。
- */
 export async function GET(request: Request) {
   if (!authorizeCron(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -72,8 +66,7 @@ export async function GET(request: Request) {
 
   if (!isWecomAppConfigured()) {
     return NextResponse.json({
-      ok: true,
-      skipped: true,
+      ok: true, skipped: true,
       reason: "企业微信应用未配置（WECOM_CORPID / WECOM_CORPSECRET / WECOM_AGENTID）",
     });
   }
@@ -89,9 +82,7 @@ export async function GET(request: Request) {
       .in("status", INCOMPLETE_ISSUE_STATUSES)
       .not("assignee_id", "is", null);
 
-    if (issuesErr) {
-      return NextResponse.json({ error: issuesErr.message }, { status: 500 });
-    }
+    if (issuesErr) return NextResponse.json({ error: issuesErr.message }, { status: 500 });
 
     const { data: allUsers } = await supabase.from("users").select("id, name, wecom_userid");
     const nameMap = new Map((allUsers ?? []).map((u) => [u.id as string, (u.name as string) ?? "同事"]));
@@ -113,48 +104,48 @@ export async function GET(request: Request) {
     }
 
     const base = getPublicAppUrl();
-    const listUrl = base || "";
-
     let sent = 0;
     let skippedNoWecom = 0;
     const errors: string[] = [];
 
     for (const [assigneeUserId, rows] of byAssignee) {
       const wc = wecomMap.get(assigneeUserId);
-      if (!wc) {
-        skippedNoWecom++;
-        continue;
-      }
+      if (!wc) { skippedNoWecom++; continue; }
 
-      const name = nameMap.get(assigneeUserId) ?? "同事";
+      const name  = nameMap.get(assigneeUserId) ?? "同事";
       const items = rows
         .map((r) => ({ title: r.title, status: r.status as IssueStatus }))
         .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
 
-      const md = buildGentleMorningMarkdown(name, dateLabel, items, listUrl);
+      const md    = buildGentleMorningMarkdown(name, dateLabel, items, base || "");
       const title = `早安 · 今日未完成工单（${items.length}）`;
 
-      try {
-        await sendWecomWorkNotice(wc, title, md);
+      const result = await sendAdminDigest({
+        targetWecomUserid: wc,
+        targetUserId:      assigneeUserId,
+        title,
+        content:           md,
+        triggerSource:     "cron_morning",
+      });
+
+      if (result.success) {
         sent++;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        errors.push(`${assigneeUserId}: ${msg}`);
-        console.error("[cron] morning-assignee-digest:", assigneeUserId, msg);
+      } else {
+        errors.push(`${assigneeUserId}: ${result.errorMessage ?? result.errorCode}`);
+        console.error("[cron] morning-assignee-digest:", assigneeUserId, result.errorCode);
       }
     }
 
     return NextResponse.json({
       ok: true,
-      date: todayStr,
+      date:                             todayStr,
       assignees_with_incomplete_issues: byAssignee.size,
-      wecom_work_notice_sent: sent,
-      skipped_no_wecom_userid: skippedNoWecom,
-      send_failed_count: errors.length,
-      send_failures: errors.length ? errors : undefined,
+      wecom_work_notice_sent:           sent,
+      skipped_no_wecom_userid:          skippedNoWecom,
+      send_failed_count:                errors.length,
+      send_failures:                    errors.length ? errors : undefined,
     });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Cron failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Cron failed" }, { status: 500 });
   }
 }
