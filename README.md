@@ -31,24 +31,10 @@ Next.js App Router + TypeScript + Tailwind + shadcn/ui + Supabase（数据库与
 
 6. 打开 [http://localhost:3000](http://localhost:3000)，注册/登录。
 
-## 自动部署（GitHub Actions）
+## 自动部署
 
-仓库已包含：
-
-- **[`.github/workflows/ci.yml`](.github/workflows/ci.yml)**：向 `main` 推送或提 PR 时执行 `lint` + `build`（使用占位 Supabase 环境变量，无需在 GitHub 配密钥）。
-- **[`.github/workflows/vercel-production.yml`](.github/workflows/vercel-production.yml)**：向 `main` 推送时用 Vercel CLI 部署 **Production**。
-
-在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中新建：
-
-| Secret | 说明 |
-|--------|------|
-| `VERCEL_TOKEN` | [Vercel Account → Tokens](https://vercel.com/account/tokens) 创建 |
-| `VERCEL_ORG_ID` | 本地项目根目录执行 `npx vercel link` 后，`.vercel/project.json` 里的 `orgId` |
-| `VERCEL_PROJECT_ID` | 同上文件里的 `projectId` |
-
-配置完成后，每次 `git push origin main` 会触发自动部署。
-
-**说明**：若已在 Vercel 控制台把本仓库接好 Git，推送时 Vercel 也会自动部署一次。若不想重复部署，可在 Vercel 项目 **Settings → Git** 中关闭 **Automatic deployments**，仅保留 GitHub Actions；或删除 `vercel-production.yml`、只用 Vercel 自带集成。
+- 仓库已通过 Vercel Git 集成连接。每次 `git push origin main`，**Vercel 会自动拉取构建并部署到 Production**，无需额外操作。
+- **[`.github/workflows/ci.yml`](.github/workflows/ci.yml)**：向 `main` 推送或提 PR 时执行 `lint` + `build` 检查（使用占位 Supabase 环境变量，无需在 GitHub 配密钥）。
 
 ## 每日催办（Cron）
 
