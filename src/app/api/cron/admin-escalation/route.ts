@@ -1,0 +1,214 @@
+import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getChinaDayBounds } from "@/lib/reminder-logic";
+import {
+  sendDingtalkWorkNotice,
+  logDingTalkWorkNoticeDelivery,
+  dingtalkDeliveryPollDelayMs,
+  isDingtalkAppConfigured,
+} from "@/lib/dingtalk";
+import { getPublicAppUrl } from "@/lib/app-url";
+import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
+import type { IssueStatus } from "@/types";
+
+export const dynamic = "force-dynamic";
+
+function authorizeCron(request: Request): boolean {
+  const secret = process.env.CRON_SECRET;
+  const vercelCron = request.headers.get("x-vercel-cron") === "1";
+  if (!secret) return true;
+  return vercelCron || request.headers.get("authorization") === `Bearer ${secret}`;
+}
+
+function buildEscalationMarkdown(
+  adminName: string,
+  dateLabel: string,
+  noActionAssignees: { name: string; issues: { title: string; status: IssueStatus }[] }[],
+  listUrl: string
+): string {
+  const lines: string[] = [
+    `## 督促提醒 · ${dateLabel}`,
+    "",
+    `**${adminName}**，下午好。`,
+    "",
+    `今天早晨已向负责人发送了工单提醒，以下 **${noActionAssignees.length}** 位同事截至目前仍未更新进度：`,
+    "",
+  ];
+
+  for (const a of noActionAssignees) {
+    lines.push(`### ${a.name}（${a.issues.length} 条未完成）`);
+    for (const it of a.issues) {
+      const st = ISSUE_STATUS_LABELS[it.status] ?? it.status;
+      lines.push(`- ${it.title}（${st}）`);
+    }
+    lines.push("");
+  }
+
+  if (listUrl) {
+    lines.push(`[打开问题列表 →](${listUrl}/issues)`);
+    lines.push("");
+  }
+  lines.push("建议尽快督促相关同事更新工单状态，谢谢。");
+
+  return lines.join("\n");
+}
+
+/**
+ * 每天下午：检查早晨提醒过的负责人是否在今天有进度更新，
+ * 将"零响应"的负责人汇总通知管理员，方便及时督促。
+ */
+export async function GET(request: Request) {
+  if (!authorizeCron(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY is not configured" }, { status: 503 });
+  }
+
+  if (!isDingtalkAppConfigured()) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "钉钉企业应用未配置",
+    });
+  }
+
+  try {
+    const supabase = createAdminClient();
+    const { dateStr: todayStr, startIso: todayStartIso } = getChinaDayBounds();
+    const dateLabel = `${todayStr.slice(0, 4)}年${Number(todayStr.slice(5, 7))}月${Number(todayStr.slice(8, 10))}日`;
+
+    const { data: issues, error: issuesErr } = await supabase
+      .from("issues")
+      .select("id, title, status, assignee_id")
+      .in("status", INCOMPLETE_ISSUE_STATUSES)
+      .not("assignee_id", "is", null);
+
+    if (issuesErr) {
+      return NextResponse.json({ error: issuesErr.message }, { status: 500 });
+    }
+
+    if (!issues || issues.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        date: todayStr,
+        message: "没有未完成且已指派的工单，无需督促",
+      });
+    }
+
+    const { data: allUsers } = await supabase.from("users").select("id, name, role, dingtalk_userid");
+    const userMap = new Map(
+      (allUsers ?? []).map((u) => [
+        u.id as string,
+        {
+          name: (u.name as string) ?? "同事",
+          role: u.role as string,
+          dingtalkUserid: ((u as { dingtalk_userid?: string | null }).dingtalk_userid ?? "").trim(),
+        },
+      ])
+    );
+
+    type Row = { id: string; title: string; status: IssueStatus; assignee_id: string };
+    const byAssignee = new Map<string, Row[]>();
+    for (const row of issues as Row[]) {
+      const aid = row.assignee_id;
+      if (!aid) continue;
+      const list = byAssignee.get(aid) ?? [];
+      list.push(row);
+      byAssignee.set(aid, list);
+    }
+
+    const assigneeIds = [...byAssignee.keys()];
+
+    const { data: todayUpdates } = await supabase
+      .from("issue_updates")
+      .select("user_id")
+      .gte("created_at", todayStartIso)
+      .in("user_id", assigneeIds);
+
+    const updatedUserIds = new Set((todayUpdates ?? []).map((u) => u.user_id as string));
+
+    const noActionAssignees: { userId: string; name: string; issues: { title: string; status: IssueStatus }[] }[] = [];
+    for (const [assigneeId, rows] of byAssignee) {
+      if (updatedUserIds.has(assigneeId)) continue;
+
+      const u = userMap.get(assigneeId);
+      if (!u || !u.dingtalkUserid) continue;
+
+      noActionAssignees.push({
+        userId: assigneeId,
+        name: u.name,
+        issues: rows
+          .map((r) => ({ title: r.title, status: r.status }))
+          .sort((a, b) => a.title.localeCompare(b.title, "zh-CN")),
+      });
+    }
+
+    if (noActionAssignees.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        date: todayStr,
+        message: "所有负责人今天都已更新进度，无需督促",
+      });
+    }
+
+    const admins = (allUsers ?? []).filter(
+      (u) =>
+        u.role === "admin" &&
+        ((u as { dingtalk_userid?: string | null }).dingtalk_userid ?? "").trim()
+    );
+
+    if (admins.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        date: todayStr,
+        no_action_assignees: noActionAssignees.length,
+        message: "没有配置了钉钉的管理员，无法发送督促通知",
+      });
+    }
+
+    const base = getPublicAppUrl();
+    const listUrl = base || "";
+
+    let sent = 0;
+    const errors: string[] = [];
+    const tasks: { task_id: number; context: string }[] = [];
+
+    for (const admin of admins) {
+      const adminDt = ((admin as { dingtalk_userid?: string | null }).dingtalk_userid ?? "").trim();
+      const adminName = (admin.name as string) ?? "管理员";
+
+      const md = buildEscalationMarkdown(adminName, dateLabel, noActionAssignees, listUrl);
+      const title = `督促提醒 · ${noActionAssignees.length} 位同事今日未更新`;
+
+      try {
+        const { task_id } = await sendDingtalkWorkNotice(adminDt, title, md);
+        tasks.push({ task_id, context: `admin_escalation date=${todayStr} admin=${admin.id}` });
+        sent++;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push(`admin ${admin.id}: ${msg}`);
+        console.error("[cron] admin-escalation:", admin.id, msg);
+      }
+    }
+
+    if (tasks.length > 0) {
+      await new Promise((r) => setTimeout(r, dingtalkDeliveryPollDelayMs()));
+      await Promise.all(tasks.map((t) => logDingTalkWorkNoticeDelivery(t.task_id, t.context)));
+    }
+
+    return NextResponse.json({
+      ok: true,
+      date: todayStr,
+      no_action_assignees: noActionAssignees.length,
+      no_action_names: noActionAssignees.map((a) => a.name),
+      admin_notified: sent,
+      send_failed_count: errors.length,
+      send_failures: errors.length ? errors : undefined,
+    });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Cron failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
