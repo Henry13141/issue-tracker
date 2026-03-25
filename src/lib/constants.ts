@@ -29,3 +29,11 @@ export const ACTIVE_STATUSES: IssueStatus[] = [
 ];
 
 export const TERMINAL_STATUSES: IssueStatus[] = ["resolved", "closed"];
+
+/** 未完成（问题列表里「未完成」的全部状态，含待处理） */
+export const INCOMPLETE_ISSUE_STATUSES: IssueStatus[] = [
+  "todo",
+  "in_progress",
+  "blocked",
+  "pending_review",
+];
