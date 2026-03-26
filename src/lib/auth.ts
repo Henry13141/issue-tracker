@@ -9,9 +9,14 @@ export const getCurrentUser = cache(async (): Promise<User | null> => {
   } catch {
     return null;
   }
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+
+  let session;
+  try {
+    const { data } = await supabase.auth.getSession();
+    session = data.session;
+  } catch {
+    return null;
+  }
   if (!session?.user) return null;
   const authUser = session.user;
 

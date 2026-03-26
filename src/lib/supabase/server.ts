@@ -13,6 +13,7 @@ export async function createClient() {
     url,
     key,
     {
+      cookieEncoding: "raw",
       cookies: {
         getAll() {
           return cookieStore.getAll();
