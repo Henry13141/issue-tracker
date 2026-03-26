@@ -21,6 +21,7 @@ export default async function MembersPage() {
       workload={workload}
       coverage={coverage}
       groupWebhookConfigured={isWecomWebhookConfigured()}
+      currentUserId={user.id}
     />
   );
 }

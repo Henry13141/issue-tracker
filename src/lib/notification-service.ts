@@ -16,7 +16,8 @@
 
 import {
   sendWecomWorkNotice,
-  sendWecomMarkdown,
+  sendWecomWebhookText,
+  stripMarkdown,
   isWecomAppConfigured,
   isWecomWebhookConfigured,
 } from "@/lib/wecom";
@@ -130,7 +131,9 @@ export async function sendNotification(params: SendParams): Promise<SendResult> 
   // ── 3. 实际发送 ──────────────────────────────────────────────────────
   try {
     if (params.channel === "wecom_bot") {
-      await sendWecomMarkdown(params.content);
+      const plain = stripMarkdown(params.content);
+      const result = await sendWecomWebhookText(plain);
+      if (!result.ok) throw new Error(result.error);
     } else {
       await sendWecomWorkNotice(
         params.targetWecomUserid!,

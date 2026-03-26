@@ -1,8 +1,8 @@
 "use client";
 
-import { useTransition } from "react";
+import { useTransition, useState } from "react";
 import Link from "next/link";
-import { updateUserWecomUserId } from "@/actions/members";
+import { updateUserWecomUserId, updateUserName, removeMember } from "@/actions/members";
 import type { MemberWorkloadRow, NotificationCoverage } from "@/lib/dashboard-queries";
 import type { User } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -17,16 +17,30 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { formatDateTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Pencil, Trash2, Check, X } from "lucide-react";
 
 // ─── 企业微信配置行 ────────────────────────────────────────────────────────
 
-function MemberRow({ member }: { member: User }) {
+function MemberRow({ member, currentUserId }: { member: User; currentUserId: string }) {
   const [pending, startTransition] = useTransition();
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState(member.name ?? "");
 
-  function save(formData: FormData) {
+  function saveWecomId(formData: FormData) {
     const value = (formData.get("wecom_userid") as string) ?? "";
     startTransition(async () => {
       const r = await updateUserWecomUserId(member.id, value);
@@ -35,20 +49,82 @@ function MemberRow({ member }: { member: User }) {
     });
   }
 
+  function saveName() {
+    startTransition(async () => {
+      const r = await updateUserName(member.id, nameValue);
+      if (r.ok) {
+        toast.success("名称已更新");
+        setEditingName(false);
+      } else {
+        toast.error(r.error ?? "保存失败");
+      }
+    });
+  }
+
+  function cancelEditName() {
+    setNameValue(member.name ?? "");
+    setEditingName(false);
+  }
+
+  function handleRemove() {
+    startTransition(async () => {
+      const r = await removeMember(member.id);
+      if (r.ok) toast.success(`已移除成员 ${member.name}`);
+      else toast.error(r.error ?? "移除失败");
+    });
+  }
+
+  const isSelf = member.id === currentUserId;
+
   return (
     <TableRow>
+      {/* 姓名列：内联编辑 */}
       <TableCell className="font-medium">
-        {member.name}
-        {!member.wecom_userid?.trim() && (
-          <span className="ml-2 text-[10px] text-orange-500 font-normal">无 userid</span>
+        {editingName ? (
+          <div className="flex items-center gap-1">
+            <Input
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              className="h-7 w-28 text-sm px-2"
+              disabled={pending}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveName();
+                if (e.key === "Escape") cancelEditName();
+              }}
+              autoFocus
+            />
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={saveName} disabled={pending}>
+              <Check className="h-3.5 w-3.5 text-green-600" />
+            </Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={cancelEditName} disabled={pending}>
+              <X className="h-3.5 w-3.5 text-muted-foreground" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 group">
+            <span>{member.name}</span>
+            {!member.wecom_userid?.trim() && (
+              <span className="ml-1 text-[10px] text-orange-500 font-normal">无 userid</span>
+            )}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={() => setEditingName(true)}
+              title="修改名称"
+            >
+              <Pencil className="h-3 w-3 text-muted-foreground" />
+            </Button>
+          </div>
         )}
       </TableCell>
       <TableCell className="text-muted-foreground text-sm">{member.email}</TableCell>
       <TableCell className="text-muted-foreground text-sm">
         {member.role === "admin" ? "管理员" : "成员"}
       </TableCell>
+      {/* 企业微信 userid */}
       <TableCell>
-        <form action={save} className="flex flex-wrap items-center gap-2">
+        <form action={saveWecomId} className="flex flex-wrap items-center gap-2">
           <Input
             name="wecom_userid"
             defaultValue={member.wecom_userid ?? ""}
@@ -58,6 +134,35 @@ function MemberRow({ member }: { member: User }) {
           />
           <Button type="submit" size="sm" disabled={pending}>保存</Button>
         </form>
+      </TableCell>
+      {/* 移除按钮 */}
+      <TableCell>
+        {!isSelf && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-red-600" title="移除成员" disabled={pending}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>移除成员</AlertDialogTitle>
+                <AlertDialogDescription>
+                  确定要移除「{member.name}」吗？该成员的账号将被删除，名下工单不受影响。此操作不可撤销。
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-red-600 hover:bg-red-700"
+                  onClick={handleRemove}
+                >
+                  确认移除
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </TableCell>
     </TableRow>
   );
@@ -148,11 +253,13 @@ export function MembersClient({
   workload,
   coverage,
   groupWebhookConfigured,
+  currentUserId,
 }: {
   members: User[];
   workload: MemberWorkloadRow[];
   coverage: NotificationCoverage;
   groupWebhookConfigured: boolean;
+  currentUserId: string;
 }) {
   return (
     <div className="space-y-6">
@@ -215,10 +322,11 @@ export function MembersClient({
                     <TableHead>邮箱</TableHead>
                     <TableHead>角色</TableHead>
                     <TableHead>企业微信 userid</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {members.map((m) => <MemberRow key={m.id} member={m} />)}
+                  {members.map((m) => <MemberRow key={m.id} member={m} currentUserId={currentUserId} />)}
                 </TableBody>
               </Table>
             </CardContent>
