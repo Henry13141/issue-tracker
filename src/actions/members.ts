@@ -35,6 +35,37 @@ export const getMembers = cache(async (): Promise<User[]> => {
   return (data ?? []) as User[];
 });
 
+export async function updateUserName(
+  userId: string,
+  name: string
+): Promise<{ ok: boolean; error?: string }> {
+  const me = await getCurrentUser();
+  if (!me || me.role !== "admin") return { ok: false, error: "无权限" };
+  const trimmed = name.trim();
+  if (!trimmed) return { ok: false, error: "名称不能为空" };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("users")
+    .update({ name: trimmed })
+    .eq("id", userId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/members");
+  return { ok: true };
+}
+
+export async function removeMember(
+  userId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const me = await getCurrentUser();
+  if (!me || me.role !== "admin") return { ok: false, error: "无权限" };
+  if (me.id === userId) return { ok: false, error: "不能移除自己" };
+  const supabase = await createClient();
+  const { error } = await supabase.from("users").delete().eq("id", userId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/members");
+  return { ok: true };
+}
+
 export async function updateUserWecomUserId(
   userId: string,
   wecomUserid: string

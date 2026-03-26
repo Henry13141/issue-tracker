@@ -79,7 +79,7 @@ export async function getAccessToken(): Promise<string> {
 // ─── 应用消息（工作通知）────────────────────────────────────────────────────────
 
 /** 将 Markdown 语法转为纯文本（text 消息兼容个人微信） */
-function stripMarkdown(md: string): string {
+export function stripMarkdown(md: string): string {
   return md
     .replace(/^#{1,6}\s+/gm, "")       // ## 标题
     .replace(/\*\*(.+?)\*\*/g, "$1")    // **加粗**
