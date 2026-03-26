@@ -100,6 +100,33 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssueWithRe
 
   let rows = (data ?? []) as IssueWithRelations[];
 
+  // 批量拉取媒体附件用于列表缩略图（仅取图片和视频，每个 issue 最多 4 条）
+  if (rows.length > 0) {
+    const issueIds = rows.map((r) => r.id);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+    const { data: attachments } = await supabase
+      .from("issue_attachments")
+      .select("id, issue_id, issue_update_id, storage_path, filename, content_type, size_bytes, uploaded_by, created_at")
+      .in("issue_id", issueIds)
+      .order("created_at", { ascending: true });
+
+    if (attachments) {
+      const byIssue: Record<string, IssueAttachmentWithUrl[]> = {};
+      for (const a of attachments as IssueAttachment[]) {
+        const ct = (a.content_type ?? "") as string;
+        if (!ct.startsWith("image/") && !ct.startsWith("video/")) continue;
+        const list = (byIssue[a.issue_id] ??= []);
+        if (list.length < 4) {
+          list.push({
+            ...a,
+            url: `${supabaseUrl}/storage/v1/object/public/issue-files/${a.storage_path}`,
+          });
+        }
+      }
+      rows = rows.map((r) => ({ ...r, attachments: byIssue[r.id] ?? [] }));
+    }
+  }
+
   // 优先级排序（app-side）
   if (sortBy === "priority") {
     const ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
@@ -218,21 +245,33 @@ export async function createIssue(input: {
   if (!user) throw new Error("未登录");
 
   const supabase = await createClient();
+  // NOTE: category, module, source, reviewer_id require p0_governance.sql migration.
+  // Build insert object conditionally to avoid schema cache errors on un-migrated DBs.
+  const insertData: Record<string, unknown> = {
+    title:       input.title,
+    description: input.description ?? null,
+    priority:    input.priority,
+    assignee_id: input.assignee_id ?? null,
+    due_date:    input.due_date || null,
+    status:      input.status ?? "todo",
+    creator_id:  user.id,
+  };
+
+  // Probe for governance columns by checking schema cache via a dry-run select
+  const { error: probeErr } = await supabase
+    .from("issues")
+    .select("category, module, source, reviewer_id")
+    .limit(0);
+  if (!probeErr) {
+    insertData.category    = input.category    ?? null;
+    insertData.module      = input.module      ?? null;
+    insertData.source      = input.source      ?? "manual";
+    insertData.reviewer_id = input.reviewer_id ?? null;
+  }
+
   const { data, error } = await supabase
     .from("issues")
-    .insert({
-      title:       input.title,
-      description: input.description ?? null,
-      priority:    input.priority,
-      assignee_id: input.assignee_id ?? null,
-      reviewer_id: input.reviewer_id ?? null,
-      due_date:    input.due_date || null,
-      status:      input.status ?? "todo",
-      creator_id:  user.id,
-      category:    input.category ?? null,
-      module:      input.module ?? null,
-      source:      input.source ?? "manual",
-    })
+    .insert(insertData)
     .select("id")
     .single();
 

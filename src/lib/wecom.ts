@@ -19,6 +19,37 @@ export async function sendWecomMarkdown(content: string) {
   });
 }
 
+/** 向群机器人 Webhook 发送纯文本（企业微信单条上限约 2048 字节） */
+export async function sendWecomWebhookText(
+  content: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!WEBHOOK_URL) {
+    return { ok: false, error: "WECOM_WEBHOOK_URL 未配置" };
+  }
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return { ok: false, error: "消息内容为空" };
+  }
+  const res = await fetch(WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ msgtype: "text", text: { content: trimmed } }),
+  });
+  let json: { errcode?: number; errmsg?: string } = {};
+  try {
+    json = (await res.json()) as { errcode?: number; errmsg?: string };
+  } catch {
+    /* 非 JSON 响应 */
+  }
+  if (!res.ok) {
+    return { ok: false, error: `HTTP ${res.status}` };
+  }
+  if (json.errcode !== undefined && json.errcode !== 0) {
+    return { ok: false, error: json.errmsg ?? `errcode=${json.errcode}` };
+  }
+  return { ok: true };
+}
+
 // ─── Access Token ──────────────────────────────────────────────────────────────
 
 export async function getAccessToken(): Promise<string> {

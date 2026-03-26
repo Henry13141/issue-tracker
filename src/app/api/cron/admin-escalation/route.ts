@@ -27,7 +27,7 @@ function buildEscalationMarkdown(
     "",
     `**${adminName}**，下午好。`,
     "",
-    `今天早晨已向负责人发送了工单提醒，以下 **${noActionAssignees.length}** 位同事截至目前仍未更新进度：`,
+    `今天早晨已向负责人发送了问题提醒，以下 **${noActionAssignees.length}** 位同事截至目前仍未更新进度：`,
     "",
   ];
 
@@ -44,7 +44,7 @@ function buildEscalationMarkdown(
     lines.push(`[打开问题列表 →](${listUrl}/issues)`);
     lines.push("");
   }
-  lines.push("建议尽快督促相关同事更新工单状态，谢谢。");
+  lines.push("请及时帮忙推动相关同事处理问题，并补充最新状态，谢谢。");
 
   return lines.join("\n");
 }
@@ -79,7 +79,7 @@ export async function GET(request: Request) {
     if (issuesErr) return NextResponse.json({ error: issuesErr.message }, { status: 500 });
 
     if (!issues || issues.length === 0) {
-      return NextResponse.json({ ok: true, date: todayStr, message: "没有未完成且已指派的工单，无需督促" });
+      return NextResponse.json({ ok: true, date: todayStr, message: "没有未完成且已指派的问题，无需督促" });
     }
 
     const { data: allUsers } = await supabase.from("users").select("id, name, role, wecom_userid");

@@ -102,6 +102,7 @@ export function dingtalkAfterProgressUpdate(params: {
       lines.push(`- 状态：${LABELS[params.statusFrom] ?? params.statusFrom} → **${LABELS[params.statusTo] ?? params.statusTo}**`);
     }
     lines.push("", `> ${params.content.length > 200 ? params.content.slice(0, 200) + "…" : params.content}`);
+    lines.push("", "请及时帮忙推进相关问题，必要时可协调资源支持。");
 
     const md = lines.join("\n");
     const shortTitle = `进度更新 · ${params.issueTitle.slice(0, 16)}${params.issueTitle.length > 16 ? "…" : ""}`;
@@ -130,6 +131,7 @@ export function dingtalkAfterIssueUpdateToBlocked(params: {
       `- ${ref}`,
       "",
       `由 **${params.actorName}** 在进度中更新状态。`,
+      `请及时帮忙处理问题，并补充阻塞原因与需要支持的点。`,
     ].join("\n");
 
     await workNoticeToUser(

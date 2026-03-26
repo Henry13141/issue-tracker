@@ -32,11 +32,11 @@ export async function GET(request: Request) {
   const loginUrl = APP_URL ? `${APP_URL}/login` : "https://issue-tracker-nu-sandy.vercel.app/login";
 
   const content = [
-    "## 请注册米伽米工单管理系统",
+    "## 请注册米伽米问题追踪系统",
     "",
     "各位同事好！",
     "",
-    "我们启用了米伽米工单管理系统，用于管理日常工单与协同催办。**请在今天完成注册**，之后你会通过企业微信收到工单指派和进度提醒。",
+    "我们启用了米伽米问题追踪系统，用于管理日常问题和协同催办。**请在今天完成注册**，之后你会通过企业微信收到问题指派和进度提醒。",
     "",
     `### [点击这里注册](${loginUrl})`,
     "",
@@ -44,6 +44,7 @@ export async function GET(request: Request) {
     "",
     "- 注册时**姓名请填写真实姓名**，方便系统匹配",
     "- 注册完成后即可查看和更新问题",
+    "- 收到提醒后请及时帮忙处理问题，有阻塞可在系统里直接说明",
     "",
     "如有疑问请联系郝毅。",
   ].join("\n");

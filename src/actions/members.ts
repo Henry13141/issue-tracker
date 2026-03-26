@@ -9,8 +9,6 @@ import { getMemberWorkload, getNotificationCoverage } from "@/lib/dashboard-quer
 import type { MemberWorkloadRow, NotificationCoverage } from "@/lib/dashboard-queries";
 import type { User } from "@/types";
 
-export type { MemberWorkloadRow, NotificationCoverage };
-
 export async function getMemberWorkloadForPage(): Promise<MemberWorkloadRow[]> {
   const user = await getCurrentUser();
   if (!user || user.role !== "admin") return [];

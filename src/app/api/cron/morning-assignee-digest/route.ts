@@ -28,13 +28,13 @@ function buildGentleMorningMarkdown(
     "",
     `**${assigneeName}**，早上好～`,
     "",
-    "我是米伽米工单小助手，语气可能有点像您的日程助理，请多包涵。",
+    "我是米伽米问题追踪小助手，今天继续和你并肩推进。",
     "",
     n === 1
-      ? `目前您名下还有 **1** 条未完成工单。方便时登录系统更新一下进度或状态就好，不着急～`
-      : `目前您名下还有 **${n}** 条未完成工单。方便时登录系统随手更新一下进度或状态就好，不着急～`,
+      ? `目前你名下还有 **1** 个待处理问题。请及时帮忙处理问题，方便时补一条进展就可以。`
+      : `目前你名下还有 **${n}** 个待处理问题。请及时帮忙处理问题，方便时补一条进展就可以。`,
     "",
-    "### 未完成清单",
+    "### 待处理问题清单",
     "",
   ];
 
@@ -48,7 +48,7 @@ function buildGentleMorningMarkdown(
     lines.push(`[打开问题列表 →](${listUrl}/issues)`);
     lines.push("");
   }
-  lines.push("若已处理完毕，把对应工单标成「已解决」或「已关闭」即可，我会少打扰您。");
+  lines.push("若已处理完毕，把对应问题更新为「已解决」或「已关闭」即可，我会少打扰你。");
   lines.push("");
   lines.push("祝今天顺利。");
 
@@ -118,7 +118,7 @@ export async function GET(request: Request) {
         .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
 
       const md    = buildGentleMorningMarkdown(name, dateLabel, items, base || "");
-      const title = `早安 · 今日未完成工单（${items.length}）`;
+      const title = `早安 · 今日待处理问题（${items.length}）`;
 
       const result = await sendAdminDigest({
         targetWecomUserid: wc,

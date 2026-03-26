@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { getMembers, getMemberWorkloadForPage, getNotificationCoverageForPage } from "@/actions/members";
+import { isWecomWebhookConfigured } from "@/lib/wecom";
 import { MembersClient } from "@/components/members-client";
 
 export default async function MembersPage() {
@@ -14,5 +15,12 @@ export default async function MembersPage() {
     getNotificationCoverageForPage(),
   ]);
 
-  return <MembersClient members={members} workload={workload} coverage={coverage} />;
+  return (
+    <MembersClient
+      members={members}
+      workload={workload}
+      coverage={coverage}
+      groupWebhookConfigured={isWecomWebhookConfigured()}
+    />
+  );
 }

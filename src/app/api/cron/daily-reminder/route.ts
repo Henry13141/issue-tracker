@@ -56,24 +56,25 @@ function buildPersonalMarkdown(
   const lines: string[] = [
     `## 今日催办（${todayStr}）`,
     "",
-    "以下是你负责的问题，请及时处理：",
+    "给你同步一下今天需要你及时帮忙处理的问题：",
     "",
   ];
   if (nu.length > 0) {
-    lines.push(`### 今日未更新进度（${nu.length}个）`);
+    lines.push(`### 今日还没有进展更新（${nu.length}个）`);
     nu.forEach((i) => lines.push(`- ${i.title}`));
     lines.push("");
   }
   if (od.length > 0) {
     lines.push(`### 已超期未关闭（${od.length}个）`);
-    od.forEach((i) => lines.push(`- ${i.title}（截止日期：${i.dueDate}，请尽快关闭或更新截止日期）`));
+    od.forEach((i) => lines.push(`- ${i.title}（截止日期：${i.dueDate}，建议今天补一下进展或调整截止日期）`));
     lines.push("");
   }
   if (st.length > 0) {
     lines.push(`### 连续 3 天无进度更新（${st.length}个）`);
-    st.forEach((i) => lines.push(`- ${i.title}（已超过 3 个自然日未提交任何进展）`));
+    st.forEach((i) => lines.push(`- ${i.title}（连续 3 天没有新进展，方便的话补一条当前情况）`));
     lines.push("");
   }
+  lines.push("如果当前有阻塞，直接在问题里写下卡点，团队会更快协助你推进。");
   return lines.join("\n");
 }
 
