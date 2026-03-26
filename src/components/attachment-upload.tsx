@@ -161,7 +161,7 @@ export function AttachmentList({ attachments, onDelete, canDelete }: ListProps) 
 
       {/* 预览弹窗 */}
       <Dialog open={!!selected} onOpenChange={(open) => { if (!open) setSelected(null); }}>
-        <DialogContent className="max-w-4xl gap-0 p-0 overflow-hidden bg-black/90">
+        <DialogContent className="max-w-[90vw] w-[90vw] gap-0 p-0 overflow-hidden bg-black/90">
           <DialogTitle className="sr-only">
             {selected?.filename ?? "附件预览"}
           </DialogTitle>
@@ -172,7 +172,7 @@ export function AttachmentList({ attachments, onDelete, canDelete }: ListProps) 
               <img
                 src={selected.url}
                 alt={selected.filename}
-                className="max-h-[85vh] max-w-full object-contain"
+                className="max-h-[90vh] max-w-full object-contain"
               />
             </div>
           ) : selected ? (
@@ -181,7 +181,7 @@ export function AttachmentList({ attachments, onDelete, canDelete }: ListProps) 
                 src={selected.url}
                 controls
                 autoPlay
-                className="max-h-[85vh] max-w-full"
+                className="max-h-[90vh] max-w-full"
               />
             </div>
           ) : null}
