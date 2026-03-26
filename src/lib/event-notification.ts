@@ -324,30 +324,31 @@ function buildMessage(
   // 标题：单变更用语义标题，多变更用摘要
   let msgTitle: string;
   if (isCreated) {
-    msgTitle = `新工单：${ctx.issueTitle.slice(0, 20)}${ctx.issueTitle.length > 20 ? "…" : ""}`;
+    msgTitle = `新问题：${ctx.issueTitle.slice(0, 20)}${ctx.issueTitle.length > 20 ? "…" : ""}`;
   } else if (ctx.changes.length === 1) {
     msgTitle = `${changeSemanticTitle(ctx.changes[0])} · ${ctx.issueTitle.slice(0, 16)}${ctx.issueTitle.length > 16 ? "…" : ""}`;
   } else {
-    msgTitle = `工单动态（${ctx.changes.length} 项变更）· ${ctx.issueTitle.slice(0, 10)}…`;
+    msgTitle = `问题动态（${ctx.changes.length} 项变更）· ${ctx.issueTitle.slice(0, 10)}…`;
   }
 
   // 正文
   const lines: string[] = [];
 
   if (isCreated) {
-    lines.push(`## 新工单已分配`);
+    lines.push(`## 新问题已分配`);
     lines.push("");
-    lines.push(`工单：${ref}`);
+    lines.push(`问题：${ref}`);
     lines.push("");
-    lines.push(`由 **${ctx.actorName}** 创建，请及时跟进。`);
+    lines.push(`由 **${ctx.actorName}** 创建并分配给你。`);
+    lines.push(`建议：${buildActionHint(ctx.changes)}`);
   } else {
     // 多变更时用最重要的事件作为标题
     const heading = ctx.changes.length === 1
       ? changeSemanticTitle(ctx.changes[0])
-      : "工单有新动态";
+      : "问题有新动态";
     lines.push(`## ${heading}`);
     lines.push("");
-    lines.push(`工单：${ref}`);
+    lines.push(`问题：${ref}`);
     lines.push("");
     if (ctx.changes.length > 1) lines.push("本次变更：");
     for (const change of ctx.changes) {
@@ -355,10 +356,42 @@ function buildMessage(
       if (line) lines.push(line);
     }
     lines.push("");
-    lines.push(`由 **${ctx.actorName}** 操作。`);
+    lines.push(`建议：${buildActionHint(ctx.changes)}`);
+    lines.push(`本次变更由 **${ctx.actorName}** 发起。`);
   }
 
   return { msgTitle, msgBody: lines.join("\n") };
+}
+
+/**
+ * 给接收人一个明确、温和、可执行的下一步建议，
+ * 避免通知只有“发生了什么”而没有“接下来做什么”。
+ */
+function buildActionHint(changes: NotifiableChange[]): string {
+  const hasCreated = changes.some((c) => c.type === "issue_created");
+  const hasAssignment = changes.some((c) => c.type === "assignee_changed" || c.type === "reviewer_changed");
+  const hasUrgent = changes.some((c) => c.type === "priority_urgent" || c.type === "due_date_advanced");
+  const statusChanges = changes.filter((c): c is Extract<NotifiableChange, { type: "status_changed" }> => c.type === "status_changed");
+
+  if (statusChanges.some((c) => c.to === "blocked")) {
+    return "请及时帮忙处理问题；若当前有阻塞，先补充原因和支持诉求，团队可以更快帮你拆障。";
+  }
+  if (statusChanges.some((c) => c.to === "pending_review")) {
+    return "请及时帮忙处理问题，优先完成验证并更新结论，避免问题在待验证阶段停留过久。";
+  }
+  if (statusChanges.some((c) => c.to === "resolved" || c.to === "closed")) {
+    return "辛苦啦，请确认关键结论已记录完整，方便后续回溯和经验复用。";
+  }
+  if (statusChanges.some((c) => c.to === "in_progress" && c.from === "closed")) {
+    return "问题已重新打开，建议先明确本轮目标，再按优先级推进。";
+  }
+  if (hasUrgent) {
+    return "请及时帮忙处理问题，这个变更时效性较高；如资源紧张可及时同步风险。";
+  }
+  if (hasAssignment || hasCreated) {
+    return "请及时帮忙处理问题，先确认优先级和处理计划，推进最关键的一步。";
+  }
+  return "请结合当前情况补一条简短进展，方便团队协同跟进。";
 }
 
 function buildGroupMessage(
@@ -369,8 +402,8 @@ function buildGroupMessage(
   const ref = url ? `[${ctx.issueTitle}](${url})` : `**${ctx.issueTitle}**`;
 
   const lines = [
-    `### 工单动态 · ${ctx.issueTitle.slice(0, 20)}`,
-    `- 工单：${ref}`,
+    `### 问题动态 · ${ctx.issueTitle.slice(0, 20)}`,
+    `- 问题：${ref}`,
     `- 操作人：**${ctx.actorName}**`,
   ];
 
@@ -387,19 +420,19 @@ function buildGroupMessage(
  */
 function changeSemanticTitle(change: NotifiableChange): string {
   switch (change.type) {
-    case "issue_created":    return "新工单已分配";
-    case "assignee_changed": return "工单负责人已变更";
-    case "reviewer_changed": return "工单评审人已变更";
+    case "issue_created":    return "新问题已分配";
+    case "assignee_changed": return "问题负责人已变更";
+    case "reviewer_changed": return "问题评审人已变更";
     case "status_changed":
-      if (change.to === "resolved")                            return "工单已解决";
-      if (change.to === "closed")                              return "工单已关闭";
-      if (change.to === "blocked")                             return "工单进入阻塞";
-      if (change.to === "pending_review")                      return "工单待验证，请查阅";
-      if (change.to === "in_progress" && change.from === "closed") return "工单已重新打开";
-      return "工单状态已变更";
-    case "priority_urgent":   return "工单优先级提升为紧急";
-    case "due_date_advanced": return "工单截止日期已提前";
-    default: return "工单有新动态";
+      if (change.to === "resolved")                            return "问题已解决";
+      if (change.to === "closed")                              return "问题已关闭";
+      if (change.to === "blocked")                             return "问题进入阻塞";
+      if (change.to === "pending_review")                      return "问题待验证，请查阅";
+      if (change.to === "in_progress" && change.from === "closed") return "问题已重新打开";
+      return "问题状态已变更";
+    case "priority_urgent":   return "问题优先级提升为紧急";
+    case "due_date_advanced": return "问题截止日期已提前";
+    default: return "问题有新动态";
   }
 }
 
@@ -421,11 +454,11 @@ function formatChangeLine(
     case "status_changed":
       // 特殊结果词，比 A→B 更清晰
       if (change.to === "resolved")
-        return `- **工单已解决**（原状态：${STATUS_LABELS[change.from] ?? change.from}）`;
+        return `- **问题已解决**（原状态：${STATUS_LABELS[change.from] ?? change.from}）`;
       if (change.to === "closed")
-        return `- **工单已关闭**（原状态：${STATUS_LABELS[change.from] ?? change.from}）`;
+        return `- **问题已关闭**（原状态：${STATUS_LABELS[change.from] ?? change.from}）`;
       if (change.to === "in_progress" && change.from === "closed")
-        return `- **工单已重新打开**（原状态：已关闭）`;
+        return `- **问题已重新打开**（原状态：已关闭）`;
       if (change.to === "blocked")
         return `- **状态变更：${STATUS_LABELS[change.from] ?? change.from} → 阻塞**`;
       if (change.to === "pending_review")

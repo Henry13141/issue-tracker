@@ -33,7 +33,7 @@
 
 | 层次 | 能力 |
 |------|------|
-| **工单管理** | 创建、指派、评审人、优先级、状态流转、进度更新、附件上传、批量导入 |
+| **工单管理** | 创建、指派、评审人、优先级、状态流转、进度更新、附件上传（已可用）、批量导入（Excel via 企业微信机器人） |
 | **治理与审计** | 严格状态机约束（服务端权威）、全量事件日志、字段变更追溯 |
 | **通知体系** | Cron 定时催办 + 事件驱动实时通知，全部经过统一投递服务，支持失败追踪与重试 |
 | **管理驾驶舱** | 风险总览、高风险工单排名、成员压力榜、模块分布、7天趋势、通知健康监控 |
@@ -204,7 +204,7 @@ supabase/
 | `reminder_id` | uuid FK→reminders | 关联提醒（可为 null） |
 | `trigger_source` | text | 触发来源（见通知体系章节） |
 | `title` | text | 消息标题 |
-| `content` | text | 消息内容（Markdown） |
+| `content` | text | 消息正文原文（wecom_app 通常为纯文本；wecom_bot 可为 Markdown） |
 | `provider_response` | jsonb | 企业微信原始响应 |
 | `status` | text | `pending`\|`success`\|`failed` |
 | `error_code` | text | 归一化错误码 |
@@ -372,6 +372,8 @@ supabase/
 | 状态→pending_review | reviewer、assignee |
 | 状态→resolved/closed | assignee、reviewer、creator、全体管理员 |
 | 重新打开 | assignee、reviewer |
+
+> **当前管理员通知范围说明**：管理员仅接收 `resolved` / `closed` 结果类事件通知，不接收 `blocked` / `priority_urgent` 等过程类事件通知，避免管理员频繁收到中间态变更噪音。
 | 优先级→urgent | assignee、reviewer |
 | 截止日期提前 | assignee、reviewer |
 
@@ -511,7 +513,7 @@ sendNotification()
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | Supabase anon key（客户端） |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Supabase service role key（服务端，绝不暴露到客户端） |
 | `NEXT_PUBLIC_APP_URL` | ✅ | 部署域名（用于通知消息中生成链接），如 `https://tracker.megami-tech.com` |
-| `CRON_SECRET` | 推荐 | Cron 鉴权密钥，Vercel 调用时通过 `Authorization: Bearer` 传入 |
+| `CRON_SECRET` | ✅ 必填 | Cron 鉴权密钥，Vercel 调用时通过 `Authorization: Bearer` 传入；未配置时任何人均可触发 Cron 接口 |
 | `WECOM_CORPID` | 通知必填 | 企业微信企业 ID |
 | `WECOM_CORPSECRET` | 通知必填 | 企业微信应用 Secret |
 | `WECOM_AGENTID` | 通知必填 | 企业微信应用 AgentId |
@@ -583,8 +585,14 @@ curl -H "Authorization: Bearer YOUR_CRON_SECRET" \
   http://localhost:3000/api/cron/daily-reminder
 
 # 6. Dashboard（admin 账号）
-#    /dashboard → 确认6个板块全部渲染
-#    → 点击风险卡片 → 跳转 /issues?risk=overdue 等
+#    /dashboard → 确认以下6个板块全部渲染：
+#      ① 今日风险总览（8个指标卡片）
+#      ② 高风险工单列表（Top 20，含风险标签）
+#      ③ 通知链路健康（今日失败率 + 近7天失败率 + TopN 错误）
+#      ④ 成员压力榜（在办/逾期/阻塞/紧急/7天更新）
+#      ⑤ 模块 / 分类分布（按 module / category 聚合）
+#      ⑥ 近7天趋势（新增/关闭/提醒/通知失败 mini 条形图）
+#    → 点击风险卡片 → 跳转 /issues?risk=overdue 等带参筛选
 
 # 7. 通知日志后台（admin）
 #    /dashboard/notifications → 查看投递记录 → 按来源筛选

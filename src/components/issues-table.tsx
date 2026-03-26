@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/lib/button-variants";
 import { MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
+import { AttachmentThumbnails } from "@/components/attachment-thumbnails";
 
 function isOverdue(issue: IssueWithRelations) {
   if (!issue.due_date) return false;
@@ -75,6 +76,7 @@ export function IssuesTable({
             <TableHead>状态</TableHead>
             <TableHead>优先级</TableHead>
             <TableHead>负责人</TableHead>
+            <TableHead className="w-[120px]">附件</TableHead>
             <TableHead>截止日期</TableHead>
             <TableHead>最后活动</TableHead>
             <TableHead className="w-[60px]" />
@@ -115,6 +117,9 @@ export function IssuesTable({
                   ) : (
                     <span className="text-muted-foreground text-sm">未分配</span>
                   )}
+                </TableCell>
+                <TableCell>
+                  <AttachmentThumbnails attachments={issue.attachments ?? []} />
                 </TableCell>
                 <TableCell className={cn(overdue && "font-medium text-red-600")}>
                   {formatDateOnly(issue.due_date)}

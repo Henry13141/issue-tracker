@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import Link from "next/link";
 import { updateUserWecomUserId } from "@/actions/members";
-import type { MemberWorkloadRow, NotificationCoverage } from "@/actions/members";
+import type { MemberWorkloadRow, NotificationCoverage } from "@/lib/dashboard-queries";
 import type { User } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,49 @@ function MemberRow({ member }: { member: User }) {
   );
 }
 
+function SendGroupInviteButton({ webhookConfigured }: { webhookConfigured: boolean }) {
+  const [pending, startTransition] = useTransition();
+
+  if (!webhookConfigured) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        未配置环境变量 WECOM_WEBHOOK_URL 时，无法从本页向工作群推送消息。可在企业微信群里手动粘贴邀请说明。
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-muted-foreground">
+        通过已绑定的群机器人向工作群发送纯文字登录引导（链接来自 NEXT_PUBLIC_APP_URL）。
+      </p>
+      <Button
+        type="button"
+        variant="secondary"
+        disabled={pending}
+        className="shrink-0"
+        onClick={() =>
+          startTransition(async () => {
+            const res = await fetch("/api/admin/wecom/group-text", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ preset: "onboarding" }),
+            });
+            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            if (!res.ok) {
+              toast.error(data.error ?? "发送失败");
+              return;
+            }
+            toast.success("已发送到工作群");
+          })
+        }
+      >
+        向工作群发送登录邀请
+      </Button>
+    </div>
+  );
+}
+
 // ─── 成员负载行 ────────────────────────────────────────────────────────────
 
 function WorkloadRow({ row }: { row: MemberWorkloadRow }) {
@@ -104,10 +147,12 @@ export function MembersClient({
   members,
   workload,
   coverage,
+  groupWebhookConfigured,
 }: {
   members: User[];
   workload: MemberWorkloadRow[];
   coverage: NotificationCoverage;
+  groupWebhookConfigured: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -161,7 +206,8 @@ export function MembersClient({
                 获取方式：企业微信管理后台 → 通讯录 → 点击成员 → 查看 userid。需为应用开通「发送应用消息」权限。
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <SendGroupInviteButton webhookConfigured={groupWebhookConfigured} />
               <Table>
                 <TableHeader>
                   <TableRow>
