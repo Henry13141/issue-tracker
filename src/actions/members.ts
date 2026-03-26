@@ -3,6 +3,7 @@
 import { cache } from "react";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth";
 import { notifyNewMemberWelcome } from "@/lib/new-member-welcome";
 import { getMemberWorkload, getNotificationCoverage } from "@/lib/dashboard-queries";
@@ -43,8 +44,8 @@ export async function updateUserName(
   if (!me || me.role !== "admin") return { ok: false, error: "无权限" };
   const trimmed = name.trim();
   if (!trimmed) return { ok: false, error: "名称不能为空" };
-  const supabase = await createClient();
-  const { error } = await supabase
+  const admin = createAdminClient();
+  const { error } = await admin
     .from("users")
     .update({ name: trimmed })
     .eq("id", userId);
@@ -59,8 +60,9 @@ export async function removeMember(
   const me = await getCurrentUser();
   if (!me || me.role !== "admin") return { ok: false, error: "无权限" };
   if (me.id === userId) return { ok: false, error: "不能移除自己" };
-  const supabase = await createClient();
-  const { error } = await supabase.from("users").delete().eq("id", userId);
+  const admin = createAdminClient();
+  // 同时删除 Auth 用户（级联删除 users 表记录）
+  const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/members");
   return { ok: true };
