@@ -227,6 +227,8 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
   // ── 2. 批量查询用户信息 ────────────────────────────────────────────────────
   // 接收人 + 变更中引用的 from/to 用户 ID（用于消息中展示名字）
   const needUserIds = new Set<string>(recipientIds);
+  if (ctx.assigneeId) needUserIds.add(ctx.assigneeId);
+  if (ctx.reviewerId) needUserIds.add(ctx.reviewerId);
   for (const change of ctx.changes) {
     if (change.type === "assignee_changed" || change.type === "reviewer_changed") {
       if (change.fromId) needUserIds.add(change.fromId);
@@ -406,6 +408,11 @@ function buildGroupMessage(
     `- 问题：${ref}`,
     `- 操作人：**${ctx.actorName}**`,
   ];
+
+  if (ctx.assigneeId) {
+    const assigneeName = userMap.get(ctx.assigneeId)?.name ?? "（未知）";
+    lines.push(`- 任务负责人：**${assigneeName}**`);
+  }
 
   for (const change of ctx.changes) {
     const line = formatChangeLine(change, userMap);
