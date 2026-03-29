@@ -127,13 +127,17 @@ export async function enrichAttachmentsWithUrls(
 ): Promise<IssueAttachmentWithUrl[]> {
   if (!attachments.length) return [];
   const supabase = await createClient();
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrls(attachments.map((a) => a.storage_path), 3600);
 
-  return Promise.all(
-    attachments.map(async (a) => {
-      const { data } = await supabase.storage
-        .from(BUCKET)
-        .createSignedUrl(a.storage_path, 3600);
-      return { ...a, url: data?.signedUrl ?? undefined };
-    })
-  );
+  if (error || !data) {
+    throw new Error(error?.message ?? "批量生成下载链接失败");
+  }
+
+  const signedUrlMap = new Map(data.map((row) => [row.path ?? "", row.signedUrl ?? undefined]));
+  return attachments.map((a) => ({
+    ...a,
+    url: signedUrlMap.get(a.storage_path),
+  }));
 }
