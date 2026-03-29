@@ -139,15 +139,54 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssueWithRe
   return rows;
 }
 
-export async function getIssueDetail(id: string): Promise<IssueWithRelations | null> {
+/** 获取 issue 基础信息（不含进度更新/评论），用于详情页首屏快速加载 */
+export async function getIssueBasic(id: string): Promise<IssueWithRelations | null> {
   const supabase = await createClient();
-  const { data: issue, error } = await supabase
-    .from("issues")
-    .select(issueSelect)
-    .eq("id", id)
-    .single();
+  const [issueRes, attachmentsRes] = await Promise.all([
+    supabase
+      .from("issues")
+      .select(issueSelect)
+      .eq("id", id)
+      .single(),
+    supabase
+      .from("issue_attachments")
+      .select("*")
+      .eq("issue_id", id)
+      .is("issue_update_id", null)
+      .order("created_at", { ascending: true }),
+  ]);
 
+  const { data: issue, error } = issueRes;
   if (error || !issue) return null;
+
+  const attachmentRows = ((attachmentsRes.data ?? []) as IssueAttachment[]);
+  let attachmentsWithUrls: IssueAttachmentWithUrl[] = attachmentRows;
+
+  if (attachmentRows.length > 0) {
+    const { data: signedRows } = await supabase.storage
+      .from("issue-files")
+      .createSignedUrls(attachmentRows.map((a) => a.storage_path), 3600);
+    if (signedRows) {
+      const signedUrlMap = new Map(
+        signedRows.map((row) => [row.path ?? "", row.signedUrl ?? undefined])
+      );
+      attachmentsWithUrls = attachmentRows.map((a) => ({
+        ...a,
+        url: signedUrlMap.get(a.storage_path),
+      }));
+    }
+  }
+
+  return {
+    ...(issue as IssueWithRelations),
+    issue_updates: [],
+    attachments: attachmentsWithUrls,
+  };
+}
+
+/** 获取 issue 进度更新列表（含评论、附件），用于详情页流式加载 */
+export async function getIssueUpdatesAndComments(issueId: string): Promise<IssueUpdateWithUser[]> {
+  const supabase = await createClient();
 
   const { data: updates, error: uErr } = await supabase
     .from("issue_updates")
@@ -157,8 +196,93 @@ export async function getIssueDetail(id: string): Promise<IssueWithRelations | n
       user:users!issue_updates_user_id_fkey(id, email, name, role, avatar_url, created_at, updated_at)
     `
     )
-    .eq("issue_id", id)
+    .eq("issue_id", issueId)
     .order("created_at", { ascending: true });
+
+  if (uErr) console.error(uErr);
+
+  const updateIds = (updates ?? []).map((u) => u.id as string);
+  if (updateIds.length === 0) return [];
+
+  const [commentsRes, updateAttachmentsRes] = await Promise.all([
+    supabase
+      .from("issue_update_comments")
+      .select(`*, user:users!issue_update_comments_user_id_fkey(id, email, name, role, avatar_url, created_at, updated_at)`)
+      .in("update_id", updateIds)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("issue_attachments")
+      .select("*")
+      .eq("issue_id", issueId)
+      .not("issue_update_id", "is", null)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  const commentsMap: Record<string, UpdateCommentWithUser[]> = {};
+  for (const c of ((commentsRes.data ?? []) as UpdateCommentWithUser[])) {
+    (commentsMap[c.update_id] ??= []).push(c);
+  }
+
+  const updateAttachmentRows = ((updateAttachmentsRes.data ?? []) as IssueAttachment[]);
+  let updateAttachmentsWithUrls: IssueAttachmentWithUrl[] = updateAttachmentRows;
+
+  if (updateAttachmentRows.length > 0) {
+    const { data: signedRows } = await supabase.storage
+      .from("issue-files")
+      .createSignedUrls(updateAttachmentRows.map((a) => a.storage_path), 3600);
+    if (signedRows) {
+      const signedUrlMap = new Map(
+        signedRows.map((row) => [row.path ?? "", row.signedUrl ?? undefined])
+      );
+      updateAttachmentsWithUrls = updateAttachmentRows.map((a) => ({
+        ...a,
+        url: signedUrlMap.get(a.storage_path),
+      }));
+    }
+  }
+
+  const updateAttachmentsMap: Record<string, IssueAttachmentWithUrl[]> = {};
+  for (const a of updateAttachmentsWithUrls) {
+    (updateAttachmentsMap[a.issue_update_id!] ??= []).push(a);
+  }
+
+  return (updates ?? []).map((u) => ({
+    ...(u as IssueUpdateWithUser),
+    comments: commentsMap[(u as IssueUpdateWithUser).id] ?? [],
+    attachments: updateAttachmentsMap[(u as IssueUpdateWithUser).id] ?? [],
+  }));
+}
+
+export async function getIssueDetail(id: string): Promise<IssueWithRelations | null> {
+  const supabase = await createClient();
+  const [issueRes, updatesRes, attachmentsRes] = await Promise.all([
+    supabase
+      .from("issues")
+      .select(issueSelect)
+      .eq("id", id)
+      .single(),
+    supabase
+      .from("issue_updates")
+      .select(
+        `
+        *,
+        user:users!issue_updates_user_id_fkey(id, email, name, role, avatar_url, created_at, updated_at)
+      `
+      )
+      .eq("issue_id", id)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("issue_attachments")
+      .select("*")
+      .eq("issue_id", id)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  const { data: issue, error } = issueRes;
+
+  if (error || !issue) return null;
+
+  const { data: updates, error: uErr } = updatesRes;
 
   if (uErr) {
     console.error(uErr);
@@ -179,20 +303,31 @@ export async function getIssueDetail(id: string): Promise<IssueWithRelations | n
     }
   }
 
-  const { data: rawAttachments } = await supabase
-    .from("issue_attachments")
-    .select("*")
-    .eq("issue_id", id)
-    .order("created_at", { ascending: true });
+  const { data: rawAttachments, error: attachmentErr } = attachmentsRes;
+  if (attachmentErr) {
+    console.error(attachmentErr);
+  }
 
-  const attachmentsWithUrls: IssueAttachmentWithUrl[] = await Promise.all(
-    ((rawAttachments ?? []) as IssueAttachment[]).map(async (a) => {
-      const { data } = await supabase.storage
-        .from("issue-files")
-        .createSignedUrl(a.storage_path, 3600);
-      return { ...a, url: data?.signedUrl ?? undefined };
-    })
-  );
+  const attachmentRows = (rawAttachments ?? []) as IssueAttachment[];
+  let attachmentsWithUrls: IssueAttachmentWithUrl[] = attachmentRows;
+
+  if (attachmentRows.length > 0) {
+    const { data: signedRows, error: signErr } = await supabase.storage
+      .from("issue-files")
+      .createSignedUrls(attachmentRows.map((a) => a.storage_path), 3600);
+
+    if (signErr) {
+      console.error(signErr);
+    } else if (signedRows) {
+      const signedUrlMap = new Map(
+        signedRows.map((row) => [row.path ?? "", row.signedUrl ?? undefined])
+      );
+      attachmentsWithUrls = attachmentRows.map((a) => ({
+        ...a,
+        url: signedUrlMap.get(a.storage_path),
+      }));
+    }
+  }
 
   const issueAttachments = attachmentsWithUrls.filter((a) => !a.issue_update_id);
   const updateAttachmentsMap: Record<string, IssueAttachmentWithUrl[]> = {};
@@ -328,7 +463,7 @@ export async function updateIssue(
     blocked_reason: string | null;
     closed_reason: string | null;
   }>
-) {
+): Promise<{ error: string } | void> {
   const user = await getCurrentUser();
   const supabase = await createClient();
 
@@ -338,7 +473,7 @@ export async function updateIssue(
     .eq("id", id)
     .single();
 
-  if (!beforeRow) throw new Error("问题不存在");
+  if (!beforeRow) return { error: "问题不存在" };
 
   const prevStatus = beforeRow.status as IssueStatus;
   const newStatus  = patch.status;
@@ -352,7 +487,7 @@ export async function updateIssue(
       closedReason:        patch.closed_reason  ?? (beforeRow.closed_reason  as string | null),
       hasNonSystemUpdate,
     });
-    if (transErr) throw new Error(transErr.message);
+    if (transErr) return { error: transErr.message };
   }
 
   const extra: Record<string, unknown> = {
@@ -385,7 +520,7 @@ export async function updateIssue(
     .update({ ...patch, ...extra })
     .eq("id", id);
 
-  if (error) throw new Error(error.message);
+  if (error) return { error: error.message };
 
   // ---------- 写事件日志 ----------
   if (user && beforeRow) {
