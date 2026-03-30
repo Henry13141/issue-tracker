@@ -1,11 +1,54 @@
 import { createHmac, createHash, createDecipheriv, randomBytes } from "node:crypto";
+import { fetch as undiciFetch, ProxyAgent } from "undici";
 
 const CORPID = process.env.WECOM_CORPID?.trim();
 const CORPSECRET = process.env.WECOM_CORPSECRET?.trim();
 const AGENTID = process.env.WECOM_AGENTID?.trim();
 const WEBHOOK_URL = process.env.WECOM_WEBHOOK_URL?.trim();
+const WECOM_PROXY_URL = process.env.WECOM_PROXY_URL?.trim();
+const WECOM_API_BASE_URL = process.env.WECOM_API_BASE_URL?.trim().replace(/\/+$/, "");
+
+const QYAPI_ORIGIN = "https://qyapi.weixin.qq.com";
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
+let qyapiProxyAgent: ProxyAgent | undefined;
+
+/**
+ * 将 qyapi.weixin.qq.com URL 改写为反向代理 URL（如已配置 WECOM_API_BASE_URL）。
+ * 例：https://qyapi.weixin.qq.com/cgi-bin/gettoken → https://hook.megami-tech.com/wecom-api/cgi-bin/gettoken
+ */
+function rewriteQyapiUrl(url: string): string {
+  if (WECOM_API_BASE_URL && url.startsWith(QYAPI_ORIGIN)) {
+    return url.replace(QYAPI_ORIGIN, WECOM_API_BASE_URL);
+  }
+  return url;
+}
+
+/**
+ * 仅用于 https://qyapi.weixin.qq.com/...。
+ * 优先使用 WECOM_API_BASE_URL（反向代理），其次 WECOM_PROXY_URL（HTTP 代理）。
+ */
+export async function wecomQyapiFetch(
+  input: string | URL,
+  init?: RequestInit
+): Promise<Response> {
+  const url = rewriteQyapiUrl(String(input));
+
+  if (url !== String(input)) {
+    return fetch(url, init);
+  }
+
+  if (WECOM_PROXY_URL) {
+    if (!qyapiProxyAgent) {
+      qyapiProxyAgent = new ProxyAgent(WECOM_PROXY_URL);
+    }
+    return undiciFetch(input, {
+      ...(init as object),
+      dispatcher: qyapiProxyAgent,
+    } as Parameters<typeof undiciFetch>[1]) as unknown as Response;
+  }
+  return fetch(input, init);
+}
 
 // ─── 群机器人 Webhook（群消息）────────────────────────────────────────────────
 
@@ -61,7 +104,7 @@ export async function getAccessToken(): Promise<string> {
     return cachedToken.token;
   }
   const url = `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${encodeURIComponent(CORPID)}&corpsecret=${encodeURIComponent(CORPSECRET)}`;
-  const res = await fetch(url);
+  const res = await wecomQyapiFetch(url);
   const json = (await res.json()) as {
     errcode: number;
     errmsg?: string;
@@ -106,7 +149,7 @@ export async function sendWecomWorkNotice(
   const plain = stripMarkdown(markdown);
   const content = title ? `【${title}】\n\n${plain}` : plain;
 
-  const res = await fetch(
+  const res = await wecomQyapiFetch(
     `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`,
     {
       method: "POST",
@@ -220,7 +263,7 @@ export type WecomUserInfo = {
 /** 用 code 换取企业内部用户信息（需配置 WECOM_CORPID + WECOM_CORPSECRET + WECOM_AGENTID） */
 export async function getUserInfoByCode(code: string): Promise<WecomUserInfo> {
   const accessToken = await getAccessToken();
-  const res = await fetch(
+  const res = await wecomQyapiFetch(
     `https://qyapi.weixin.qq.com/cgi-bin/user/getuserinfo?access_token=${encodeURIComponent(accessToken)}&code=${encodeURIComponent(code)}`
   );
   const json = (await res.json()) as WecomUserInfo & { errcode?: number; errmsg?: string };
@@ -243,7 +286,7 @@ export type WecomUserDetail = {
 export async function getUserDetailByUserid(userid: string): Promise<WecomUserDetail | null> {
   try {
     const accessToken = await getAccessToken();
-    const res = await fetch(
+    const res = await wecomQyapiFetch(
       `https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=${encodeURIComponent(accessToken)}&userid=${encodeURIComponent(userid)}`
     );
     const json = (await res.json()) as WecomUserDetail & { errcode?: number; errmsg?: string };
@@ -302,7 +345,7 @@ export function extractXmlField(xml: string, tag: string): string {
 /** 通过 media_id 下载机器人收到的文件，返回临时下载 URL */
 export async function downloadRobotMedia(mediaId: string): Promise<ArrayBuffer> {
   const accessToken = await getAccessToken();
-  const res = await fetch(
+  const res = await wecomQyapiFetch(
     `https://qyapi.weixin.qq.com/cgi-bin/media/get?access_token=${encodeURIComponent(accessToken)}&media_id=${encodeURIComponent(mediaId)}`
   );
   if (!res.ok) throw new Error(`企业微信下载媒体文件失败 HTTP ${res.status}`);
