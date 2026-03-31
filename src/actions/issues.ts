@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getChinaDayBounds } from "@/lib/dates";
-import { ACTIVE_STATUSES } from "@/lib/constants";
+import { ACTIVE_STATUSES, isIssueCategory, isIssueModule } from "@/lib/constants";
 import { validateTransition, isReopenTransition } from "@/lib/issue-state-machine";
 import { writeIssueEvent, writeIssueEvents } from "@/lib/issue-events";
 import type {
@@ -102,8 +102,12 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
   if (filters.priority?.length) query = query.in("priority", filters.priority);
   if (filters.assigneeId) query = query.eq("assignee_id", filters.assigneeId);
   if (filters.reviewerId) query = query.eq("reviewer_id", filters.reviewerId);
-  if (filters.category?.trim()) query = query.ilike("category", `%${filters.category.trim()}%`);
-  if (filters.module?.trim())   query = query.ilike("module",   `%${filters.module.trim()}%`);
+  if (filters.category?.trim() && isIssueCategory(filters.category.trim())) {
+    query = query.eq("category", filters.category.trim());
+  }
+  if (filters.module?.trim() && isIssueModule(filters.module.trim())) {
+    query = query.eq("module", filters.module.trim());
+  }
   if (filters.source?.trim())   query = query.eq("source", filters.source.trim());
   if (filters.q?.trim())        query = query.ilike("title", `%${filters.q.trim()}%`);
 
@@ -417,6 +421,15 @@ export async function createIssue(input: {
   const supabase = await createClient();
   // NOTE: category, module, source, reviewer_id require p0_governance.sql migration.
   // Build insert object conditionally to avoid schema cache errors on un-migrated DBs.
+  const normalizedCategory = input.category?.trim() ? input.category.trim() : null;
+  const normalizedModule = input.module?.trim() ? input.module.trim() : null;
+  if (normalizedCategory && !isIssueCategory(normalizedCategory)) {
+    throw new Error("分类不合法，请选择预设分类");
+  }
+  if (normalizedModule && !isIssueModule(normalizedModule)) {
+    throw new Error("模块不合法，请选择预设模块");
+  }
+
   const insertData: Record<string, unknown> = {
     title:       input.title,
     description: input.description ?? null,
@@ -433,8 +446,8 @@ export async function createIssue(input: {
     .select("category, module, source, reviewer_id")
     .limit(0);
   if (!probeErr) {
-    insertData.category    = input.category    ?? null;
-    insertData.module      = input.module      ?? null;
+    insertData.category    = normalizedCategory;
+    insertData.module      = normalizedModule;
     insertData.source      = input.source      ?? "manual";
     insertData.reviewer_id = input.reviewer_id ?? null;
   }
@@ -523,6 +536,21 @@ export async function updateIssue(
       hasNonSystemUpdate,
     });
     if (transErr) return { error: transErr.message };
+  }
+
+  if (patch.category !== undefined) {
+    const normalizedCategory = patch.category?.trim() ? patch.category.trim() : null;
+    if (normalizedCategory && !isIssueCategory(normalizedCategory)) {
+      return { error: "分类不合法，请选择预设分类" };
+    }
+    patch.category = normalizedCategory;
+  }
+  if (patch.module !== undefined) {
+    const normalizedModule = patch.module?.trim() ? patch.module.trim() : null;
+    if (normalizedModule && !isIssueModule(normalizedModule)) {
+      return { error: "模块不合法，请选择预设模块" };
+    }
+    patch.module = normalizedModule;
   }
 
   const extra: Record<string, unknown> = {

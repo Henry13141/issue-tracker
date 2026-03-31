@@ -34,6 +34,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { CalendarIcon, ArrowRightLeft } from "lucide-react";
 import { toast } from "sonner";
+import { ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule } from "@/lib/constants";
 
 export function IssueDetailClient({
   issue: initial,
@@ -53,8 +54,12 @@ export function IssueDetailClient({
   const [priority, setPriority]       = useState<IssuePriority>(initial.priority);
   const [assigneeId, setAssigneeId]   = useState<string>(initial.assignee_id ?? "__none__");
   const [reviewerId, setReviewerId]   = useState<string>(initial.reviewer_id ?? "__none__");
-  const [category, setCategory]       = useState(initial.category ?? "");
-  const [module, setModule]           = useState(initial.module ?? "");
+  const [category, setCategory]       = useState(
+    initial.category && isIssueCategory(initial.category) ? initial.category : "__none__"
+  );
+  const [module, setModule]           = useState(
+    initial.module && isIssueModule(initial.module) ? initial.module : "__none__"
+  );
   const [blockedReason, setBlockedReason] = useState(initial.blocked_reason ?? "");
   const [closedReason,  setClosedReason]  = useState(initial.closed_reason  ?? "");
   const [dueDate, setDueDate] = useState<Date | undefined>(
@@ -109,8 +114,8 @@ export function IssueDetailClient({
         assignee_id:    assigneeId === "__none__" ? null : assigneeId,
         reviewer_id:    reviewerId === "__none__" ? null : reviewerId,
         due_date:       dueStr,
-        category:       category.trim() || null,
-        module:         module.trim()   || null,
+        category:       category === "__none__" ? null : category,
+        module:         module === "__none__" ? null : module,
         blocked_reason: status === "blocked" ? blockedReason.trim() || null : null,
         closed_reason:  status === "closed"  ? closedReason.trim()  || null : null,
       });
@@ -334,21 +339,43 @@ export function IssueDetailClient({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>分类</Label>
-              <Input
+              <Select
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="可选，如「前端」「后端」"
+                onValueChange={(v) => setCategory(v ?? "__none__")}
                 disabled={!canEdit}
-              />
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="请选择分类" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">未设置</SelectItem>
+                  {ISSUE_CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label>模块</Label>
-              <Input
+              <Select
                 value={module}
-                onChange={(e) => setModule(e.target.value)}
-                placeholder="可选，如「登录」「报表」"
+                onValueChange={(v) => setModule(v ?? "__none__")}
                 disabled={!canEdit}
-              />
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="请选择模块" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">未设置</SelectItem>
+                  {ISSUE_MODULES.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

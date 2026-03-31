@@ -18,6 +18,7 @@ import { EmptyState } from "@/components/empty-state";
 import type { IssuePriority, IssueStatus } from "@/types";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/lib/button-variants";
+import { isIssueCategory, isIssueModule } from "@/lib/constants";
 
 function str(v: string | string[] | undefined): string | undefined {
   return typeof v === "string" && v ? v : undefined;
@@ -52,6 +53,8 @@ function buildHref(
 function parseFilters(sp: Record<string, string | string[] | undefined>): IssueFilters {
   const rawSortBy = str(sp.sortBy);
   const rawRisk   = str(sp.risk);
+  const rawCategory = str(sp.category);
+  const rawModule = str(sp.module);
   const rawPage = Number(str(sp.page) ?? "");
   const rawTab = str(sp.tab);
 
@@ -60,8 +63,8 @@ function parseFilters(sp: Record<string, string | string[] | undefined>): IssueF
     priority:   str(sp.priority) ? ([str(sp.priority)] as IssuePriority[]) : undefined,
     assigneeId: str(sp.assignee),
     reviewerId: str(sp.reviewer),
-    category:   str(sp.category),
-    module:     str(sp.module),
+    category:   rawCategory && isIssueCategory(rawCategory) ? rawCategory : undefined,
+    module:     rawModule && isIssueModule(rawModule) ? rawModule : undefined,
     source:     str(sp.source),
     risk:       (rawRisk && VALID_RISK.includes(rawRisk as IssueRisk)) ? rawRisk as IssueRisk : undefined,
     sortBy:     (rawSortBy && VALID_SORT_BY.includes(rawSortBy as IssueSortBy)) ? rawSortBy as IssueSortBy : undefined,
