@@ -231,10 +231,16 @@ export function IssuesTable({
           {issues.map((issue) => {
             const overdue = isOverdue(issue);
             const riskTags = getRiskTags(issue);
+            const reviewerName = issue.reviewer?.name?.trim();
+            const showReviewer = Boolean(
+              issue.reviewer_id &&
+              reviewerName &&
+              reviewerName !== "未设置"
+            );
             const metaBits = [
               issue.category || "未分类",
               issue.module || "未分模块",
-              ...(issue.reviewer?.name ? [`评审：${issue.reviewer.name}`] : []),
+              ...(showReviewer ? [`评审：${reviewerName}`] : []),
               `最近更新：${formatRelativeTime(issue.last_activity_at ?? issue.updated_at)}`,
             ];
             const attachmentCount = issue.attachmentCount ?? issue.attachments?.length ?? 0;
