@@ -111,6 +111,7 @@ export interface IssueWithRelations extends Issue {
   issue_updates?: IssueUpdate[];
   last_update?: IssueUpdate | null;
   attachments?: IssueAttachmentWithUrl[];
+  attachmentCount?: number;
 }
 
 export interface UpdateComment {

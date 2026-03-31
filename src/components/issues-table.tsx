@@ -33,20 +33,60 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDateTime, formatDateOnly } from "@/lib/dates";
+import { formatDateOnly } from "@/lib/dates";
 import { ISSUE_STATUS_LABELS } from "@/lib/constants";
 import { getAllowedNextStatuses } from "@/lib/issue-state-machine";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/lib/button-variants";
 import { MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
-import { AttachmentThumbnails } from "@/components/attachment-thumbnails";
 
 function isOverdue(issue: IssueWithRelations) {
   if (!issue.due_date) return false;
   if (issue.status === "resolved" || issue.status === "closed") return false;
   const d = new Date(issue.due_date + "T23:59:59+08:00");
   return d.getTime() < Date.now();
+}
+
+type RiskTag = "overdue" | "blocked" | "urgent" | "stale";
+
+const RISK_TAG_LABELS: Record<RiskTag, string> = {
+  overdue: "逾期",
+  blocked: "阻塞",
+  urgent: "紧急",
+  stale: "未更新",
+};
+
+const RISK_TAG_CLASSNAMES: Record<RiskTag, string> = {
+  overdue: "border-red-200 bg-red-100 text-red-700 dark:border-red-900/70 dark:bg-red-950/50 dark:text-red-200",
+  blocked: "border-orange-200 bg-orange-100 text-orange-700 dark:border-orange-900/70 dark:bg-orange-950/50 dark:text-orange-200",
+  urgent: "border-pink-200 bg-pink-100 text-pink-700 dark:border-pink-900/70 dark:bg-pink-950/50 dark:text-pink-200",
+  stale: "border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/50 dark:text-amber-200",
+};
+
+function getRiskTags(issue: IssueWithRelations): RiskTag[] {
+  const tags: RiskTag[] = [];
+  if (isOverdue(issue)) tags.push("overdue");
+  if (issue.status === "blocked") tags.push("blocked");
+  if (issue.priority === "urgent") tags.push("urgent");
+
+  const activeForStale = ["in_progress", "blocked", "pending_review"].includes(issue.status);
+  const lastActivity = issue.last_activity_at ? new Date(issue.last_activity_at).getTime() : Number.NaN;
+  if (activeForStale && Number.isFinite(lastActivity) && lastActivity < Date.now() - 3 * 86_400_000) {
+    tags.push("stale");
+  }
+  return tags;
+}
+
+function formatRelativeTime(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const ts = new Date(iso).getTime();
+  if (!Number.isFinite(ts)) return "—";
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.max(1, Math.floor(diff / 60_000))} 分钟前`;
+  if (diff < 86_400_000) return `${Math.max(1, Math.floor(diff / 3_600_000))} 小时前`;
+  return `${Math.max(1, Math.floor(diff / 86_400_000))} 天前`;
 }
 
 type ReasonDialog = {
@@ -179,31 +219,53 @@ export function IssuesTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="min-w-[200px]">标题</TableHead>
+            <TableHead className="min-w-[360px]">标题</TableHead>
             <TableHead>状态</TableHead>
             <TableHead>优先级</TableHead>
             <TableHead>负责人</TableHead>
-            <TableHead className="w-[120px]">附件</TableHead>
             <TableHead>截止日期</TableHead>
-            <TableHead>最后活动</TableHead>
             <TableHead className="w-[60px]" />
           </TableRow>
         </TableHeader>
         <TableBody>
           {issues.map((issue) => {
             const overdue = isOverdue(issue);
+            const riskTags = getRiskTags(issue);
+            const metaBits = [
+              issue.category || "未分类",
+              issue.module || "未分模块",
+              issue.reviewer?.name ? `评审：${issue.reviewer.name}` : "评审：未设置",
+              `最近更新：${formatRelativeTime(issue.last_activity_at ?? issue.updated_at)}`,
+            ];
+            const attachmentCount = issue.attachmentCount ?? issue.attachments?.length ?? 0;
             return (
               <TableRow
                 key={issue.id}
                 className={cn(overdue && "bg-red-50 dark:bg-red-950/30")}
               >
                 <TableCell>
-                  <Link
-                    href={`/issues/${issue.id}`}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {issue.title}
-                  </Link>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {riskTags.map((tag) => (
+                        <span
+                          key={`${issue.id}-${tag}`}
+                          className={cn("rounded-md border px-1.5 py-0.5 text-[11px] font-medium", RISK_TAG_CLASSNAMES[tag])}
+                        >
+                          {RISK_TAG_LABELS[tag]}
+                        </span>
+                      ))}
+                      <Link
+                        href={`/issues/${issue.id}`}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        {issue.title}
+                      </Link>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      <span>{metaBits.join(" · ")}</span>
+                      {attachmentCount > 0 && <span>📎 {attachmentCount}</span>}
+                    </div>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <StatusBadge status={issue.status} />
@@ -225,14 +287,8 @@ export function IssuesTable({
                     <span className="text-muted-foreground text-sm">未分配</span>
                   )}
                 </TableCell>
-                <TableCell>
-                  <AttachmentThumbnails attachments={issue.attachments ?? []} />
-                </TableCell>
                 <TableCell className={cn(overdue && "font-medium text-red-600")}>
                   {formatDateOnly(issue.due_date)}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {formatDateTime(issue.updated_at)}
                 </TableCell>
                 <TableCell>
                   <DropdownMenu>

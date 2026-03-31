@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { updateIssue, addIssueUpdate } from "@/actions/issues";
+import { updateIssue, handoverIssue } from "@/actions/issues";
 import { deleteAttachment } from "@/actions/attachments";
 import type {
   IssuePriority,
@@ -76,10 +76,11 @@ export function IssueDetailClient({
     currentUser.id === initial.assignee_id;
 
   // ─── 交接状态 ─────────────────────────────────────────────────────────────
-  const [showHandover,   setShowHandover]   = useState(false);
-  const [handoverTo,     setHandoverTo]     = useState("__none__");
-  const [handoverNote,   setHandoverNote]   = useState("");
-  const [savingHandover, setSavingHandover] = useState(false);
+  const [showHandover,        setShowHandover]        = useState(false);
+  const [handoverTo,          setHandoverTo]          = useState("__none__");
+  const [handoverNote,        setHandoverNote]        = useState("");
+  const [savingHandover,      setSavingHandover]      = useState(false);
+  const [handoverAttachments, setHandoverAttachments] = useState<IssueAttachmentWithUrl[]>([]);
 
   const dueStr = useMemo(() => {
     if (!dueDate) return null;
@@ -133,21 +134,21 @@ export function IssueDetailClient({
     }
     setSavingHandover(true);
     try {
-      const result = await updateIssue(initial.id, { assignee_id: handoverTo });
+      const result = await handoverIssue({
+        issueId:         initial.id,
+        toUserId:        handoverTo,
+        note:            handoverNote.trim() || undefined,
+        attachmentNames: handoverAttachments.length > 0
+          ? handoverAttachments.map((a) => a.filename)
+          : undefined,
+      });
       if (result?.error) { toast.error(result.error); return; }
 
-      if (handoverNote.trim()) {
-        await addIssueUpdate(
-          initial.id,
-          `【任务交接】${handoverNote.trim()}`,
-          undefined, // 保持当前状态
-        );
-      }
-
-      toast.success("交接成功");
+      toast.success("交接成功，对方已收到通知");
       setShowHandover(false);
       setHandoverTo("__none__");
       setHandoverNote("");
+      setHandoverAttachments([]);
       router.refresh();
     } catch {
       toast.error("交接失败，请稍后再试");
@@ -405,6 +406,52 @@ export function IssueDetailClient({
                     rows={3}
                   />
                 </div>
+
+                {/* 交接附件 */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label>
+                      交接附件
+                      <span className="ml-1.5 text-xs text-muted-foreground">（可选，文件将以任务名自动命名）</span>
+                    </Label>
+                    <AttachmentUploadButton
+                      issueId={initial.id}
+                      label="上传附件"
+                      disabled={savingHandover}
+                      filenameTransform={(file) => {
+                        const safeTitle = initial.title
+                          .replace(/[<>:"/\\|?*]/g, "_")
+                          .slice(0, 60)
+                          .trim();
+                        const ext = file.name.includes(".")
+                          ? "." + file.name.split(".").pop()
+                          : "";
+                        const baseName = file.name.replace(/\.[^.]+$/, "");
+                        return new File([file], `${safeTitle}_${baseName}${ext}`, { type: file.type });
+                      }}
+                      onUploaded={(a) => {
+                        setHandoverAttachments((prev) => [...prev, a]);
+                        setIssueAttachments((prev) => [...prev, a]);
+                      }}
+                    />
+                  </div>
+                  {handoverAttachments.length > 0 && (
+                    <AttachmentList
+                      attachments={handoverAttachments}
+                      canDelete
+                      onDelete={(id) => {
+                        setHandoverAttachments((prev) => prev.filter((a) => a.id !== id));
+                        handleDeleteAttachment(id);
+                      }}
+                    />
+                  )}
+                  {handoverAttachments.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      可上传文档、截图等，接手同事可直接下载
+                    </p>
+                  )}
+                </div>
+
                 <div className="flex gap-2">
                   <Button
                     size="sm"
@@ -421,6 +468,7 @@ export function IssueDetailClient({
                       setShowHandover(false);
                       setHandoverTo("__none__");
                       setHandoverNote("");
+                      setHandoverAttachments([]);
                     }}
                   >
                     取消
