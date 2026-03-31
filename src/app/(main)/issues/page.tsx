@@ -72,7 +72,7 @@ function parseFilters(sp: Record<string, string | string[] | undefined>): IssueF
     q:          str(sp.q),
     page:       Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1,
     pageSize:   20,
-    tab:        (rawTab && VALID_TAB.includes(rawTab as IssueTab)) ? (rawTab as IssueTab) : "all",
+    tab:        (rawTab && VALID_TAB.includes(rawTab as IssueTab)) ? (rawTab as IssueTab) : undefined,
   };
 }
 
@@ -87,10 +87,12 @@ export default async function IssuesPage({
   if (!user) return null;
 
   const filters = parseFilters(sp);
+  const effectiveTab: IssueTab = filters.tab ?? (user.role === "admin" ? "all" : "mine");
   const [{ items, total, page, pageSize }, members] = await Promise.all([
     getIssues({
       ...filters,
-      assigneeId: filters.tab === "mine" ? user.id : filters.assigneeId,
+      tab: effectiveTab,
+      assigneeId: effectiveTab === "mine" ? user.id : filters.assigneeId,
     }),
     getMembers(),
   ]);
@@ -116,7 +118,7 @@ export default async function IssuesPage({
           { key: "mine", label: "待我处理" },
           { key: "risk", label: "高风险" },
         ].map((tab) => {
-          const active = (filters.tab ?? "all") === tab.key;
+          const active = effectiveTab === tab.key;
           return (
             <Link
               key={tab.key}

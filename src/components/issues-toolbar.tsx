@@ -48,7 +48,7 @@ export function IssuesToolbar({
 
   const push = useCallback(
     (patch: Record<string, string | null>) => {
-      const q = buildQuery(searchParams, { tab: null, ...patch });
+      const q = buildQuery(searchParams, patch);
       startTransition(() => { router.push(q ? `/issues?${q}` : "/issues"); });
     },
     [router, searchParams]
