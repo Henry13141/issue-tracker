@@ -23,9 +23,9 @@
 
 import type { IssueStatus, IssuePriority } from "@/types";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendNotification, sendGroupDigest } from "@/lib/notification-service";
+import { sendNotification } from "@/lib/notification-service";
 import { getIssueDetailUrl } from "@/lib/app-url";
-import { isWecomAppConfigured, isWecomWebhookConfigured } from "@/lib/wecom";
+import { isWecomAppConfigured } from "@/lib/wecom";
 
 // ─── 防抖窗口 ─────────────────────────────────────────────────────────────────
 
@@ -140,9 +140,8 @@ const PRIORITY_LABELS: Record<IssuePriority, string> = {
 type UserRow = { name: string; wecom_userid: string | null };
 
 async function _dispatch(ctx: EventNotificationContext): Promise<void> {
-  const appOk     = isWecomAppConfigured();
-  const webhookOk = isWecomWebhookConfigured();
-  if (!appOk && !webhookOk) return;
+  const appOk = isWecomAppConfigured();
+  if (!appOk) return;
 
   const db = tryDB();
   if (!db) return;
@@ -301,20 +300,6 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
     await Promise.all(tasks);
   }
 
-  // ── 6. 群机器人汇总（单条，无防抖）───────────────────────────────────────
-  // 状态变更（status_changed）只通知相关当事人（私信），不发到群里。
-  // 群消息仅保留：新建工单、负责人/评审人变更、优先级提升为紧急、截止日期提前。
-  if (webhookOk) {
-    const groupChanges = ctx.changes.filter((c) => c.type !== "status_changed");
-    if (groupChanges.length > 0) {
-      const groupBody = buildGroupMessage({ ...ctx, changes: groupChanges }, userMap);
-      await sendGroupDigest({
-        content:       groupBody,
-        issueId:       ctx.issueId,
-        triggerSource: "issue_event",
-      });
-    }
-  }
 }
 
 // ─── 消息构建 ─────────────────────────────────────────────────────────────────
@@ -399,32 +384,6 @@ function buildActionHint(changes: NotifiableChange[]): string {
     return "请及时帮忙处理问题，先确认优先级和处理计划，推进最关键的一步。";
   }
   return "请结合当前情况补一条简短进展，方便团队协同跟进。";
-}
-
-function buildGroupMessage(
-  ctx: EventNotificationContext,
-  userMap: Map<string, UserRow>
-): string {
-  const url = getIssueDetailUrl(ctx.issueId);
-  const ref = url ? `[${ctx.issueTitle}](${url})` : `**${ctx.issueTitle}**`;
-
-  const lines = [
-    `### 问题动态 · ${ctx.issueTitle.slice(0, 20)}`,
-    `- 问题：${ref}`,
-    `- 操作人：**${ctx.actorName}**`,
-  ];
-
-  if (ctx.assigneeId) {
-    const assigneeName = userMap.get(ctx.assigneeId)?.name ?? "（未知）";
-    lines.push(`- 任务负责人：**${assigneeName}**`);
-  }
-
-  for (const change of ctx.changes) {
-    const line = formatChangeLine(change, userMap);
-    if (line) lines.push(line);
-  }
-
-  return lines.join("\n");
 }
 
 /**
