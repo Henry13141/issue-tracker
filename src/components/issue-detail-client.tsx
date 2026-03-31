@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils";
 import { CalendarIcon, ArrowRightLeft, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule } from "@/lib/constants";
-import { generateHandoverDraft } from "@/actions/ai";
+import { generateDescriptionDraft, generateHandoverDraft } from "@/actions/ai";
 
 export function IssueDetailClient({
   issue: initial,
@@ -88,6 +88,7 @@ export function IssueDetailClient({
   const [savingHandover,      setSavingHandover]      = useState(false);
   const [handoverAttachments, setHandoverAttachments] = useState<IssueAttachmentWithUrl[]>([]);
   const [aiDrafting,          setAiDrafting]          = useState(false);
+  const [aiDescDrafting,      setAiDescDrafting]      = useState(false);
 
   const dueStr = useMemo(() => {
     if (!dueDate) return null;
@@ -186,12 +187,47 @@ export function IssueDetailClient({
             <Input value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canEdit} />
           </div>
           <div className="space-y-2">
-            <Label>描述</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label>描述</Label>
+              {canEdit && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+                  disabled={aiDescDrafting || savingMeta || (!title.trim() && !description.trim())}
+                  onClick={async () => {
+                    setAiDescDrafting(true);
+                    try {
+                      const draft = await generateDescriptionDraft(title, description);
+                      if (draft) {
+                        setDescription(draft);
+                        toast.success("已根据当前标题与描述生成草稿，可再修改后保存");
+                      } else {
+                        toast.info("请先填写标题或描述，或检查 AI 是否已配置");
+                      }
+                    } catch {
+                      toast.error("AI 生成失败");
+                    } finally {
+                      setAiDescDrafting(false);
+                    }
+                  }}
+                >
+                  {aiDescDrafting ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  AI 生成草稿
+                </Button>
+              )}
+            </div>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
               disabled={!canEdit}
+              placeholder="可简要写现象与期望；也可用「AI 生成草稿」根据标题与已有内容扩写"
             />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">

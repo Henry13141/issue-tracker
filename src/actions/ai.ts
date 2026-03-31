@@ -114,3 +114,37 @@ export async function generateHandoverDraft(issueId: string): Promise<string | n
 
   return chatCompletion(systemPrompt, contextLines.join("\n"), { maxTokens: 512 });
 }
+
+// ---------------------------------------------------------------------------
+// 问题描述：根据标题 + 已有草稿扩写
+// ---------------------------------------------------------------------------
+
+export async function generateDescriptionDraft(
+  title: string,
+  hint: string,
+): Promise<string | null> {
+  if (!isAIConfigured()) return null;
+
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const t = title.trim();
+  const h = hint.trim();
+  if (!t && !h) return null;
+
+  const systemPrompt = [
+    "你是游戏项目（UE）问题单的质量助手。",
+    "用户会提供问题标题和描述框里已写的内容（可能不完整）。",
+    "请基于已有文字，整理并扩写为更清晰的问题描述，可包含：背景与现象、期望目标、需要同步的范围（如文案/UI）。",
+    "使用简洁的中文段落，可直接粘贴进工单描述。不要使用 Markdown 标题（不要用 #）。",
+    "直接输出描述正文，不要加「好的」「以下是」等前缀。",
+  ].join("");
+
+  const userContent = [
+    t ? `标题：${t}` : "标题：（未填）",
+    "",
+    h ? `描述框内已有内容：\n${h}` : "描述框内暂无内容，请主要依据标题补全描述。",
+  ].join("\n");
+
+  return chatCompletion(systemPrompt, userContent, { maxTokens: 1024 });
+}
