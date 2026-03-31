@@ -31,7 +31,10 @@ export async function suggestCategoryAndModule(
     '{"category": "分类名", "module": "模块名"}',
   ].join("\n");
 
-  const result = await chatCompletion(systemPrompt, title, { maxTokens: 128 });
+  const result = await chatCompletion(systemPrompt, title, {
+    maxTokens: 128,
+    disableThinking: true,
+  });
   if (!result) return null;
 
   try {
@@ -198,7 +201,10 @@ export async function suggestPriority(
     d ? `描述：\n${d}` : "描述：（空）",
   ].join("\n");
 
-  const result = await chatCompletion(systemPrompt, userContent, { maxTokens: 256 });
+  const result = await chatCompletion(systemPrompt, userContent, {
+    maxTokens: 256,
+    disableThinking: true,
+  });
   if (!result) return null;
 
   try {
