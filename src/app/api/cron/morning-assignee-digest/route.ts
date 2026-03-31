@@ -5,6 +5,7 @@ import { isWecomAppConfigured, isWecomWebhookConfigured } from "@/lib/wecom";
 import { sendAdminDigest, sendGroupDigest } from "@/lib/notification-service";
 import { getPublicAppUrl } from "@/lib/app-url";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
+import { chatCompletion, isAIConfigured } from "@/lib/ai";
 import type { IssueStatus } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,8 @@ function buildGentleMorningMarkdown(
   assigneeName: string,
   dateLabel: string,
   items: { title: string; status: IssueStatus }[],
-  listUrl: string
+  listUrl: string,
+  aiSummary?: string | null,
 ): string {
   const n = items.length;
   const lines: string[] = [
@@ -34,9 +36,17 @@ function buildGentleMorningMarkdown(
       ? `目前你名下还有 **1** 个待处理问题。请及时帮忙处理问题，方便时补一条进展就可以。`
       : `目前你名下还有 **${n}** 个待处理问题。请及时帮忙处理问题，方便时补一条进展就可以。`,
     "",
-    "### 待处理问题清单",
-    "",
   ];
+
+  if (aiSummary) {
+    lines.push("### 昨日工作回顾（AI 生成）");
+    lines.push("");
+    lines.push(aiSummary);
+    lines.push("");
+  }
+
+  lines.push("### 待处理问题清单");
+  lines.push("");
 
   for (const it of items) {
     const st = ISSUE_STATUS_LABELS[it.status] ?? it.status;
@@ -53,6 +63,32 @@ function buildGentleMorningMarkdown(
   lines.push("祝今天顺利。");
 
   return lines.join("\n");
+}
+
+async function generateYesterdaySummary(
+  assigneeName: string,
+  yesterdayUpdates: { title: string; content: string; time: string }[],
+): Promise<string | null> {
+  if (!isAIConfigured() || yesterdayUpdates.length === 0) return null;
+
+  const context = yesterdayUpdates
+    .map((u) => `[${u.time}] ${u.title}: ${u.content}`)
+    .join("\n");
+
+  const systemPrompt = [
+    "你是项目管理助手。根据以下某员工昨天在各个任务中的进展记录，",
+    "生成一段简洁的昨日工作回顾（3-5 句话），帮助员工快速回忆昨天做了什么。",
+    "用第二人称（'你'），语气轻松友好。不要用 Markdown 标题。",
+    "直接输出内容，不要加前缀。控制在 150 字以内。",
+  ].join("");
+
+  try {
+    return await chatCompletion(systemPrompt, `员工：${assigneeName}\n昨日进展：\n${context}`, {
+      maxTokens: 256,
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(request: Request) {
@@ -103,6 +139,40 @@ export async function GET(request: Request) {
       byAssignee.set(aid, list);
     }
 
+    // ── 查询昨日进展（用于 AI 摘要）──────────────────────────────────
+    type UpdateRow = { content: string; created_at: string; user_id: string; issue_id: string };
+    const yesterdayUpdatesByUser = new Map<string, { title: string; content: string; time: string }[]>();
+
+    if (isAIConfigured()) {
+      const yesterday = new Date(Date.now() - 86400000);
+      const yesterdayStart = new Date(yesterday);
+      yesterdayStart.setUTCHours(0, 0, 0, 0);
+
+      const { data: yesterdayUpdates } = await supabase
+        .from("issue_updates")
+        .select("content, created_at, user_id, issue_id")
+        .eq("is_system_generated", false)
+        .gte("created_at", yesterdayStart.toISOString())
+        .lt("created_at", new Date().toISOString());
+
+      const issueTitleMap = new Map<string, string>();
+      for (const rows of byAssignee.values()) {
+        for (const r of rows) issueTitleMap.set(r.id, r.title);
+      }
+
+      for (const u of (yesterdayUpdates ?? []) as UpdateRow[]) {
+        const issueTitle = issueTitleMap.get(u.issue_id);
+        if (!issueTitle || !u.user_id) continue;
+        const list = yesterdayUpdatesByUser.get(u.user_id) ?? [];
+        list.push({
+          title: issueTitle,
+          content: u.content.slice(0, 200),
+          time: u.created_at.slice(11, 16),
+        });
+        yesterdayUpdatesByUser.set(u.user_id, list);
+      }
+    }
+
     const base = getPublicAppUrl();
     let sent = 0;
     let skippedNoWecom = 0;
@@ -119,7 +189,13 @@ export async function GET(request: Request) {
           .map((r) => ({ title: r.title, status: r.status as IssueStatus }))
           .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
 
-        const md    = buildGentleMorningMarkdown(name, dateLabel, items, base || "");
+        let aiSummary: string | null = null;
+        const userUpdates = yesterdayUpdatesByUser.get(assigneeUserId);
+        if (userUpdates && userUpdates.length > 0) {
+          aiSummary = await generateYesterdaySummary(name, userUpdates);
+        }
+
+        const md    = buildGentleMorningMarkdown(name, dateLabel, items, base || "", aiSummary);
         const title = `早安 · 今日待处理问题（${items.length}）`;
 
         const result = await sendAdminDigest({

@@ -23,9 +23,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Paperclip, X } from "lucide-react";
+import { Loader2, Paperclip, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { ISSUE_CATEGORIES, ISSUE_MODULES } from "@/lib/constants";
+import { suggestCategoryAndModule } from "@/actions/ai";
 
 export function IssueFormDialog({ members }: { members: User[] }) {
   const router      = useRouter();
@@ -40,6 +41,7 @@ export function IssueFormDialog({ members }: { members: User[] }) {
   const [module, setModule]       = useState("__none__");
   const [source, setSource]       = useState("manual");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [aiSuggesting, setAiSuggesting] = useState(false);
 
   function addFiles(files: FileList | null) {
     if (!files) return;
@@ -186,6 +188,38 @@ export function IssueFormDialog({ members }: { members: User[] }) {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground">分类 / 模块</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs text-muted-foreground"
+                  disabled={aiSuggesting || !title.trim()}
+                  onClick={async () => {
+                    setAiSuggesting(true);
+                    try {
+                      const result = await suggestCategoryAndModule(title.trim());
+                      if (result) {
+                        if (result.category) setCategory(result.category);
+                        if (result.module) setModule(result.module);
+                        toast.success("AI 已推荐分类和模块");
+                      } else {
+                        toast.info("AI 暂无推荐结果，请手动选择");
+                      }
+                    } catch {
+                      toast.error("AI 推荐失败");
+                    } finally {
+                      setAiSuggesting(false);
+                    }
+                  }}
+                >
+                  {aiSuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  AI 推荐
+                </Button>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

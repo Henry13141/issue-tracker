@@ -32,9 +32,10 @@ import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS } from "@/lib/constants";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { CalendarIcon, ArrowRightLeft } from "lucide-react";
+import { CalendarIcon, ArrowRightLeft, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule } from "@/lib/constants";
+import { generateHandoverDraft } from "@/actions/ai";
 
 export function IssueDetailClient({
   issue: initial,
@@ -86,6 +87,7 @@ export function IssueDetailClient({
   const [handoverNote,        setHandoverNote]        = useState("");
   const [savingHandover,      setSavingHandover]      = useState(false);
   const [handoverAttachments, setHandoverAttachments] = useState<IssueAttachmentWithUrl[]>([]);
+  const [aiDrafting,          setAiDrafting]          = useState(false);
 
   const dueStr = useMemo(() => {
     if (!dueDate) return null;
@@ -425,7 +427,35 @@ export function IssueDetailClient({
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>交接说明 <span className="text-xs text-muted-foreground">（可选）</span></Label>
+                  <div className="flex items-center justify-between">
+                    <Label>交接说明 <span className="text-xs text-muted-foreground">（可选）</span></Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-xs text-muted-foreground"
+                      disabled={aiDrafting || savingHandover}
+                      onClick={async () => {
+                        setAiDrafting(true);
+                        try {
+                          const draft = await generateHandoverDraft(initial.id);
+                          if (draft) {
+                            setHandoverNote(draft);
+                            toast.success("AI 已生成交接说明草稿");
+                          } else {
+                            toast.info("AI 暂无法生成，请手动填写");
+                          }
+                        } catch {
+                          toast.error("AI 生成失败");
+                        } finally {
+                          setAiDrafting(false);
+                        }
+                      }}
+                    >
+                      {aiDrafting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      AI 生成草稿
+                    </Button>
+                  </div>
                   <Textarea
                     value={handoverNote}
                     onChange={(e) => setHandoverNote(e.target.value)}
