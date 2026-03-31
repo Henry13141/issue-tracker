@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/reminder-logic";
-import { isWecomAppConfigured } from "@/lib/wecom";
-import { sendAdminDigest } from "@/lib/notification-service";
+import { isWecomAppConfigured, isWecomWebhookConfigured } from "@/lib/wecom";
+import { sendAdminDigest, sendGroupDigest } from "@/lib/notification-service";
 import { getPublicAppUrl } from "@/lib/app-url";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
 import type { IssueStatus } from "@/types";
@@ -64,10 +64,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY is not configured" }, { status: 503 });
   }
 
-  if (!isWecomAppConfigured()) {
+  if (!isWecomAppConfigured() && !isWecomWebhookConfigured()) {
     return NextResponse.json({
       ok: true, skipped: true,
-      reason: "企业微信应用未配置（WECOM_CORPID / WECOM_CORPSECRET / WECOM_AGENTID）",
+      reason: "企业微信应用和群机器人均未配置",
     });
   }
 
@@ -108,32 +108,65 @@ export async function GET(request: Request) {
     let skippedNoWecom = 0;
     const errors: string[] = [];
 
-    for (const [assigneeUserId, rows] of byAssignee) {
-      const wc = wecomMap.get(assigneeUserId);
-      if (!wc) { skippedNoWecom++; continue; }
+    // ── 个人私信 ────────────────────────────────────────────────────────
+    if (isWecomAppConfigured()) {
+      for (const [assigneeUserId, rows] of byAssignee) {
+        const wc = wecomMap.get(assigneeUserId);
+        if (!wc) { skippedNoWecom++; continue; }
 
-      const name  = nameMap.get(assigneeUserId) ?? "同事";
-      const items = rows
-        .map((r) => ({ title: r.title, status: r.status as IssueStatus }))
-        .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
+        const name  = nameMap.get(assigneeUserId) ?? "同事";
+        const items = rows
+          .map((r) => ({ title: r.title, status: r.status as IssueStatus }))
+          .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
 
-      const md    = buildGentleMorningMarkdown(name, dateLabel, items, base || "");
-      const title = `早安 · 今日待处理问题（${items.length}）`;
+        const md    = buildGentleMorningMarkdown(name, dateLabel, items, base || "");
+        const title = `早安 · 今日待处理问题（${items.length}）`;
 
-      const result = await sendAdminDigest({
-        targetWecomUserid: wc,
-        targetUserId:      assigneeUserId,
-        title,
-        content:           md,
-        triggerSource:     "cron_morning",
-      });
+        const result = await sendAdminDigest({
+          targetWecomUserid: wc,
+          targetUserId:      assigneeUserId,
+          title,
+          content:           md,
+          triggerSource:     "cron_morning",
+        });
 
-      if (result.success) {
-        sent++;
-      } else {
-        errors.push(`${assigneeUserId}: ${result.errorMessage ?? result.errorCode}`);
-        console.error("[cron] morning-assignee-digest:", assigneeUserId, result.errorCode);
+        if (result.success) {
+          sent++;
+        } else {
+          errors.push(`${assigneeUserId}: ${result.errorMessage ?? result.errorCode}`);
+          console.error("[cron] morning-assignee-digest:", assigneeUserId, result.errorCode);
+        }
       }
+    }
+
+    // ── 群机器人：今日任务汇总（一条，发给整个群）───────────────────────
+    let groupSent = false;
+    if (byAssignee.size > 0 && isWecomWebhookConfigured()) {
+      const groupLines: string[] = [
+        `## 早安 · ${dateLabel} 今日待处理任务`,
+        "",
+        "以下同事名下有待处理问题，请各自在今天工作结束前更新一条进展：",
+        "",
+      ];
+
+      for (const [assigneeUserId, rows] of byAssignee) {
+        const name  = nameMap.get(assigneeUserId) ?? "同事";
+        const items = rows.sort((a, b) =>
+          a.title.localeCompare(b.title, "zh-CN")
+        );
+        groupLines.push(`**${name}（${items.length}个）**`);
+        for (const r of items) {
+          const st = ISSUE_STATUS_LABELS[r.status as IssueStatus] ?? r.status;
+          groupLines.push(`- ${r.title}（${st}）`);
+        }
+        groupLines.push("");
+      }
+
+      const result = await sendGroupDigest({
+        content:       groupLines.join("\n"),
+        triggerSource: "cron_morning",
+      });
+      groupSent = result.success;
     }
 
     return NextResponse.json({
@@ -144,6 +177,7 @@ export async function GET(request: Request) {
       skipped_no_wecom_userid:          skippedNoWecom,
       send_failed_count:                errors.length,
       send_failures:                    errors.length ? errors : undefined,
+      wecom_group_sent:                 groupSent,
     });
   } catch (e: unknown) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Cron failed" }, { status: 500 });
