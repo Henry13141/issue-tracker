@@ -70,11 +70,16 @@ export async function generateHandoverDraft(issueId: string): Promise<string | n
   if (issueRes.error || !issueRes.data) return null;
 
   const issue = issueRes.data;
-  const updates = (updatesRes.data ?? []) as {
+  const rawRows = (updatesRes.data ?? []) as unknown as {
     content: string;
     created_at: string;
-    user: { name: string } | null;
+    user: { name: string } | { name: string }[] | null;
   }[];
+  const updates = rawRows.map((r) => ({
+    content: r.content,
+    created_at: r.created_at,
+    userName: Array.isArray(r.user) ? r.user[0]?.name : r.user?.name,
+  }));
 
   const contextLines = [
     `标题：${issue.title}`,
@@ -90,7 +95,7 @@ export async function generateHandoverDraft(issueId: string): Promise<string | n
   if (updates.length > 0) {
     contextLines.push("", "最近进展（从新到旧）：");
     for (const u of updates) {
-      const who = u.user?.name ?? "未知";
+      const who = u.userName ?? "未知";
       const when = u.created_at.slice(0, 10);
       contextLines.push(`- [${when} ${who}] ${u.content}`);
     }
