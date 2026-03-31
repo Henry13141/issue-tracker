@@ -302,13 +302,18 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
   }
 
   // ── 6. 群机器人汇总（单条，无防抖）───────────────────────────────────────
+  // 状态变更（status_changed）只通知相关当事人（私信），不发到群里。
+  // 群消息仅保留：新建工单、负责人/评审人变更、优先级提升为紧急、截止日期提前。
   if (webhookOk) {
-    const groupBody = buildGroupMessage(ctx, userMap);
-    await sendGroupDigest({
-      content:       groupBody,
-      issueId:       ctx.issueId,
-      triggerSource: "issue_event",
-    });
+    const groupChanges = ctx.changes.filter((c) => c.type !== "status_changed");
+    if (groupChanges.length > 0) {
+      const groupBody = buildGroupMessage({ ...ctx, changes: groupChanges }, userMap);
+      await sendGroupDigest({
+        content:       groupBody,
+        issueId:       ctx.issueId,
+        triggerSource: "issue_event",
+      });
+    }
   }
 }
 
