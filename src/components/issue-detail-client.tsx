@@ -28,14 +28,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { formatDateTime, formatDateOnly } from "@/lib/dates";
-import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS } from "@/lib/constants";
+import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS, ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule } from "@/lib/constants";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { CalendarIcon, ArrowRightLeft, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule } from "@/lib/constants";
-import { generateDescriptionDraft, generateHandoverDraft } from "@/actions/ai";
+import { generateDescriptionDraft, generateHandoverDraft, suggestPriority } from "@/actions/ai";
 
 export function IssueDetailClient({
   issue: initial,
@@ -89,6 +88,7 @@ export function IssueDetailClient({
   const [handoverAttachments, setHandoverAttachments] = useState<IssueAttachmentWithUrl[]>([]);
   const [aiDrafting,          setAiDrafting]          = useState(false);
   const [aiDescDrafting,      setAiDescDrafting]      = useState(false);
+  const [aiPrioritySuggesting, setAiPrioritySuggesting] = useState(false);
 
   const dueStr = useMemo(() => {
     if (!dueDate) return null;
@@ -258,7 +258,42 @@ export function IssueDetailClient({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>优先级</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label>优先级</Label>
+                {canEdit && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 gap-1 px-2 text-xs text-muted-foreground"
+                    disabled={aiPrioritySuggesting || savingMeta || (!title.trim() && !description.trim())}
+                    onClick={async () => {
+                      setAiPrioritySuggesting(true);
+                      try {
+                        const result = await suggestPriority(title, description);
+                        if (result) {
+                          setPriority(result.priority);
+                          if (result.suggestedDueDays != null && !dueDate) {
+                            const d = new Date();
+                            d.setDate(d.getDate() + result.suggestedDueDays);
+                            setDueDate(d);
+                          }
+                          toast.success(`AI 建议：${ISSUE_PRIORITY_LABELS[result.priority]} — ${result.reason}`);
+                        } else {
+                          toast.info("AI 暂无推荐结果，请手动选择");
+                        }
+                      } catch {
+                        toast.error("AI 推荐失败");
+                      } finally {
+                        setAiPrioritySuggesting(false);
+                      }
+                    }}
+                  >
+                    {aiPrioritySuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    AI 推荐
+                  </Button>
+                )}
+              </div>
               <Select
                 value={priority}
                 onValueChange={(v) => setPriority(v as IssuePriority)}

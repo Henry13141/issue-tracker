@@ -4,6 +4,12 @@ import { chatCompletion, isAIConfigured } from "@/lib/ai";
 import { ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
+import type { IssuePriority } from "@/types";
+
+const VALID_PRIORITIES: IssuePriority[] = ["low", "medium", "high", "urgent"];
+function isIssuePriority(v: unknown): v is IssuePriority {
+  return typeof v === "string" && VALID_PRIORITIES.includes(v as IssuePriority);
+}
 
 // ---------------------------------------------------------------------------
 // 智能分类 + 模块推荐
@@ -147,4 +153,81 @@ export async function generateDescriptionDraft(
   ].join("\n");
 
   return chatCompletion(systemPrompt, userContent, { maxTokens: 1024 });
+}
+
+// ---------------------------------------------------------------------------
+// 智能优先级 + 建议截止天数
+// ---------------------------------------------------------------------------
+
+export async function suggestPriority(
+  title: string,
+  description: string,
+): Promise<{
+  priority: IssuePriority;
+  reason: string;
+  suggestedDueDays: number | null;
+} | null> {
+  if (!isAIConfigured()) return null;
+
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const t = title.trim();
+  const d = description.trim();
+  if (!t && !d) return null;
+
+  const systemPrompt = [
+    "你是 UE 游戏项目的问题优先级助手。根据标题和描述，判断优先级并给出简短理由。",
+    "",
+    "优先级含义：",
+    "- urgent：阻塞核心流程、线上事故、必须当天处理",
+    "- high：明显影响玩家体验或阻塞他人工作",
+    "- medium：一般问题，可排期处理",
+    "- low：优化项、文案细化、非阻塞",
+    "",
+    "同时给出建议的 dueDays（正整数），表示建议截止日期为今天起第几天。",
+    "规则：urgent 通常 1；high 通常 3；medium 通常 7；low 时 dueDays 必须为 null。",
+    "",
+    "严格只输出一行 JSON，不要 markdown：",
+    '{"priority":"low|medium|high|urgent","reason":"一句话理由","dueDays":数字或null}',
+  ].join("\n");
+
+  const userContent = [
+    t ? `标题：${t}` : "标题：（空）",
+    "",
+    d ? `描述：\n${d}` : "描述：（空）",
+  ].join("\n");
+
+  const result = await chatCompletion(systemPrompt, userContent, { maxTokens: 256 });
+  if (!result) return null;
+
+  try {
+    const cleaned = result.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleaned) as {
+      priority?: unknown;
+      reason?: unknown;
+      dueDays?: unknown;
+    };
+    if (!isIssuePriority(parsed.priority)) return null;
+
+    const reason =
+      typeof parsed.reason === "string" && parsed.reason.trim()
+        ? parsed.reason.trim().slice(0, 200)
+        : "已根据内容给出建议";
+
+    let suggestedDueDays: number | null = null;
+    if (typeof parsed.dueDays === "number" && Number.isFinite(parsed.dueDays) && parsed.dueDays >= 1 && parsed.dueDays <= 365) {
+      suggestedDueDays = Math.round(parsed.dueDays);
+    } else if (parsed.priority !== "low") {
+      suggestedDueDays = parsed.priority === "urgent" ? 1 : parsed.priority === "high" ? 3 : 7;
+    }
+
+    if (parsed.priority === "low") {
+      suggestedDueDays = null;
+    }
+
+    return { priority: parsed.priority, reason, suggestedDueDays };
+  } catch {
+    return null;
+  }
 }
