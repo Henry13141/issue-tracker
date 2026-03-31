@@ -10,15 +10,14 @@ export const getCurrentUser = cache(async (): Promise<User | null> => {
     return null;
   }
 
-  let session;
+  let authUser;
   try {
-    const { data } = await supabase.auth.getSession();
-    session = data.session;
+    const { data } = await supabase.auth.getUser();
+    authUser = data.user;
   } catch {
     return null;
   }
-  if (!session?.user) return null;
-  const authUser = session.user;
+  if (!authUser) return null;
 
   const { data, error } = await supabase
     .from("users")

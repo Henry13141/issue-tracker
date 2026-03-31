@@ -6,6 +6,7 @@ import { IssuesToolbar } from "@/components/issues-toolbar";
 import { IssuesTable } from "@/components/issues-table";
 import { IssueFormDialog } from "@/components/issue-form-dialog";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
+import { ExportTemplateButton } from "@/components/export-template-button";
 import { EmptyState } from "@/components/empty-state";
 import type { IssuePriority, IssueStatus } from "@/types";
 
@@ -58,6 +59,7 @@ export default async function IssuesPage({
           <p className="text-sm text-muted-foreground">查看、筛选并跟踪所有问题</p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportTemplateButton />
           <ImportExcelDialog />
           <IssueFormDialog members={members} />
         </div>

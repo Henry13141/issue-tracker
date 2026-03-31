@@ -118,10 +118,16 @@ export function NotificationsClient({ initialResult, members, filters }: Props) 
     }
   }
 
-  const { data, total, page, totalPages } = initialResult;
+  const { data, total, page, totalPages, error } = initialResult;
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          通知日志查询失败：{error}
+        </div>
+      )}
+
       {/* ── 筛选器 ── */}
       <Card>
         <CardContent className="pt-4">
@@ -220,7 +226,11 @@ export function NotificationsClient({ initialResult, members, filters }: Props) 
       </div>
 
       {/* ── 列表 ── */}
-      {data.length === 0 ? (
+      {error ? (
+        <div className="rounded-lg border border-dashed border-red-200 p-10 text-center text-sm text-red-600">
+          通知日志暂时无法加载，请先检查数据库表和查询配置。
+        </div>
+      ) : data.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
           暂无匹配的投递记录
         </div>
