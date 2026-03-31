@@ -45,12 +45,14 @@ const BUCKET_STATUS     = "issue_event.status";
 const BUCKET_PRIORITY   = "issue_event.priority";
 const BUCKET_DUE_DATE   = "issue_event.due_date";
 const BUCKET_ASSIGNMENT = "issue_event.assignment";
+const BUCKET_HANDOVER   = "issue_event.handover";
 const BUCKET_CREATED    = "issue_event.created";
 
 const BUCKET_PRIORITY_ORDER = [
   BUCKET_STATUS,
   BUCKET_PRIORITY,
   BUCKET_DUE_DATE,
+  BUCKET_HANDOVER,
   BUCKET_ASSIGNMENT,
   BUCKET_CREATED,
 ] as const;
@@ -65,7 +67,15 @@ export type NotifiableChange =
   | { type: "status_changed"; from: IssueStatus; to: IssueStatus }
   | { type: "priority_urgent"; from: IssuePriority }
   /** due_date 提前（更紧）才触发，推后或首次设置不触发 */
-  | { type: "due_date_advanced"; from: string; to: string };
+  | { type: "due_date_advanced"; from: string; to: string }
+  /** 任务交接：比 assignee_changed 携带更多上下文，发专属通知 */
+  | {
+      type: "handover";
+      fromId: string;
+      toId: string;
+      note?: string;
+      attachmentNames?: string[];
+    };
 
 export interface EventNotificationContext {
   issueId:    string;
@@ -116,6 +126,7 @@ function getEventBucket(changes: NotifiableChange[]): string {
     if (c.type === "priority_urgent")  buckets.add(BUCKET_PRIORITY);
     if (c.type === "due_date_advanced") buckets.add(BUCKET_DUE_DATE);
     if (c.type === "assignee_changed" || c.type === "reviewer_changed") buckets.add(BUCKET_ASSIGNMENT);
+    if (c.type === "handover")         buckets.add(BUCKET_HANDOVER);
     if (c.type === "issue_created")    buckets.add(BUCKET_CREATED);
   }
   for (const b of BUCKET_PRIORITY_ORDER) {
@@ -163,6 +174,12 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
       case "assignee_changed":
         // 新负责人 + 评审人（需知晓工单负责人变动）
         if (change.toId) recipientIds.add(change.toId);
+        if (ctx.reviewerId) recipientIds.add(ctx.reviewerId);
+        break;
+
+      case "handover":
+        // 被交接的新负责人（旧负责人是操作者，后面统一排除）
+        recipientIds.add(change.toId);
         if (ctx.reviewerId) recipientIds.add(ctx.reviewerId);
         break;
 
@@ -232,6 +249,10 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
     if (change.type === "assignee_changed" || change.type === "reviewer_changed") {
       if (change.fromId) needUserIds.add(change.fromId);
       if (change.toId)   needUserIds.add(change.toId);
+    }
+    if (change.type === "handover") {
+      needUserIds.add(change.fromId);
+      needUserIds.add(change.toId);
     }
   }
 
@@ -311,7 +332,31 @@ function buildMessage(
   const url = getIssueDetailUrl(ctx.issueId);
   const ref = url ? `[${ctx.issueTitle}](${url})` : `**${ctx.issueTitle}**`;
 
-  const isCreated = ctx.changes.length === 1 && ctx.changes[0].type === "issue_created";
+  const isCreated  = ctx.changes.length === 1 && ctx.changes[0].type === "issue_created";
+  const isHandover = ctx.changes.length === 1 && ctx.changes[0].type === "handover";
+
+  // ── 交接专属消息 ──────────────────────────────────────────────────────────
+  if (isHandover) {
+    const h = ctx.changes[0] as Extract<NotifiableChange, { type: "handover" }>;
+    const shortTitle = ctx.issueTitle.slice(0, 20) + (ctx.issueTitle.length > 20 ? "…" : "");
+    const msgTitle = `${ctx.actorName} 已将任务交接给你 · ${shortTitle}`;
+    const lines: string[] = [];
+    lines.push(`## ${ctx.actorName} 已将任务交接给你`);
+    lines.push("");
+    lines.push(`任务：${ref}`);
+    lines.push("");
+    if (h.note) {
+      lines.push(`**交接说明：**${h.note}`);
+      lines.push("");
+    }
+    if (h.attachmentNames && h.attachmentNames.length > 0) {
+      lines.push(`**交接附件：**${h.attachmentNames.join("、")}`);
+      lines.push("（请在任务详情页下载附件）");
+      lines.push("");
+    }
+    lines.push("请查阅任务详情，确认优先级和接手计划，推进最关键的一步。");
+    return { msgTitle, msgBody: lines.join("\n") };
+  }
 
   // 标题：单变更用语义标题，多变更用摘要
   let msgTitle: string;

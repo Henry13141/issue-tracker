@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Image from "next/image";
-import { Paperclip, X, FileText, Loader2, FileVideo, ExternalLink } from "lucide-react";
+import { Paperclip, X, FileText, Loader2, FileVideo, ExternalLink, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
@@ -17,6 +17,9 @@ interface Props {
   onUploaded?: (attachment: IssueAttachmentWithUrl) => void;
   className?: string;
   disabled?: boolean;
+  /** 上传前对文件重命名，返回新 File 对象 */
+  filenameTransform?: (file: File) => File;
+  label?: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -43,6 +46,8 @@ export function AttachmentUploadButton({
   onUploaded,
   className,
   disabled,
+  filenameTransform,
+  label,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -53,7 +58,8 @@ export function AttachmentUploadButton({
     setError(null);
     setUploading(true);
 
-    for (const file of Array.from(files)) {
+    for (const rawFile of Array.from(files)) {
+      const file = filenameTransform ? filenameTransform(rawFile) : rawFile;
       if (file.size > MAX_MB * 1024 * 1024) {
         setError(`${file.name} 超过 ${MAX_MB} MB 限制`);
         continue;
@@ -127,7 +133,7 @@ export function AttachmentUploadButton({
         ) : (
           <Paperclip className="h-3.5 w-3.5" />
         )}
-        {uploading ? "上传中…" : "添加附件"}
+        {uploading ? "上传中…" : (label ?? "添加附件")}
       </Button>
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </div>
@@ -190,6 +196,13 @@ export function AttachmentList({ attachments, onDelete, canDelete }: ListProps) 
             <div className="flex items-center justify-between border-t border-white/10 px-4 py-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="truncate text-sm text-white/70">{selected.filename}</span>
+                <a
+                  href={`/api/attachments/${selected.id}/download`}
+                  className="shrink-0 text-white/40 hover:text-white/70"
+                  title="下载文件"
+                >
+                  <Download className="h-4 w-4" />
+                </a>
                 <a
                   href={selected.url ?? "#"}
                   target="_blank"
@@ -281,6 +294,16 @@ function AttachmentItem({
       <span className="max-w-[80px] truncate text-center text-[10px] text-muted-foreground">
         {isImage ? a.filename : formatBytes(a.size_bytes)}
       </span>
+
+      {/* 悬停时显示的下载按钮 */}
+      <a
+        href={`/api/attachments/${a.id}/download`}
+        className="absolute bottom-5 left-1/2 hidden -translate-x-1/2 h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white group-hover:flex hover:bg-black/80"
+        title="下载文件"
+      >
+        <Download className="h-3.5 w-3.5" />
+      </a>
+
       {canDelete && onDelete && (
         <button
           type="button"

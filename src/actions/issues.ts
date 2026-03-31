@@ -36,6 +36,7 @@ const issueSelect = `
 export type IssueSortBy = "updated_at" | "created_at" | "due_date" | "last_activity_at" | "priority";
 export type IssueSortDir = "asc" | "desc";
 export type IssueRisk = "overdue" | "stale" | "blocked" | "urgent";
+export type IssueTab = "all" | "mine" | "risk";
 
 export type IssueFilters = {
   status?:     IssueStatus[];
@@ -49,24 +50,55 @@ export type IssueFilters = {
   sortBy?:     IssueSortBy;
   sortDir?:    IssueSortDir;
   q?:          string;
+  page?:       number;
+  pageSize?:   number;
+  tab?:        IssueTab;
 };
 
-export async function getIssues(filters: IssueFilters = {}): Promise<IssueWithRelations[]> {
+export type IssuesResult = {
+  items: IssueWithRelations[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResult> {
   const supabase = await createClient();
-  const sortBy  = filters.sortBy  ?? "updated_at";
+  const sortBy = filters.sortBy ?? "last_activity_at";
   const sortDir = filters.sortDir ?? "desc";
+  const page = Math.max(1, Math.floor(filters.page ?? 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(filters.pageSize ?? 20)));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+  const tab = filters.tab ?? "all";
 
   // priority 排序在 app-side 完成（Supabase 不支持自定义枚举顺序）。
-  // 重要：query 不加 .limit()，先拉取全部匹配结果再排序，避免先分页后排序导致跨页顺序错乱。
+  // 为了支持分页，priority 仅对“当页数据”进行二次排序。
   const dbSortBy  = sortBy === "priority" ? "updated_at" : sortBy;
   const ascending = sortDir === "asc";
 
   let query = supabase
     .from("issues")
-    .select(issueSelect)
+    .select(issueSelect, { count: "exact" })
     .order(dbSortBy, { ascending, nullsFirst: false });
 
-  if (filters.status?.length) query = query.in("status", filters.status);
+  if (tab === "mine" && filters.assigneeId) {
+    query = query.eq("assignee_id", filters.assigneeId).not("status", "in", '("resolved","closed")');
+  }
+  if (tab === "risk") {
+    const today = new Date().toISOString().slice(0, 10);
+    const staleThreshold = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    query = query.or(
+      [
+        "status.eq.blocked",
+        "and(priority.eq.urgent,status.not.in.(resolved,closed))",
+        `and(due_date.lt.${today},status.not.in.(resolved,closed))`,
+        `and(last_activity_at.lt."${staleThreshold}",status.in.(in_progress,blocked,pending_review))`,
+      ].join(",")
+    );
+  }
+
+  if (!(tab === "mine" && filters.assigneeId) && filters.status?.length) query = query.in("status", filters.status);
   if (filters.priority?.length) query = query.in("priority", filters.priority);
   if (filters.assigneeId) query = query.eq("assignee_id", filters.assigneeId);
   if (filters.reviewerId) query = query.eq("reviewer_id", filters.reviewerId);
@@ -95,35 +127,33 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssueWithRe
     }
   }
 
-  const { data, error } = await query;
-  if (error) { console.error(error); return []; }
+  const { data, error, count } = await query.range(from, to);
+  if (error) {
+    console.error(error);
+    return { items: [], total: 0, page, pageSize };
+  }
 
   let rows = (data ?? []) as IssueWithRelations[];
 
-  // 批量拉取媒体附件用于列表缩略图（仅取图片和视频，每个 issue 最多 4 条）
+  // 列表仅需要附件数量，不拉取存储路径和签名 URL。
   if (rows.length > 0) {
     const issueIds = rows.map((r) => r.id);
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
     const { data: attachments } = await supabase
       .from("issue_attachments")
-      .select("id, issue_id, issue_update_id, storage_path, filename, content_type, size_bytes, uploaded_by, created_at")
-      .in("issue_id", issueIds)
-      .order("created_at", { ascending: true });
+      .select("issue_id")
+      .in("issue_id", issueIds);
 
-    if (attachments) {
-      const byIssue: Record<string, IssueAttachmentWithUrl[]> = {};
-      for (const a of attachments as IssueAttachment[]) {
-        const ct = (a.content_type ?? "") as string;
-        if (!ct.startsWith("image/") && !ct.startsWith("video/")) continue;
-        const list = (byIssue[a.issue_id] ??= []);
-        if (list.length < 4) {
-          list.push({
-            ...a,
-            url: `${supabaseUrl}/storage/v1/object/public/issue-files/${a.storage_path}`,
-          });
-        }
+    if (attachments?.length) {
+      const countMap = new Map<string, number>();
+      for (const row of attachments as Pick<IssueAttachment, "issue_id">[]) {
+        countMap.set(row.issue_id, (countMap.get(row.issue_id) ?? 0) + 1);
       }
-      rows = rows.map((r) => ({ ...r, attachments: byIssue[r.id] ?? [] }));
+      rows = rows.map((r) => ({
+        ...r,
+        attachmentCount: countMap.get(r.id) ?? 0,
+      }));
+    } else {
+      rows = rows.map((r) => ({ ...r, attachmentCount: 0 }));
     }
   }
 
@@ -136,7 +166,12 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssueWithRe
     });
   }
 
-  return rows;
+  return {
+    items: rows,
+    total: count ?? 0,
+    page,
+    pageSize,
+  };
 }
 
 /** 获取 issue 基础信息（不含进度更新/评论），用于详情页首屏快速加载 */
@@ -976,6 +1011,95 @@ export async function addUpdateComment(updateId: string, content: string) {
   if (upRow?.issue_id) {
     revalidatePath(`/issues/${upRow.issue_id}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 任务交接（专属流程，发交接专项通知而非通用负责人变更通知）
+// ---------------------------------------------------------------------------
+
+export async function handoverIssue(params: {
+  issueId: string;
+  toUserId: string;
+  note?: string;
+  attachmentNames?: string[];
+}): Promise<{ error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "未登录" };
+
+  const supabase = await createClient();
+
+  // 读取当前 issue
+  const { data: issue, error: fetchErr } = await supabase
+    .from("issues")
+    .select("title, assignee_id, reviewer_id, creator_id, status")
+    .eq("id", params.issueId)
+    .single();
+
+  if (fetchErr || !issue) return { error: "问题不存在" };
+
+  // 权限：当前负责人或管理员可交接
+  const isAdmin = user.role === "admin";
+  const isAssignee = (issue.assignee_id as string | null) === user.id;
+  if (!isAdmin && !isAssignee) return { error: "无权限发起交接" };
+
+  if (params.toUserId === user.id) return { error: "不能交接给自己" };
+
+  // 1. 更新负责人
+  const { error: updateErr } = await supabase
+    .from("issues")
+    .update({ assignee_id: params.toUserId, last_activity_at: new Date().toISOString() })
+    .eq("id", params.issueId);
+
+  if (updateErr) return { error: updateErr.message };
+
+  // 2. 写事件日志
+  await writeIssueEvent(supabase, {
+    issueId:   params.issueId,
+    actorId:   user.id,
+    eventType: "assignee_changed",
+    payload:   { from: issue.assignee_id, to: params.toUserId, via: "handover" },
+  });
+
+  // 3. 创建进展更新（始终写，作为交接存档）
+  const noteLines: string[] = ["【任务交接】"];
+  if (params.note?.trim()) noteLines.push(params.note.trim());
+  if (params.attachmentNames && params.attachmentNames.length > 0) {
+    noteLines.push(`已附上交接文件：${params.attachmentNames.join("、")}`);
+  }
+  await supabase.from("issue_updates").insert({
+    issue_id:            params.issueId,
+    user_id:             user.id,
+    content:             noteLines.join("\n"),
+    status_from:         issue.status,
+    status_to:           issue.status,
+    update_type:         "comment",
+    is_system_generated: false,
+  });
+
+  // 4. 发送交接专项通知（fire-and-forget）
+  dispatchEventNotifications({
+    issueId:    params.issueId,
+    issueTitle: issue.title as string,
+    actorId:    user.id,
+    actorName:  user.name,
+    assigneeId: params.toUserId,
+    reviewerId: (issue.reviewer_id as string | null) ?? null,
+    creatorId:  issue.creator_id as string,
+    changes:    [{
+      type:            "handover",
+      fromId:          user.id,
+      toId:            params.toUserId,
+      note:            params.note?.trim() || undefined,
+      attachmentNames: params.attachmentNames?.length ? params.attachmentNames : undefined,
+    }],
+  });
+
+  revalidatePath(`/issues/${params.issueId}`);
+  revalidatePath("/issues");
+  revalidatePath("/my-tasks");
+  revalidatePath("/dashboard");
+
+  return {};
 }
 
 // ---------------------------------------------------------------------------
