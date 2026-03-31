@@ -77,7 +77,11 @@ export function IssueDetailClient({
     return `${y}-${m}-${d}`;
   }, [dueDate]);
 
-  const allowedNextStatuses = useMemo(() => getAllowedNextStatuses(status), [status]);
+  // 允许切换的目标状态必须基于数据库里的当前状态（initial.status），
+  // 而非用户正在选择的中间值——否则用户选了"已关闭"之后，
+  // allowedNextStatuses 会立即换成从 closed 出发的转移，导致 "已关闭" 选项
+  // 从列表里消失、Select 触发器显示空白，用户误以为选择失效而重新选别的状态。
+  const allowedNextStatuses = useMemo(() => getAllowedNextStatuses(initial.status), [initial.status]);
 
   // ─── 保存元数据 ───────────────────────────────────────────────────────
   async function saveMeta() {
