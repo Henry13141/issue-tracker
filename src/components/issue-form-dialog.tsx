@@ -23,10 +23,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Paperclip, Sparkles, X } from "lucide-react";
+import { CalendarIcon, Loader2, Paperclip, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
-import { ISSUE_CATEGORIES, ISSUE_MODULES } from "@/lib/constants";
-import { suggestCategoryAndModule } from "@/actions/ai";
+import { ISSUE_CATEGORIES, ISSUE_MODULES, ISSUE_PRIORITY_LABELS } from "@/lib/constants";
+import { suggestCategoryAndModule, suggestPriority } from "@/actions/ai";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { buttonVariants } from "@/lib/button-variants";
+import { cn } from "@/lib/utils";
+import { formatDateOnly } from "@/lib/dates";
 
 export function IssueFormDialog({ members }: { members: User[] }) {
   const router      = useRouter();
@@ -40,8 +45,17 @@ export function IssueFormDialog({ members }: { members: User[] }) {
   const [category, setCategory]   = useState("__none__");
   const [module, setModule]       = useState("__none__");
   const [source, setSource]       = useState("manual");
+  const [dueDate, setDueDate]     = useState<Date | undefined>(undefined);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiPrioritySuggesting, setAiPrioritySuggesting] = useState(false);
+
+  function formatDueStr(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
 
   function addFiles(files: FileList | null) {
     if (!files) return;
@@ -63,6 +77,7 @@ export function IssueFormDialog({ members }: { members: User[] }) {
     setCategory("__none__");
     setModule("__none__");
     setSource("manual");
+    setDueDate(undefined);
     setPendingFiles([]);
   }
 
@@ -79,7 +94,7 @@ export function IssueFormDialog({ members }: { members: User[] }) {
         description: description.trim() || null,
         priority,
         assignee_id: assigneeId && assigneeId !== "__none__" ? assigneeId : null,
-        due_date:    null,
+        due_date:    dueDate ? formatDueStr(dueDate) : null,
         category:    category === "__none__" ? null : category,
         module:      module === "__none__" ? null : module,
         source:      source || "manual",
@@ -155,6 +170,42 @@ export function IssueFormDialog({ members }: { members: User[] }) {
                 rows={3}
               />
             </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground">优先级 / 截止日期</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs text-muted-foreground"
+                  disabled={aiPrioritySuggesting || (!title.trim() && !description.trim())}
+                  onClick={async () => {
+                    setAiPrioritySuggesting(true);
+                    try {
+                      const result = await suggestPriority(title.trim(), description.trim());
+                      if (result) {
+                        setPriority(result.priority);
+                        if (result.suggestedDueDays != null && !dueDate) {
+                          const d = new Date();
+                          d.setDate(d.getDate() + result.suggestedDueDays);
+                          setDueDate(d);
+                        }
+                        toast.success(`AI 建议：${ISSUE_PRIORITY_LABELS[result.priority]} — ${result.reason}`);
+                      } else {
+                        toast.info("AI 暂无推荐结果，请手动选择");
+                      }
+                    } catch {
+                      toast.error("AI 推荐失败");
+                    } finally {
+                      setAiPrioritySuggesting(false);
+                    }
+                  }}
+                >
+                  {aiPrioritySuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  AI 推荐优先级
+                </Button>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>优先级</Label>
@@ -171,24 +222,42 @@ export function IssueFormDialog({ members }: { members: User[] }) {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>负责人</Label>
-                <Select
-                  value={assigneeId || "__none__"}
-                  onValueChange={(v) => setAssigneeId(v ?? "")}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="未分配" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">未分配</SelectItem>
-                    {members.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>截止日期（可选）</Label>
+                <Popover>
+                  <PopoverTrigger
+                    className={cn(
+                      buttonVariants({ variant: "outline" }),
+                      "w-full justify-start text-left font-normal",
+                      !dueDate && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dueDate ? formatDateOnly(formatDueStr(dueDate)) : "选择日期"}
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={dueDate} onSelect={setDueDate} />
+                  </PopoverContent>
+                </Popover>
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label>负责人</Label>
+              <Select
+                value={assigneeId || "__none__"}
+                onValueChange={(v) => setAssigneeId(v ?? "")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="未分配" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">未分配</SelectItem>
+                  {members.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
