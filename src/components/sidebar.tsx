@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -21,6 +22,14 @@ const nav = [
 
 export function Sidebar({ user }: { user: User }) {
   const pathname = usePathname();
+
+  useEffect(() => {
+    const supabase = createClient();
+    const interval = setInterval(() => {
+      supabase.auth.getSession();
+    }, 10 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function signOut() {
     const supabase = createClient();

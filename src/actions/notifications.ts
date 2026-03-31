@@ -22,6 +22,7 @@ export type NotificationListResult = {
   page: number;
   pageSize: number;
   totalPages: number;
+  error?: string;
 };
 
 /** 查询通知投递记录（仅 admin） */
@@ -77,7 +78,14 @@ export async function getNotificationDeliveries(
 
   if (error) {
     console.error("[notifications] query failed:", error.message);
-    return { data: [], total: 0, page, pageSize: PAGE_SIZE, totalPages: 0 };
+    return {
+      data: [],
+      total: 0,
+      page,
+      pageSize: PAGE_SIZE,
+      totalPages: 0,
+      error: error.message,
+    };
   }
 
   const total = count ?? 0;

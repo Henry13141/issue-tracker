@@ -75,7 +75,7 @@ function parseExcelDate(v: unknown): string {
   return "";
 }
 
-function downloadTemplate() {
+export function downloadTemplate() {
   const wb = XLSX.utils.book_new();
 
   const data1 = [

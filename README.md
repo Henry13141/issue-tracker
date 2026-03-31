@@ -301,6 +301,10 @@ npx vercel --prod
 
 **每次推送到 `main` 分支，Vercel 自动构建部署。**
 
+### 轻量服务器（监控 / 网关 / Redis / Webhook 备份）
+
+运维栈说明与一键部署步骤见仓库 **[deploy/infra/README.md](deploy/infra/README.md)**（Caddy、Uptime Kuma、Redis、Webhook 中继、备份脚本）。
+
 ### 企业微信后台配置清单
 
 | 配置项 | 填写内容 | 位置 |

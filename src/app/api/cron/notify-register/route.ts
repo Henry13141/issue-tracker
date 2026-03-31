@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAccessToken } from "@/lib/wecom";
+import { getAccessToken, wecomQyapiFetch } from "@/lib/wecom";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
     "如有疑问请联系郝毅。",
   ].join("\n");
 
-  const res = await fetch(
+  const res = await wecomQyapiFetch(
     `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(accessToken)}`,
     {
       method: "POST",
