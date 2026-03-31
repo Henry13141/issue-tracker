@@ -27,10 +27,8 @@ function buildQuery(base: URLSearchParams, patch: Record<string, string | null>)
 
 export function IssuesToolbar({
   members,
-  currentUserId,
 }: {
   members: User[];
-  currentUserId: string;
 }) {
   const router       = useRouter();
   const searchParams = useSearchParams();
@@ -65,52 +63,12 @@ export function IssuesToolbar({
   const sortBy   = searchParams.get("sortBy")   ?? ALL;
   const sortDir  = searchParams.get("sortDir")  ?? "desc";
   const q        = searchParams.get("q")        ?? "";
-  const quickMine = assignee === currentUserId;
-  const quickBlocked = risk === "blocked";
-  const quickOverdue = risk === "overdue";
-  const quickUrgent = risk === "urgent";
   const quickPendingReview = status === "pending_review";
 
   return (
     <div className="mb-6 space-y-3">
       {/* ── 快捷筛选 ── */}
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant={quickMine ? "default" : "outline"}
-          disabled={pending}
-          onClick={() => push({ assignee: quickMine ? null : currentUserId, page: null })}
-        >
-          我负责
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={quickBlocked ? "default" : "outline"}
-          disabled={pending}
-          onClick={() => push({ risk: quickBlocked ? null : "blocked", page: null })}
-        >
-          阻塞
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={quickOverdue ? "default" : "outline"}
-          disabled={pending}
-          onClick={() => push({ risk: quickOverdue ? null : "overdue", page: null })}
-        >
-          逾期
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={quickUrgent ? "default" : "outline"}
-          disabled={pending}
-          onClick={() => push({ risk: quickUrgent ? null : "urgent", page: null })}
-        >
-          紧急
-        </Button>
         <Button
           type="button"
           size="sm"

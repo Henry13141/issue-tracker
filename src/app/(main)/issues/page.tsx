@@ -138,7 +138,7 @@ export default async function IssuesPage({
       </div>
 
       <Suspense fallback={null}>
-        <IssuesToolbar members={members} currentUserId={user.id} />
+        <IssuesToolbar members={members} />
       </Suspense>
 
       {items.length === 0 ? (
