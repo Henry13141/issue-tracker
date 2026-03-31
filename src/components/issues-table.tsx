@@ -38,7 +38,7 @@ import { ISSUE_STATUS_LABELS } from "@/lib/constants";
 import { getAllowedNextStatuses } from "@/lib/issue-state-machine";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/lib/button-variants";
-import { MoreHorizontal } from "lucide-react";
+import { ChevronDown, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 function isOverdue(issue: IssueWithRelations) {
@@ -274,7 +274,27 @@ export function IssuesTable({
                   </div>
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={issue.status} />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      className={cn(
+                        buttonVariants({ variant: "ghost", size: "sm" }),
+                        "h-8 px-1.5 gap-1.5"
+                      )}
+                    >
+                      <StatusBadge status={issue.status} />
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {getAllowedNextStatuses(issue.status).map((s) => (
+                        <DropdownMenuItem
+                          key={`quick-status-${issue.id}-${s}`}
+                          onClick={() => onStatusChange(issue.id, s)}
+                        >
+                          设为 {ISSUE_STATUS_LABELS[s]}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
                 <TableCell>
                   <PriorityBadge priority={issue.priority} />
