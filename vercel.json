@@ -5,6 +5,10 @@
       "schedule": "0 1 * * *"
     },
     {
+      "path": "/api/cron/flush-deferred",
+      "schedule": "30 1 * * *"
+    },
+    {
       "path": "/api/cron/admin-escalation",
       "schedule": "0 8 * * *"
     },

@@ -23,6 +23,7 @@ import {
 } from "@/lib/wecom";
 import { normalizeNotificationError } from "@/lib/notification-error";
 import { writeIssueEvent } from "@/lib/issue-events";
+import { isWithinBusinessHours, nextBusinessStart } from "@/lib/business-hours";
 import type { NotificationChannel, NotificationTriggerSource } from "@/types";
 
 // ─── 内部类型 ──────────────────────────────────────────────────────────────
@@ -126,6 +127,28 @@ export async function sendNotification(params: SendParams): Promise<SendResult> 
     });
     await writeEventIfNeeded(db, params, deliveryId, false, errResult.code);
     return { success: false, deliveryId, ...errResult };
+  }
+
+  // ── 2.5 工作时间检查 ─────────────────────────────────────────────────
+  // Cron 类通知（trigger_source 以 "cron_" 开头）或测试消息按原定计划发送，
+  // 不受工作时间限制。事件驱动型通知（如 issue_event.*）若在 09:30–18:30
+  // 上海时间之外触发，则延迟至下一个上班时间再发送。
+  const isCronOrTest =
+    params.triggerSource === "manual_test" ||
+    (typeof params.triggerSource === "string" && params.triggerSource.startsWith("cron_"));
+
+  if (!isCronOrTest && !isWithinBusinessHours()) {
+    const sendAfter = nextBusinessStart().toISOString();
+    await updateDelivery(db, deliveryId, {
+      status:          "pending",
+      providerResponse: { deferred: true, send_after: sendAfter },
+    });
+    console.info(
+      `[notification-service] 非工作时间，通知已延迟：` +
+      `issue=${params.issueId?.slice(0, 8) ?? "—"} ` +
+      `channel=${params.channel} send_after=${sendAfter}`
+    );
+    return { success: false, deliveryId, errorCode: "deferred", errorMessage: sendAfter };
   }
 
   // ── 3. 实际发送 ──────────────────────────────────────────────────────
