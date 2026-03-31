@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
+import { ISSUE_CATEGORIES, ISSUE_MODULES } from "@/lib/constants";
 
 export function IssueFormDialog({ members }: { members: User[] }) {
   const router      = useRouter();
@@ -35,8 +36,8 @@ export function IssueFormDialog({ members }: { members: User[] }) {
   const [description, setDescription] = useState("");
   const [priority, setPriority]   = useState<IssuePriority>("medium");
   const [assigneeId, setAssigneeId] = useState<string>("");
-  const [category, setCategory]   = useState("");
-  const [module, setModule]       = useState("");
+  const [category, setCategory]   = useState("__none__");
+  const [module, setModule]       = useState("__none__");
   const [source, setSource]       = useState("manual");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
@@ -57,8 +58,8 @@ export function IssueFormDialog({ members }: { members: User[] }) {
     setDescription("");
     setPriority("medium");
     setAssigneeId("");
-    setCategory("");
-    setModule("");
+    setCategory("__none__");
+    setModule("__none__");
     setSource("manual");
     setPendingFiles([]);
   }
@@ -77,8 +78,8 @@ export function IssueFormDialog({ members }: { members: User[] }) {
         priority,
         assignee_id: assigneeId && assigneeId !== "__none__" ? assigneeId : null,
         due_date:    null,
-        category:    category.trim() || null,
-        module:      module.trim()   || null,
+        category:    category === "__none__" ? null : category,
+        module:      module === "__none__" ? null : module,
         source:      source || "manual",
       });
 
@@ -189,22 +190,36 @@ export function IssueFormDialog({ members }: { members: User[] }) {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="icategory">分类（可选）</Label>
-                <Input
-                  id="icategory"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder="如「前端」「后端」"
-                />
+                <Label>分类（可选）</Label>
+                <Select value={category} onValueChange={(v) => setCategory(v ?? "__none__")}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="请选择分类" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">未设置</SelectItem>
+                    {ISSUE_CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="imodule">模块（可选）</Label>
-                <Input
-                  id="imodule"
-                  value={module}
-                  onChange={(e) => setModule(e.target.value)}
-                  placeholder="如「登录」「报表」"
-                />
+                <Label>模块（可选）</Label>
+                <Select value={module} onValueChange={(v) => setModule(v ?? "__none__")}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="请选择模块" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">未设置</SelectItem>
+                    {ISSUE_MODULES.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-2">

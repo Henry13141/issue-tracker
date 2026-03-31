@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ISSUE_PRIORITY_LABELS, ISSUE_STATUS_LABELS } from "@/lib/constants";
+import { ISSUE_CATEGORIES, ISSUE_MODULES, ISSUE_PRIORITY_LABELS, ISSUE_STATUS_LABELS } from "@/lib/constants";
 
 const ALL = "__all__";
 
@@ -59,6 +59,8 @@ export function IssuesToolbar({
   const assignee = searchParams.get("assignee") ?? ALL;
   const reviewer = searchParams.get("reviewer") ?? ALL;
   const risk     = searchParams.get("risk")     ?? ALL;
+  const category = searchParams.get("category") ?? ALL;
+  const moduleFilter = searchParams.get("module") ?? ALL;
   const source   = searchParams.get("source")   ?? ALL;
   const sortBy   = searchParams.get("sortBy")   ?? ALL;
   const sortDir  = searchParams.get("sortDir")  ?? "desc";
@@ -220,22 +222,40 @@ export function IssuesToolbar({
 
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">分类</p>
-            <form onSubmit={(e) => { e.preventDefault(); const v = String(new FormData(e.currentTarget).get("category") ?? ""); push({ category: v.trim() || null }); }}>
-              <div className="flex gap-1">
-                <Input name="category" defaultValue={searchParams.get("category") ?? ""} placeholder="输入分类" className="w-28 h-9 text-sm" />
-                <Button type="submit" size="sm" variant="secondary" disabled={pending}>筛</Button>
-              </div>
-            </form>
+            <Select
+              value={category}
+              onValueChange={(v) => push({ category: (v ?? ALL) === ALL ? null : (v ?? null), page: null })}
+              disabled={pending}
+            >
+              <SelectTrigger className="w-[140px]"><SelectValue placeholder="全部" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>全部</SelectItem>
+                {ISSUE_CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">模块</p>
-            <form onSubmit={(e) => { e.preventDefault(); const v = String(new FormData(e.currentTarget).get("module") ?? ""); push({ module: v.trim() || null }); }}>
-              <div className="flex gap-1">
-                <Input name="module" defaultValue={searchParams.get("module") ?? ""} placeholder="输入模块" className="w-28 h-9 text-sm" />
-                <Button type="submit" size="sm" variant="secondary" disabled={pending}>筛</Button>
-              </div>
-            </form>
+            <Select
+              value={moduleFilter}
+              onValueChange={(v) => push({ module: (v ?? ALL) === ALL ? null : (v ?? null), page: null })}
+              disabled={pending}
+            >
+              <SelectTrigger className="w-[160px]"><SelectValue placeholder="全部" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>全部</SelectItem>
+                {ISSUE_MODULES.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-1">

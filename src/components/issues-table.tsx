@@ -234,7 +234,7 @@ export function IssuesTable({
             const metaBits = [
               issue.category || "未分类",
               issue.module || "未分模块",
-              issue.reviewer?.name ? `评审：${issue.reviewer.name}` : "评审：未设置",
+              ...(issue.reviewer?.name ? [`评审：${issue.reviewer.name}`] : []),
               `最近更新：${formatRelativeTime(issue.last_activity_at ?? issue.updated_at)}`,
             ];
             const attachmentCount = issue.attachmentCount ?? issue.attachments?.length ?? 0;
