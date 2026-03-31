@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { updateIssue } from "@/actions/issues";
+import { updateIssue, addIssueUpdate } from "@/actions/issues";
 import { deleteAttachment } from "@/actions/attachments";
 import type {
   IssuePriority,
@@ -26,12 +26,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { formatDateTime, formatDateOnly } from "@/lib/dates";
 import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS } from "@/lib/constants";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, ArrowRightLeft } from "lucide-react";
 import { toast } from "sonner";
 
 export function IssueDetailClient({
@@ -68,6 +69,17 @@ export function IssueDetailClient({
     currentUser.role === "admin" ||
     currentUser.id === initial.assignee_id ||
     currentUser.id === initial.creator_id;
+
+  // 交接：当前负责人或管理员可发起
+  const canHandover =
+    currentUser.role === "admin" ||
+    currentUser.id === initial.assignee_id;
+
+  // ─── 交接状态 ─────────────────────────────────────────────────────────────
+  const [showHandover,   setShowHandover]   = useState(false);
+  const [handoverTo,     setHandoverTo]     = useState("__none__");
+  const [handoverNote,   setHandoverNote]   = useState("");
+  const [savingHandover, setSavingHandover] = useState(false);
 
   const dueStr = useMemo(() => {
     if (!dueDate) return null;
@@ -111,6 +123,36 @@ export function IssueDetailClient({
       toast.error("保存失败，请稍后再试");
     } finally {
       setSavingMeta(false);
+    }
+  }
+
+  async function submitHandover() {
+    if (handoverTo === "__none__") {
+      toast.error("请选择交接对象");
+      return;
+    }
+    setSavingHandover(true);
+    try {
+      const result = await updateIssue(initial.id, { assignee_id: handoverTo });
+      if (result?.error) { toast.error(result.error); return; }
+
+      if (handoverNote.trim()) {
+        await addIssueUpdate(
+          initial.id,
+          `【任务交接】${handoverNote.trim()}`,
+          undefined, // 保持当前状态
+        );
+      }
+
+      toast.success("交接成功");
+      setShowHandover(false);
+      setHandoverTo("__none__");
+      setHandoverNote("");
+      router.refresh();
+    } catch {
+      toast.error("交接失败，请稍后再试");
+    } finally {
+      setSavingHandover(false);
     }
   }
 
@@ -315,11 +357,78 @@ export function IssueDetailClient({
             </p>
             <p>最近更新：{formatDateTime(initial.updated_at)}</p>
           </div>
-          {canEdit ? (
-            <Button onClick={saveMeta} disabled={savingMeta}>
-              {savingMeta ? "保存中…" : "保存修改"}
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-3">
+            {canEdit && (
+              <Button onClick={saveMeta} disabled={savingMeta}>
+                {savingMeta ? "保存中…" : "保存修改"}
+              </Button>
+            )}
+            {canHandover && !showHandover && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowHandover(true)}
+              >
+                <ArrowRightLeft className="mr-1.5 h-4 w-4" />
+                交接给同事
+              </Button>
+            )}
+          </div>
+
+          {/* ── 交接面板 ── */}
+          {showHandover && (
+            <>
+              <Separator />
+              <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+                <p className="text-sm font-semibold">交接任务</p>
+                <div className="space-y-1.5">
+                  <Label>交接给 <span className="text-destructive">*</span></Label>
+                  <Select value={handoverTo} onValueChange={setHandoverTo}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择同事" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {members
+                        .filter((m) => m.id !== currentUser.id)
+                        .map((m) => (
+                          <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>交接说明 <span className="text-xs text-muted-foreground">（可选）</span></Label>
+                  <Textarea
+                    value={handoverNote}
+                    onChange={(e) => setHandoverNote(e.target.value)}
+                    placeholder="当前进展、注意事项、待办事项…"
+                    rows={3}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={submitHandover}
+                    disabled={savingHandover || handoverTo === "__none__"}
+                  >
+                    {savingHandover ? "交接中…" : "确认交接"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={savingHandover}
+                    onClick={() => {
+                      setShowHandover(false);
+                      setHandoverTo("__none__");
+                      setHandoverNote("");
+                    }}
+                  >
+                    取消
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
