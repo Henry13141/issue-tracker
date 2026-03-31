@@ -383,7 +383,7 @@ export function IssueDetailClient({
                 <p className="text-sm font-semibold">交接任务</p>
                 <div className="space-y-1.5">
                   <Label>交接给 <span className="text-destructive">*</span></Label>
-                  <Select value={handoverTo} onValueChange={setHandoverTo}>
+                  <Select value={handoverTo} onValueChange={(v) => setHandoverTo(v ?? "__none__")}>
                     <SelectTrigger>
                       <SelectValue placeholder="选择同事" />
                     </SelectTrigger>
