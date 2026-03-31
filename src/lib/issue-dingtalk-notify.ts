@@ -12,7 +12,7 @@
  */
 
 import { createClient } from "@/lib/supabase/server";
-import { isWecomAppConfigured, isWecomWebhookConfigured } from "@/lib/wecom";
+import { isWecomAppConfigured } from "@/lib/wecom";
 import { sendNotification } from "@/lib/notification-service";
 import { getIssueDetailUrl } from "@/lib/app-url";
 import type { IssueStatus } from "@/types";
@@ -53,16 +53,6 @@ async function workNoticeToUser(
     triggerSource:       "issue_event",
     title,
     content:             markdown,
-  });
-}
-
-async function webhook(content: string, issueId?: string) {
-  if (!isWecomWebhookConfigured()) return;
-  await sendNotification({
-    channel:       "wecom_bot",
-    issueId:       issueId ?? null,
-    triggerSource: "issue_event",
-    content,
   });
 }
 
@@ -122,7 +112,7 @@ export function dingtalkAfterIssueUpdateToBlocked(params: {
 }): void {
   void (async () => {
     if (!params.assigneeId) return;
-    if (!isWecomAppConfigured() && !isWecomWebhookConfigured()) return;
+    if (!isWecomAppConfigured()) return;
 
     const ref = formatIssueRef(params.issueId, params.title);
     const md = [
@@ -140,10 +130,6 @@ export function dingtalkAfterIssueUpdateToBlocked(params: {
       md,
       params.issueId
     );
-
-    await webhook(
-      [`### 米伽米 · 阻塞（进度）`, `- ${ref}`, `- 操作：**${params.actorName}**`].join("\n"),
-      params.issueId
-    );
+    // 阻塞属于状态变更，只私信负责人，不发到群里。
   })().catch((e) => console.error("[wecom-event] issue_update blocked", e));
 }
