@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/lib/auth";
 import type { IssueAttachmentWithUrl } from "@/types";
 
 const BUCKET = "issue-files";
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_SIZE_BYTES = 500 * 1024 * 1024; // 500 MB
 
 /** 生成客户端直传用的 signed upload URL（有效期 60 秒） */
 export async function createSignedUploadUrl(
@@ -18,7 +18,7 @@ export async function createSignedUploadUrl(
 ): Promise<{ signedUrl: string; storagePath: string }> {
   const user = await getCurrentUser();
   if (!user) throw new Error("未登录");
-  if (sizeBytes > MAX_SIZE_BYTES) throw new Error("文件不能超过 20 MB");
+  if (sizeBytes > MAX_SIZE_BYTES) throw new Error("文件不能超过 500 MB");
 
   const ext = filename.split(".").pop() ?? "bin";
   const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
