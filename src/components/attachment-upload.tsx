@@ -9,7 +9,7 @@ import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments
 import type { IssueAttachmentWithUrl } from "@/types";
 import { cn } from "@/lib/utils";
 
-const MAX_MB = 20;
+const MAX_MB = 500;
 
 interface Props {
   issueId: string;
