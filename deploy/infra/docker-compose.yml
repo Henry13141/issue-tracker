@@ -1,0 +1,84 @@
+# Infra stack: Caddy + Uptime Kuma + Redis + Webhook relay
+# Deploy: copy this directory to /opt/infra, create .env from .env.example, then:
+#   docker compose up -d
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: infra-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_EMAIL: ${CADDY_EMAIL}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+    networks:
+      - infra
+    depends_on:
+      - uptime-kuma
+      - webhook-relay
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: infra-uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - ./uptime-kuma/data:/app/data
+    networks:
+      - infra
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  redis:
+    image: redis:7-alpine
+    container_name: infra-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - ./redis/data:/data
+    networks:
+      - infra
+
+  webhook-relay:
+    build: ./webhook
+    container_name: infra-webhook-relay
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      WECOM_WEBHOOK_URL: ${WECOM_WEBHOOK_URL}
+      PORT: "9000"
+      WECOM_CORPID: ${WECOM_CORPID}
+      WECOM_CORPSECRET: ${WECOM_CORPSECRET}
+      WECOM_AGENTID: ${WECOM_AGENTID}
+      WECOM_PRIVATE_USERID: ${WECOM_PRIVATE_USERID}
+    depends_on:
+      - redis
+    networks:
+      - infra
+
+  squid-proxy:
+    image: ubuntu/squid:latest
+    container_name: infra-squid-proxy
+    restart: unless-stopped
+    ports:
+      - "13128:13128"
+    volumes:
+      - ./squid/squid.conf:/etc/squid/squid.conf:ro
+      - ./squid/passwd:/etc/squid/passwd:ro
+    networks:
+      - infra
+
+networks:
+  infra:
+    driver: bridge
