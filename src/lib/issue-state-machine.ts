@@ -6,7 +6,7 @@ import type { IssueStatus } from "@/types";
  */
 export const STATUS_TRANSITIONS: Record<IssueStatus, IssueStatus[]> = {
   todo:           ["in_progress", "blocked", "closed"],
-  in_progress:    ["blocked", "pending_review", "resolved", "closed"],
+  in_progress:    ["blocked", "pending_review", "closed"],
   blocked:        ["in_progress", "closed"],
   pending_review: ["in_progress", "resolved", "closed"],
   resolved:       ["closed", "in_progress"],
@@ -17,7 +17,9 @@ export type TransitionErrorCode =
   | "INVALID_TRANSITION"
   | "BLOCKED_REASON_REQUIRED"
   | "CLOSED_REASON_REQUIRED"
-  | "UPDATE_REQUIRED";
+  | "UPDATE_REQUIRED"
+  | "REVIEWER_REQUIRED"
+  | "FORBIDDEN_TRANSITION_ACTOR";
 
 export interface TransitionError {
   code: TransitionErrorCode;
@@ -40,6 +42,7 @@ export function validateTransition(
   opts: {
     blockedReason?: string | null;
     closedReason?: string | null;
+    reviewerId?: string | null;
     /** 当前 issue 是否已存在至少一条非系统生成的进度更新 */
     hasNonSystemUpdate?: boolean;
   }
@@ -67,6 +70,13 @@ export function validateTransition(
     };
   }
 
+  if (to === "pending_review" && !opts.reviewerId) {
+    return {
+      code: "REVIEWER_REQUIRED",
+      message: "提交审核前必须先指定审核人",
+    };
+  }
+
   if (
     (to === "pending_review" || to === "resolved") &&
     opts.hasNonSystemUpdate === false
@@ -84,6 +94,41 @@ export function validateTransition(
 /** 判断是否是 reopen 操作（closed → in_progress） */
 export function isReopenTransition(from: IssueStatus, to: IssueStatus): boolean {
   return from === "closed" && to === "in_progress";
+}
+
+export function canActorTransition(opts: {
+  from: IssueStatus;
+  to: IssueStatus;
+  isAdmin: boolean;
+  isAssignee: boolean;
+  isReviewer: boolean;
+}): boolean {
+  if (opts.isAdmin) return true;
+  if (opts.from === "pending_review") return opts.isReviewer;
+  return opts.isAssignee;
+}
+
+export function validateTransitionActor(opts: {
+  from: IssueStatus;
+  to: IssueStatus;
+  isAdmin: boolean;
+  isAssignee: boolean;
+  isReviewer: boolean;
+}): TransitionError | null {
+  if (opts.from === opts.to) return null;
+  if (canActorTransition(opts)) return null;
+
+  if (opts.from === "pending_review") {
+    return {
+      code: "FORBIDDEN_TRANSITION_ACTOR",
+      message: "待验证阶段仅审核人或管理员可执行审核结果",
+    };
+  }
+
+  return {
+    code: "FORBIDDEN_TRANSITION_ACTOR",
+    message: "仅负责人或管理员可变更当前状态",
+  };
 }
 
 function statusLabel(s: IssueStatus): string {

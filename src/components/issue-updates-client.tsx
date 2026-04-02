@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { addIssueUpdate, addUpdateComment } from "@/actions/issues";
 import { deleteAttachment } from "@/actions/attachments";
 import type {
@@ -12,7 +12,7 @@ import type {
   UpdateCommentWithUser,
   User,
 } from "@/types";
-import { getAllowedNextStatuses } from "@/lib/issue-state-machine";
+import { canActorTransition, getAllowedNextStatuses } from "@/lib/issue-state-machine";
 import { AttachmentUploadButton, AttachmentList } from "@/components/attachment-upload";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -55,7 +55,22 @@ export function IssueUpdatesClient({
     Object.fromEntries(initialUpdates.map((u) => [u.id, (u.attachments ?? []) as IssueAttachmentWithUrl[]]))
   );
 
-  const allowedUpdateStatuses = getAllowedNextStatuses(issue.status);
+  const isAdmin    = currentUser.role === "admin";
+  const isAssignee = currentUser.id === issue.assignee_id;
+  const isReviewer = currentUser.id === issue.reviewer_id;
+  const allowedUpdateStatuses = useMemo(
+    () =>
+      getAllowedNextStatuses(issue.status).filter((next) =>
+        canActorTransition({
+          from: issue.status,
+          to: next,
+          isAdmin,
+          isAssignee,
+          isReviewer,
+        })
+      ),
+    [issue.status, isAdmin, isAssignee, isReviewer]
+  );
 
   async function submitUpdate() {
     if (!updateContent.trim()) {
@@ -178,6 +193,7 @@ export function IssueUpdatesClient({
                 if (v !== "blocked") setUpdateBlockedReason("");
                 if (v !== "closed") setUpdateClosedReason("");
               }}
+              disabled={allowedUpdateStatuses.length === 0}
             >
               <SelectTrigger className="sm:max-w-[220px]">
                 <SelectValue placeholder="不改变状态" />
@@ -191,6 +207,13 @@ export function IssueUpdatesClient({
                 ))}
               </SelectContent>
             </Select>
+            {allowedUpdateStatuses.length === 0 && (
+              <span className="text-xs text-muted-foreground">
+                {issue.status === "pending_review"
+                  ? "当前处于待验证，仅审核人或管理员可变更状态"
+                  : "仅负责人或管理员可变更状态"}
+              </span>
+            )}
           </div>
 
           {updateStatus === "blocked" && (

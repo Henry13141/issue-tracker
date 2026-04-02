@@ -11,7 +11,7 @@ import type {
   IssueWithRelations,
   User,
 } from "@/types";
-import { getAllowedNextStatuses } from "@/lib/issue-state-machine";
+import { canActorTransition, getAllowedNextStatuses } from "@/lib/issue-state-machine";
 import { AttachmentUploadButton, AttachmentList } from "@/components/attachment-upload";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/lib/button-variants";
@@ -70,15 +70,18 @@ export function IssueDetailClient({
     (initial.attachments ?? []) as IssueAttachmentWithUrl[]
   );
 
-  const canEdit =
-    currentUser.role === "admin" ||
-    currentUser.id === initial.assignee_id ||
-    currentUser.id === initial.creator_id;
+  const isAdmin    = currentUser.role === "admin";
+  const isAssignee = currentUser.id === initial.assignee_id;
+  const isReviewer = currentUser.id === initial.reviewer_id;
+  const isCreator  = currentUser.id === initial.creator_id;
+
+  const canEditFields = isAdmin || isAssignee || isCreator;
+  const canEditStatusInMeta = isAdmin || isAssignee;
 
   // 交接：当前负责人或管理员可发起
   const canHandover =
-    currentUser.role === "admin" ||
-    currentUser.id === initial.assignee_id;
+    isAdmin ||
+    isAssignee;
 
   // ─── 交接状态 ─────────────────────────────────────────────────────────────
   const [showHandover,        setShowHandover]        = useState(false);
@@ -102,11 +105,23 @@ export function IssueDetailClient({
   // 而非用户正在选择的中间值——否则用户选了"已关闭"之后，
   // allowedNextStatuses 会立即换成从 closed 出发的转移，导致 "已关闭" 选项
   // 从列表里消失、Select 触发器显示空白，用户误以为选择失效而重新选别的状态。
-  const allowedNextStatuses = useMemo(() => getAllowedNextStatuses(initial.status), [initial.status]);
+  const allowedNextStatuses = useMemo(
+    () =>
+      getAllowedNextStatuses(initial.status).filter((next) =>
+        canActorTransition({
+          from: initial.status,
+          to: next,
+          isAdmin,
+          isAssignee,
+          isReviewer,
+        })
+      ),
+    [initial.status, isAdmin, isAssignee, isReviewer]
+  );
 
   // ─── 保存元数据 ───────────────────────────────────────────────────────
   async function saveMeta() {
-    if (!canEdit) return;
+    if (!canEditFields) return;
     setSavingMeta(true);
     try {
       const result = await updateIssue(initial.id, {
@@ -184,12 +199,12 @@ export function IssueDetailClient({
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>标题</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canEdit} />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canEditFields} />
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <Label>描述</Label>
-              {canEdit && (
+              {canEditFields && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -226,7 +241,7 @@ export function IssueDetailClient({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
-              disabled={!canEdit}
+              disabled={!canEditFields}
               placeholder="可简要写现象与期望；也可用「AI 生成草稿」根据标题与已有内容扩写"
             />
           </div>
@@ -240,7 +255,7 @@ export function IssueDetailClient({
                   if (v !== "blocked") setBlockedReason("");
                   if (v !== "closed")  setClosedReason("");
                 }}
-                disabled={!canEdit}
+                disabled={!canEditStatusInMeta || allowedNextStatuses.length === 0}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -256,11 +271,16 @@ export function IssueDetailClient({
                   ))}
                 </SelectContent>
               </Select>
+              {initial.status === "pending_review" && !isAdmin && !isReviewer && (
+                <p className="text-xs text-muted-foreground">
+                  当前处于待验证，需由审核人或管理员在进度区提交审核结果。
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label>优先级</Label>
-                {canEdit && (
+                {canEditFields && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -297,7 +317,7 @@ export function IssueDetailClient({
               <Select
                 value={priority}
                 onValueChange={(v) => setPriority(v as IssuePriority)}
-                disabled={!canEdit}
+                disabled={!canEditFields}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -319,7 +339,7 @@ export function IssueDetailClient({
                 onChange={(e) => setBlockedReason(e.target.value)}
                 placeholder="请描述阻塞原因（必填）"
                 rows={2}
-                disabled={!canEdit}
+                disabled={!canEditStatusInMeta}
               />
             </div>
           )}
@@ -332,7 +352,7 @@ export function IssueDetailClient({
                 onChange={(e) => setClosedReason(e.target.value)}
                 placeholder="请描述关闭原因（必填）"
                 rows={2}
-                disabled={!canEdit}
+                disabled={!canEditStatusInMeta}
               />
             </div>
           )}
@@ -343,7 +363,7 @@ export function IssueDetailClient({
               <Select
                 value={assigneeId}
                 onValueChange={(v) => setAssigneeId(v ?? "__none__")}
-                disabled={!canEdit}
+                disabled={!canEditFields}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -361,7 +381,7 @@ export function IssueDetailClient({
               <Select
                 value={reviewerId}
                 onValueChange={(v) => setReviewerId(v ?? "__none__")}
-                disabled={!canEdit}
+                disabled={!canEditFields}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -381,7 +401,7 @@ export function IssueDetailClient({
               <Label>截止日期</Label>
               <Popover>
                 <PopoverTrigger
-                  disabled={!canEdit}
+                  disabled={!canEditFields}
                   className={cn(
                     buttonVariants({ variant: "outline" }),
                     "w-full justify-start text-left font-normal",
@@ -415,7 +435,7 @@ export function IssueDetailClient({
               <Select
                 value={category}
                 onValueChange={(v) => setCategory(v ?? "__none__")}
-                disabled={!canEdit}
+                disabled={!canEditFields}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="请选择分类" />
@@ -435,7 +455,7 @@ export function IssueDetailClient({
               <Select
                 value={module}
                 onValueChange={(v) => setModule(v ?? "__none__")}
-                disabled={!canEdit}
+                disabled={!canEditFields}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="请选择模块" />
@@ -459,7 +479,7 @@ export function IssueDetailClient({
             <p>最近更新：{formatDateTime(initial.updated_at)}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            {canEdit && (
+            {canEditFields && (
               <Button onClick={saveMeta} disabled={savingMeta}>
                 {savingMeta ? "保存中…" : "保存修改"}
               </Button>

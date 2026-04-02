@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/table";
 import { formatDateOnly } from "@/lib/dates";
 import { ISSUE_STATUS_LABELS } from "@/lib/constants";
-import { getAllowedNextStatuses } from "@/lib/issue-state-machine";
+import { canActorTransition, getAllowedNextStatuses } from "@/lib/issue-state-machine";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/lib/button-variants";
 import { ChevronDown, MoreHorizontal } from "lucide-react";
@@ -112,6 +112,7 @@ export function IssuesTable({
     reason: "",
     submitting: false,
   });
+  const isAdmin = currentUser.role === "admin";
 
   async function onStatusChange(id: string, status: IssueStatus) {
     if (status === "closed" || status === "blocked") {
@@ -231,6 +232,15 @@ export function IssuesTable({
           {issues.map((issue) => {
             const overdue = isOverdue(issue);
             const riskTags = getRiskTags(issue);
+            const quickStatuses = getAllowedNextStatuses(issue.status).filter((next) =>
+              canActorTransition({
+                from: issue.status,
+                to: next,
+                isAdmin,
+                isAssignee: currentUser.id === issue.assignee_id,
+                isReviewer: currentUser.id === issue.reviewer_id,
+              })
+            );
             const reviewerName = issue.reviewer?.name?.trim();
             const showReviewer = Boolean(
               issue.reviewer_id &&
@@ -274,27 +284,31 @@ export function IssuesTable({
                   </div>
                 </TableCell>
                 <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      className={cn(
-                        buttonVariants({ variant: "ghost", size: "sm" }),
-                        "h-8 px-1.5 gap-1.5"
-                      )}
-                    >
-                      <StatusBadge status={issue.status} />
-                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      {getAllowedNextStatuses(issue.status).map((s) => (
-                        <DropdownMenuItem
-                          key={`quick-status-${issue.id}-${s}`}
-                          onClick={() => onStatusChange(issue.id, s)}
-                        >
-                          设为 {ISSUE_STATUS_LABELS[s]}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {quickStatuses.length > 0 ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        className={cn(
+                          buttonVariants({ variant: "ghost", size: "sm" }),
+                          "h-8 px-1.5 gap-1.5"
+                        )}
+                      >
+                        <StatusBadge status={issue.status} />
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        {quickStatuses.map((s) => (
+                          <DropdownMenuItem
+                            key={`quick-status-${issue.id}-${s}`}
+                            onClick={() => onStatusChange(issue.id, s)}
+                          >
+                            设为 {ISSUE_STATUS_LABELS[s]}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <StatusBadge status={issue.status} />
+                  )}
                 </TableCell>
                 <TableCell>
                   <PriorityBadge priority={issue.priority} />
@@ -332,8 +346,8 @@ export function IssuesTable({
                       >
                         查看详情
                       </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      {getAllowedNextStatuses(issue.status).map((s) => (
+                      {quickStatuses.length > 0 && <DropdownMenuSeparator />}
+                      {quickStatuses.map((s) => (
                         <DropdownMenuItem
                           key={s}
                           onClick={() => onStatusChange(issue.id, s)}
