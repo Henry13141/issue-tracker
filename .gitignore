@@ -23,6 +23,10 @@
 # misc
 .DS_Store
 *.pem
+.playwright-mcp/
+supabase/.temp/
+scripts/reclassify-snapshot-*.json
+scripts/reclassify-retry-snapshot-*.json
 
 # debug
 npm-debug.log*
