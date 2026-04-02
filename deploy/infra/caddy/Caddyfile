@@ -1,0 +1,20 @@
+{
+	email {$CADDY_EMAIL}
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+status.megami-tech.com {
+	reverse_proxy uptime-kuma:3001
+}
+
+hook.megami-tech.com {
+	handle_path /wecom-api/* {
+		reverse_proxy https://qyapi.weixin.qq.com {
+			header_up Host qyapi.weixin.qq.com
+			header_up -Cookie
+		}
+	}
+	handle {
+		reverse_proxy webhook-relay:9000
+	}
+}

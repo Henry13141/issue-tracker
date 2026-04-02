@@ -1,0 +1,11 @@
+{
+  "name": "infra-webhook-relay",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ioredis": "^5.4.2"
+  }
+}

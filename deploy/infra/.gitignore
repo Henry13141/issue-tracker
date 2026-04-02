@@ -1,0 +1,11 @@
+.env
+uptime-kuma/data/*
+!uptime-kuma/data/.gitkeep
+redis/data/*
+!redis/data/.gitkeep
+caddy/data/*
+!caddy/data/.gitkeep
+caddy/config/*
+!caddy/config/.gitkeep
+backup/output/*
+!backup/output/.gitkeep

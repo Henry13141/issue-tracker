@@ -1,0 +1,3 @@
+# Example: root crontab entry for infra backup
+# crontab -e (as root)
+0 3 * * * INFRA_ROOT=/opt/infra /opt/infra/backup/scripts/backup.sh >> /var/log/infra-backup.log 2>&1
