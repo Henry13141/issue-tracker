@@ -48,6 +48,7 @@ export async function saveAttachmentMeta(params: {
 }): Promise<string> {
   const user = await getCurrentUser();
   if (!user) throw new Error("未登录");
+  if (params.sizeBytes <= 0) throw new Error("空文件不能上传");
 
   const supabase = await createClient();
   const { data, error } = await supabase

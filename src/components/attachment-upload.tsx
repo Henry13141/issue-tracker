@@ -60,6 +60,10 @@ export function AttachmentUploadButton({
 
     for (const rawFile of Array.from(files)) {
       const file = filenameTransform ? filenameTransform(rawFile) : rawFile;
+      if (file.size <= 0) {
+        setError(`${file.name} 是空文件，请重新打包或确认文件已下载完整后再上传`);
+        continue;
+      }
       if (file.size > MAX_MB * 1024 * 1024) {
         setError(`${file.name} 超过 ${MAX_MB} MB 限制`);
         continue;
