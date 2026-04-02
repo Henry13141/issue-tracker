@@ -13,7 +13,22 @@ import { Separator } from "@/components/ui/separator";
 import Image from "next/image";
 import { toast } from "sonner";
 
-export function LoginForm({ showWecomLogin = false }: { showWecomLogin?: boolean }) {
+type DebugUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "member";
+};
+
+export function LoginForm({
+  showWecomLogin = false,
+  showDevLogin = false,
+  debugUsers = [],
+}: {
+  showWecomLogin?: boolean;
+  showDevLogin?: boolean;
+  debugUsers?: DebugUser[];
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/";
@@ -35,6 +50,8 @@ export function LoginForm({ showWecomLogin = false }: { showWecomLogin?: boolean
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [devLoading, setDevLoading] = useState(false);
+  const [debugUserId, setDebugUserId] = useState<string>(debugUsers[0]?.id ?? "");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -66,6 +83,32 @@ export function LoginForm({ showWecomLogin = false }: { showWecomLogin?: boolean
     }
   }
 
+  async function handleDevLogin() {
+    if (!debugUserId) {
+      toast.error("请先选择调试账号");
+      return;
+    }
+    setDevLoading(true);
+    try {
+      const res = await fetch("/api/auth/dev-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: debugUserId, redirect: redirectTo }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data?.error === "string" ? data.error : "调试登录失败");
+      }
+      toast.success("本地调试登录成功");
+      router.push(typeof data?.redirect === "string" ? data.redirect : redirectTo);
+      router.refresh();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "调试登录失败");
+    } finally {
+      setDevLoading(false);
+    }
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
       <Card className="w-full max-w-md overflow-hidden border-0 shadow-2xl">
@@ -93,6 +136,32 @@ export function LoginForm({ showWecomLogin = false }: { showWecomLogin?: boolean
               注册
             </Button>
           </div>
+          {showDevLogin && debugUsers.length > 0 ? (
+            <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium text-amber-900">本地开发调试登录</p>
+                  <p className="text-xs text-amber-700">仅本机开发环境可用，不走企业微信回跳。</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={debugUserId}
+                  onChange={(e) => setDebugUserId(e.target.value)}
+                  className="flex h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {debugUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} {u.role === "admin" ? "（管理员）" : ""}
+                    </option>
+                  ))}
+                </select>
+                <Button type="button" variant="secondary" onClick={handleDevLogin} disabled={devLoading}>
+                  {devLoading ? "登录中…" : "调试登录"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === "signup" ? (
               <div className="space-y-2">

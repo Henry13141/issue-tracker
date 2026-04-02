@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createIssue } from "@/actions/issues";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
@@ -42,6 +42,7 @@ export function IssueFormDialog({ members }: { members: User[] }) {
   const [description, setDescription] = useState("");
   const [priority, setPriority]   = useState<IssuePriority>("medium");
   const [assigneeId, setAssigneeId] = useState<string>("");
+  const [reviewerId, setReviewerId] = useState<string>("");
   const [category, setCategory]   = useState("__none__");
   const [module, setModule]       = useState("__none__");
   const [source, setSource]       = useState("manual");
@@ -49,6 +50,36 @@ export function IssueFormDialog({ members }: { members: User[] }) {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiPrioritySuggesting, setAiPrioritySuggesting] = useState(false);
+  const defaultReviewer = useMemo(() => {
+    const scored = members
+      .filter((m) => m.role === "admin")
+      .map((m) => {
+        const name = m.name.trim().toLowerCase();
+        const email = m.email.trim().toLowerCase();
+        let score = 0;
+        if (name === "郝毅") score += 100;
+        else if (name.includes("郝毅")) score += 80;
+        if (email.startsWith("haoyi@")) score += 60;
+        else if (email.includes("haoyi")) score += 40;
+        return { member: m, score };
+      })
+      .sort((a, b) => b.score - a.score);
+    return scored[0]?.member ?? null;
+  }, [members]);
+  const assigneeName = useMemo(
+    () => members.find((m) => m.id === assigneeId)?.name ?? null,
+    [members, assigneeId]
+  );
+  const reviewerName = useMemo(
+    () => members.find((m) => m.id === reviewerId)?.name ?? null,
+    [members, reviewerId]
+  );
+
+  useEffect(() => {
+    if (!reviewerId && defaultReviewer?.id) {
+      setReviewerId(defaultReviewer.id);
+    }
+  }, [defaultReviewer?.id, reviewerId]);
 
   function formatDueStr(d: Date): string {
     const y = d.getFullYear();
@@ -74,6 +105,7 @@ export function IssueFormDialog({ members }: { members: User[] }) {
     setDescription("");
     setPriority("medium");
     setAssigneeId("");
+    setReviewerId(defaultReviewer?.id ?? "");
     setCategory("__none__");
     setModule("__none__");
     setSource("manual");
@@ -94,6 +126,7 @@ export function IssueFormDialog({ members }: { members: User[] }) {
         description: description.trim() || null,
         priority,
         assignee_id: assigneeId && assigneeId !== "__none__" ? assigneeId : null,
+        reviewer_id: reviewerId && reviewerId !== "__none__" ? reviewerId : null,
         due_date:    dueDate ? formatDueStr(dueDate) : null,
         category:    category === "__none__" ? null : category,
         module:      module === "__none__" ? null : module,
@@ -102,6 +135,9 @@ export function IssueFormDialog({ members }: { members: User[] }) {
 
       for (const file of pendingFiles) {
         try {
+          if (file.size <= 0) {
+            throw new Error(`${file.name} 是空文件，请重新打包后再上传`);
+          }
           const { signedUrl, storagePath } = await createSignedUploadUrl(
             id,
             file.name,
@@ -247,10 +283,33 @@ export function IssueFormDialog({ members }: { members: User[] }) {
                 onValueChange={(v) => setAssigneeId(v ?? "")}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="未分配" />
+                  <SelectValue placeholder="未分配">
+                    {assigneeId && assigneeId !== "__none__" ? assigneeName ?? "未分配" : "未分配"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">未分配</SelectItem>
+                  {members.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>审核人</Label>
+              <Select
+                value={reviewerId || "__none__"}
+                onValueChange={(v) => setReviewerId(v ?? "")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="请选择审核人">
+                    {reviewerId && reviewerId !== "__none__" ? reviewerName ?? "未指定" : "未指定"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">未指定</SelectItem>
                   {members.map((m) => (
                     <SelectItem key={m.id} value={m.id}>
                       {m.name}

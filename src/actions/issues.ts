@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getChinaDayBounds } from "@/lib/dates";
 import { ACTIVE_STATUSES, isIssueCategory, isIssueModule } from "@/lib/constants";
-import { validateTransition, isReopenTransition } from "@/lib/issue-state-machine";
+import { validateTransition, validateTransitionActor, isReopenTransition } from "@/lib/issue-state-machine";
 import { writeIssueEvent, writeIssueEvents } from "@/lib/issue-events";
 import type {
   IssuePriority,
@@ -446,10 +446,11 @@ export async function createIssue(input: {
     .select("category, module, source, reviewer_id")
     .limit(0);
   if (!probeErr) {
+    const effectiveReviewerId = input.reviewer_id ?? await getDefaultReviewerId(supabase);
     insertData.category    = normalizedCategory;
     insertData.module      = normalizedModule;
     insertData.source      = input.source      ?? "manual";
-    insertData.reviewer_id = input.reviewer_id ?? null;
+    insertData.reviewer_id = effectiveReviewerId;
   }
 
   const { data, error } = await supabase
@@ -484,7 +485,7 @@ export async function createIssue(input: {
     actorId:    user.id,
     actorName:  user.name,
     assigneeId: input.assignee_id ?? null,
-    reviewerId: input.reviewer_id ?? null,
+    reviewerId: (insertData.reviewer_id as string | null | undefined) ?? null,
     creatorId:  user.id,
     changes:    [{ type: "issue_created" }],
   });
@@ -513,6 +514,7 @@ export async function updateIssue(
   }>
 ): Promise<{ error: string } | void> {
   const user = await getCurrentUser();
+  if (!user) return { error: "未登录" };
   const supabase = await createClient();
 
   const { data: beforeRow } = await supabase
@@ -533,9 +535,23 @@ export async function updateIssue(
     const transErr = validateTransition(prevStatus, newStatus, {
       blockedReason:       patch.blocked_reason ?? (beforeRow.blocked_reason as string | null),
       closedReason:        patch.closed_reason  ?? (beforeRow.closed_reason  as string | null),
+      reviewerId:          patch.reviewer_id !== undefined
+        ? patch.reviewer_id
+        : (beforeRow.reviewer_id as string | null),
       hasNonSystemUpdate,
     });
     if (transErr) return { error: transErr.message };
+
+    const actorErr = validateStatusActorPermission({
+      user,
+      from:       prevStatus,
+      to:         newStatus,
+      assigneeId: beforeRow.assignee_id as string | null,
+      reviewerId: patch.reviewer_id !== undefined
+        ? patch.reviewer_id
+        : (beforeRow.reviewer_id as string | null),
+    });
+    if (actorErr) return { error: actorErr.message };
   }
 
   if (patch.category !== undefined) {
@@ -750,10 +766,20 @@ export async function addIssueUpdate(
     const transErr = validateTransition(prev, statusTo, {
       blockedReason:       opts?.blockedReason ?? (issue.blocked_reason as string | null),
       closedReason:        opts?.closedReason  ?? (issue.closed_reason  as string | null),
+      reviewerId:          issue.reviewer_id as string | null,
       // 提交进度时 content 本身就是更新，视为满足 hasNonSystemUpdate
       hasNonSystemUpdate:  hasNonSystemUpdate || content.trim().length > 0,
     });
     if (transErr) throw new Error(transErr.message);
+
+    const actorErr = validateStatusActorPermission({
+      user,
+      from:       prev,
+      to:         statusTo,
+      assigneeId: issue.assignee_id as string | null,
+      reviewerId: issue.reviewer_id as string | null,
+    });
+    if (actorErr) throw new Error(actorErr.message);
   }
 
   // ---------- 更新 issue 状态 ----------
@@ -909,6 +935,7 @@ export async function bulkCreateIssues(
   if (!user) throw new Error("未登录");
 
   const supabase = await createClient();
+  const defaultReviewerId = await getDefaultReviewerId(supabase);
 
   let memberMap: Map<string, string> | undefined;
   const needsLookup = rows.some((r) => r.assignee_name?.trim());
@@ -929,6 +956,7 @@ export async function bulkCreateIssues(
       status:      (["todo", "in_progress", "blocked", "pending_review", "resolved", "closed"].includes(r.status ?? "")
         ? r.status : "todo") as IssueStatus,
       assignee_id: (r.assignee_name && memberMap?.get(r.assignee_name.trim())) || null,
+      reviewer_id: defaultReviewerId,
       due_date:    r.due_date || null,
       creator_id:  user.id,
       source:      "import",
@@ -1145,4 +1173,49 @@ async function checkHasNonSystemUpdate(
     .eq("issue_id", issueId)
     .eq("is_system_generated", false);
   return (count ?? 0) > 0;
+}
+
+function validateStatusActorPermission(opts: {
+  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
+  from: IssueStatus;
+  to: IssueStatus;
+  assigneeId: string | null;
+  reviewerId: string | null;
+}) {
+  return validateTransitionActor({
+    from:       opts.from,
+    to:         opts.to,
+    isAdmin:    opts.user.role === "admin",
+    isAssignee: opts.user.id === opts.assigneeId,
+    isReviewer: opts.user.id === opts.reviewerId,
+  });
+}
+
+async function getDefaultReviewerId(
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<string | null> {
+  const { data: admins } = await supabase
+    .from("users")
+    .select("id, name, email")
+    .eq("role", "admin");
+
+  if (!admins?.length) return null;
+
+  const scored = admins
+    .map((row) => {
+      const name = String(row.name ?? "").trim().toLowerCase();
+      const email = String(row.email ?? "").trim().toLowerCase();
+      let score = 0;
+
+      if (name === "郝毅") score += 100;
+      else if (name.includes("郝毅")) score += 80;
+
+      if (email.startsWith("haoyi@")) score += 60;
+      else if (email.includes("haoyi")) score += 40;
+
+      return { id: row.id as string, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.id ?? null;
 }
