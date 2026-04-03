@@ -43,10 +43,6 @@ function isVideoType(contentType: string): boolean {
   return contentType.startsWith("video/");
 }
 
-function isPreviewable(contentType: string): boolean {
-  return isImageType(contentType) || isVideoType(contentType);
-}
-
 export function AttachmentUploadButton({
   issueId,
   issueUpdateId,
@@ -170,8 +166,6 @@ export function AttachmentList({
 }: ListProps) {
   const [selected, setSelected] = useState<IssueAttachmentWithUrl | null>(null);
 
-  if (!attachments.length) return null;
-
   const sortedAttachments = useMemo(() => {
     return [...attachments].sort((a, b) => {
       const ta = new Date(a.created_at).getTime();
@@ -179,6 +173,8 @@ export function AttachmentList({
       return tb - ta;
     });
   }, [attachments]);
+
+  if (!attachments.length) return null;
 
   return (
     <>
@@ -193,7 +189,7 @@ export function AttachmentList({
               canDelete={canDelete}
               ownershipOptions={ownershipOptions}
               onReassign={onReassign}
-              onPreview={isPreviewable(a.content_type) ? () => setSelected(a) : undefined}
+              onPreview={() => setSelected(a)}
             />
           ))}
         </div>
@@ -205,7 +201,7 @@ export function AttachmentList({
               attachment={a}
               onDelete={onDelete}
               canDelete={canDelete}
-              onPreview={isPreviewable(a.content_type) ? () => setSelected(a) : undefined}
+              onPreview={() => setSelected(a)}
             />
           ))}
         </div>
@@ -227,7 +223,7 @@ export function AttachmentList({
                 className="max-h-[90vh] max-w-full object-contain"
               />
             </div>
-          ) : selected ? (
+          ) : selected?.content_type && isVideoType(selected.content_type) ? (
             <div className="flex items-center justify-center p-2">
               <video
                 src={selected.url}
@@ -235,6 +231,13 @@ export function AttachmentList({
                 autoPlay
                 className="max-h-[90vh] max-w-full"
               />
+            </div>
+          ) : selected ? (
+            <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 p-6 text-white/75">
+              <FileText className="h-12 w-12 text-white/45" />
+              <p className="max-w-md text-center text-sm">
+                此类型暂不支持在线预览，请使用下方按钮下载或在新标签页打开。
+              </p>
             </div>
           ) : null}
 
@@ -260,7 +263,7 @@ export function AttachmentList({
                 </a>
               </div>
               <div className="flex gap-2 text-xs text-white/50">
-                {sortedAttachments.filter((a) => isPreviewable(a.content_type)).map((a, i) => (
+                {sortedAttachments.map((a, i) => (
                   <button
                     key={a.id}
                     type="button"
@@ -310,6 +313,58 @@ function AttachmentRow({
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+      {onPreview ? (
+        <button
+          type="button"
+          onClick={onPreview}
+          className="shrink-0 cursor-zoom-in overflow-hidden rounded-md border bg-muted/30 hover:bg-muted/60"
+          title="预览附件"
+        >
+          {isImage && a.url ? (
+            <Image
+              src={a.url}
+              alt={a.filename}
+              width={44}
+              height={44}
+              className="h-11 w-11 bg-muted/20 object-contain p-0.5"
+            />
+          ) : isVideo ? (
+            <span className="flex h-11 w-11 items-center justify-center bg-black/60">
+              <FileVideo className="h-4 w-4 text-white/80" />
+            </span>
+          ) : (
+            <span className="flex h-11 w-11 items-center justify-center">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+            </span>
+          )}
+        </button>
+      ) : (
+        <a
+          href={a.url ?? "#"}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 overflow-hidden rounded-md border bg-muted/30"
+          title="打开附件"
+        >
+          {isImage && a.url ? (
+            <Image
+              src={a.url}
+              alt={a.filename}
+              width={44}
+              height={44}
+              className="h-11 w-11 bg-muted/20 object-contain p-0.5"
+            />
+          ) : isVideo ? (
+            <span className="flex h-11 w-11 items-center justify-center bg-black/60">
+              <FileVideo className="h-4 w-4 text-white/80" />
+            </span>
+          ) : (
+            <span className="flex h-11 w-11 items-center justify-center">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+            </span>
+          )}
+        </a>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {isVideo ? (
@@ -443,7 +498,7 @@ function AttachmentItem({
           alt={a.filename}
           width={80}
           height={80}
-          className="h-full w-full object-cover"
+          className="h-full w-full bg-muted/20 object-contain p-1"
         />
       ) : isVideo ? (
         <span className="flex h-full w-full items-center justify-center bg-black/60">
