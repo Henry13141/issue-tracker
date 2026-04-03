@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { Menu } from "lucide-react";
 import { Sidebar, SidebarPanel } from "@/components/sidebar";
@@ -10,7 +9,6 @@ import { createClient } from "@/lib/supabase/client";
 import type { User } from "@/types";
 
 export function MainAppShell({ user, children }: { user: User; children: React.ReactNode }) {
-  const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -20,10 +18,6 @@ export function MainAppShell({ user, children }: { user: User; children: React.R
     }, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    setMobileNavOpen(false);
-  }, [pathname]);
 
   return (
     <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-background">
