@@ -80,19 +80,19 @@ export function IssueUpdatesClient({
 
   async function submitUpdate() {
     if (!updateContent.trim()) {
-      toast.error("请填写进度说明");
+      toast.error("写几句进展说明，帮团队了解最新情况");
       return;
     }
     if (updateStatus === "blocked" && !updateBlockedReason.trim()) {
-      toast.error("切换到「已阻塞」状态时，必须填写阻塞原因");
+      toast.error("写下阻塞原因，团队才能更快帮你解决");
       return;
     }
     if (updateStatus === "closed" && !updateClosedReason.trim()) {
-      toast.error("关闭问题时必须填写关闭原因");
+      toast.error("关闭前补充一下原因，方便后续复盘参考");
       return;
     }
     if (updateStatus === "pending_review" && hasIncompleteSubtasks) {
-      toast.error("所有子任务完成后，才可以提交待验证");
+      toast.error("还有子任务未完成，全部搞定后就可以提交验证了");
       return;
     }
     setSavingUpdate(true);
@@ -112,10 +112,10 @@ export function IssueUpdatesClient({
       setUpdateBlockedReason("");
       setUpdateClosedReason("");
       setPendingAttachments([]);
-      toast.success("已记录进度");
+      toast.success("进展已记录，相关同事现在能看到最新状态了");
       router.refresh();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "提交失败");
+      toast.error(e instanceof Error ? e.message : "提交暂时没成功，你的内容还在，可以再试一次");
     } finally {
       setSavingUpdate(false);
     }
@@ -129,7 +129,7 @@ export function IssueUpdatesClient({
         [updateId]: (prev[updateId] ?? []).filter((a) => a.id !== attachmentId),
       }));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "删除失败");
+      toast.error(e instanceof Error ? e.message : "删除暂时没成功，可以稍后再试");
     }
   }
 
@@ -141,7 +141,7 @@ export function IssueUpdatesClient({
       <CardContent className="flex flex-1 flex-col gap-4">
         <div className="space-y-4">
           {initialUpdates.length === 0 ? (
-            <p className="text-sm text-muted-foreground">暂无进度记录</p>
+            <p className="text-sm text-muted-foreground">还没有进度记录，添加第一条进展来启动推进轨迹</p>
           ) : (
             initialUpdates.map((u) => (
               <div key={u.id} className="rounded-lg border bg-muted/20 p-4 space-y-3">
@@ -187,7 +187,10 @@ export function IssueUpdatesClient({
 
         {/* 追加进度表单 */}
         <div className="space-y-3">
-          <Label>追加进度</Label>
+          <div>
+            <Label>追加进度</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">每一条进展都在让协作信息更完整，团队能看到你的推进</p>
+          </div>
           <Textarea
             value={updateContent}
             onChange={(e) => setUpdateContent(e.target.value)}
@@ -300,10 +303,10 @@ function UpdateCommentsSection({
       await addUpdateComment(updateId, text.trim());
       setText("");
       setShowInput(false);
-      toast.success("评论已发送");
+      toast.success("评论已发送，同事能看到你的反馈了");
       router.refresh();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "评论失败");
+      toast.error(e instanceof Error ? e.message : "评论发送没成功，可以再试一次");
     } finally {
       setSending(false);
     }

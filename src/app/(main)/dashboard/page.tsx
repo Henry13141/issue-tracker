@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import {
   getOverviewStats,
+  getPositiveStats,
   getHighRiskIssues,
   getMemberWorkload,
   getModuleCategoryStats,
@@ -48,14 +49,15 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 const TRIGGER_LABELS: Record<string, string> = {
   cron_morning:              "早间摘要",
-  cron_admin:                "管理督促",
-  cron_daily:                "每日催办",
-  issue_event:               "工单事件（旧）",
+  cron_admin:                "推进跟踪",
+  cron_daily:                "待推进提醒",
+  issue_event:               "协作事件（旧）",
   "issue_event.status":      "事件·状态变更",
   "issue_event.priority":    "事件·优先级紧急",
   "issue_event.due_date":    "事件·截止提前",
   "issue_event.assignment":  "事件·负责人/评审",
-  "issue_event.created":     "事件·工单创建",
+  "issue_event.handover":    "事件·任务交接",
+  "issue_event.created":     "事件·任务创建",
   manual_test:               "手动测试",
 };
 
@@ -80,8 +82,9 @@ export default async function DashboardPage() {
   if (!user) return null;
   if (user.role !== "admin") redirect("/issues");
 
-  const [overview, riskIssues, memberWorkload, moduleStats, trend, notifHealth] = await Promise.all([
+  const [overview, positive, riskIssues, memberWorkload, moduleStats, trend, notifHealth] = await Promise.all([
     getOverviewStats(),
+    getPositiveStats(),
     getHighRiskIssues(20),
     getMemberWorkload(),
     getModuleCategoryStats(),
@@ -100,71 +103,111 @@ export default async function DashboardPage() {
       {/* ── 标题 ── */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">管理驾驶舱</h1>
-        <p className="text-sm text-muted-foreground">今日风险、工单积压与通知链路全貌</p>
+        <p className="text-sm text-muted-foreground">团队推进成果与待关注事项一览</p>
       </div>
 
-      {/* ── 一、今日风险总览 ── */}
+      {/* ── 一、团队推进成果 ── */}
       <section>
-        <h2 className="mb-3 text-base font-semibold text-muted-foreground uppercase tracking-wider">今日风险总览</h2>
+        <h2 className="mb-3 text-base font-semibold text-emerald-700 dark:text-emerald-400 tracking-wider">今日推进成果</h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            title="今日进展更新"
+            value={positive.todayProgressUpdates}
+            description="团队成员提交的进展条数"
+            className="border-emerald-200 bg-emerald-50/60"
+          />
+          <StatCard
+            title="今日完成/关闭"
+            value={positive.todayClosedResolved}
+            description="今天解决或关闭的问题"
+            className={positive.todayClosedResolved > 0 ? "border-emerald-300 bg-emerald-50" : undefined}
+          />
+          <StatCard
+            title="近7天完成"
+            value={positive.weekClosedResolved}
+            description="本周解决或关闭的问题总数"
+          />
+          <StatCard
+            title="近7天活跃成员"
+            value={positive.activeContributors}
+            description="有提交进展记录的成员数"
+            className={positive.activeContributors > 0 ? "border-blue-200 bg-blue-50/60" : undefined}
+          />
+          <StatCard
+            title="今日新录入"
+            value={positive.todayNewIssues}
+            description="今天新建的问题数量"
+          />
+          <StatCard
+            title="今日交接完成"
+            value={positive.todayHandovers}
+            description="任务交接接力次数"
+          />
+          <Link href="/dashboard/notifications">
+            <StatCard title="今日通知送达" value={overview.todayNotifTotal} description="全渠道通知投递数" />
+          </Link>
+          <StatCard title="今日提醒生成" value={overview.todayReminders} description="协作提醒写入数" />
+        </div>
+      </section>
+
+      {/* ── 二、待关注事项 ── */}
+      <section>
+        <h2 className="mb-3 text-base font-semibold text-muted-foreground tracking-wider">待关注事项</h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Link href="/issues?risk=overdue">
             <StatCard
-              title="逾期工单"
+              title="已过截止日期"
               value={overview.overdueCount}
-              description="已超截止日期且未关闭"
+              description="超截止日期且未关闭"
               className={overview.overdueCount > 0 ? "border-orange-300 bg-orange-50" : undefined}
             />
           </Link>
           <Link href="/issues?status=blocked">
             <StatCard
-              title="阻塞工单"
+              title="遇到阻塞"
               value={overview.blockedCount}
-              description="状态为 blocked"
+              description="需要协助排除阻塞"
               className={overview.blockedCount > 0 ? "border-purple-300 bg-purple-50" : undefined}
             />
           </Link>
           <Link href="/issues?priority=urgent">
             <StatCard
-              title="紧急工单"
+              title="紧急事项"
               value={overview.urgentCount}
-              description="优先级 urgent 且未关闭"
+              description="优先级为紧急且未关闭"
               className={overview.urgentCount > 0 ? "border-red-300 bg-red-50" : undefined}
             />
           </Link>
           <StatCard
-            title="今日未更新（活跃）"
+            title="今日待同步"
             value={overview.noUpdateToday}
-            description="in_progress/blocked/pending_review 且无人工进展"
+            description="活跃问题中今日尚未同步进展"
           />
           <StatCard
-            title="连续3天无更新"
+            title="3天未有进展"
             value={overview.stale3DaysCount}
-            description="活跃工单超3天无人工活动"
+            description="活跃问题超3天无人工更新"
             className={overview.stale3DaysCount > 0 ? "border-yellow-300 bg-yellow-50" : undefined}
           />
           <Link href="/dashboard/notifications?status=failed">
             <StatCard
-              title="今日通知失败"
+              title="通知送达异常"
               value={overview.todayNotifFailed}
-              description="今日 failed 投递记录"
+              description="今日未能成功送达的通知"
               className={overview.todayNotifFailed > 0 ? "border-red-200 bg-red-50" : undefined}
             />
           </Link>
-          <Link href="/dashboard/notifications">
-            <StatCard title="今日通知总发送" value={overview.todayNotifTotal} description="全渠道投递记录数" />
-          </Link>
-          <StatCard title="今日提醒生成" value={overview.todayReminders} description="系统催办提醒写入数" />
         </div>
       </section>
 
-      {/* ── 二、高风险工单 + 通知健康 ── */}
+      {/* ── 三、需关注事项详情 + 通知送达 ── */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* 高风险工单列表 */}
+        {/* 需关注事项列表 */}
         <section className="lg:col-span-2">
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle>高风险工单 Top {riskIssues.length}</CardTitle>
+                <CardTitle>需关注事项 Top {riskIssues.length}</CardTitle>
                 <Link href="/issues?sortBy=last_activity_at&risk=overdue" className="text-xs text-muted-foreground hover:text-foreground">
                   查看全部 →
                 </Link>
@@ -172,7 +215,7 @@ export default async function DashboardPage() {
             </CardHeader>
             <CardContent className="p-0">
               {riskIssues.length === 0 ? (
-                <p className="px-6 pb-4 text-sm text-muted-foreground">暂无高风险工单</p>
+                <p className="px-6 pb-4 text-sm text-muted-foreground">当前没有需要特别关注的事项，团队状态不错</p>
               ) : (
                 <div className="divide-y">
                   {riskIssues.map((issue: HighRiskIssue) => (
@@ -216,7 +259,7 @@ export default async function DashboardPage() {
           <Card className="h-full">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle>通知链路健康</CardTitle>
+                <CardTitle>通知送达情况</CardTitle>
                 <Link href="/dashboard/notifications" className="text-xs text-muted-foreground hover:text-foreground">
                   查看日志 →
                 </Link>
@@ -302,11 +345,11 @@ export default async function DashboardPage() {
         </section>
       </div>
 
-      {/* ── 三、成员压力榜 ── */}
+      {/* ── 四、成员协作概览 ── */}
       <section>
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle>成员压力榜</CardTitle>
+            <CardTitle>成员协作概览</CardTitle>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
             {memberWorkload.length === 0 ? (
@@ -316,13 +359,13 @@ export default async function DashboardPage() {
                 <thead>
                   <tr className="border-b bg-muted/30 text-xs text-muted-foreground">
                     <th className="px-4 py-2 text-left font-medium">成员</th>
-                    <th className="px-3 py-2 text-center font-medium">在办</th>
-                    <th className="px-3 py-2 text-center font-medium">逾期</th>
-                    <th className="px-3 py-2 text-center font-medium">3天未更新</th>
-                    <th className="px-3 py-2 text-center font-medium">阻塞</th>
+                    <th className="px-3 py-2 text-center font-medium">负责中</th>
+                    <th className="px-3 py-2 text-center font-medium">已过期</th>
+                    <th className="px-3 py-2 text-center font-medium">待同步</th>
+                    <th className="px-3 py-2 text-center font-medium">遇阻塞</th>
                     <th className="px-3 py-2 text-center font-medium">紧急</th>
-                    <th className="px-3 py-2 text-center font-medium">7天更新</th>
-                    <th className="px-4 py-2 text-left font-medium">最近活动</th>
+                    <th className="px-3 py-2 text-center font-medium">7天推进</th>
+                    <th className="px-4 py-2 text-left font-medium">最近活跃</th>
                     <th className="px-3 py-2 text-left font-medium"></th>
                   </tr>
                 </thead>
@@ -368,7 +411,7 @@ export default async function DashboardPage() {
         </Card>
       </section>
 
-      {/* ── 四、模块 / 分类分布 ── */}
+      {/* ── 五、模块 / 分类分布 ── */}
       {(moduleStats.modules.length > 0 || moduleStats.categories.length > 0) && (
         <div className="grid gap-6 lg:grid-cols-2">
           <GroupStatsCard title="模块分布" rows={moduleStats.modules} />
@@ -376,21 +419,21 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* ── 五、近7天趋势 ── */}
+      {/* ── 六、近7天推进趋势 ── */}
       <section>
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle>近 7 天趋势</CardTitle>
+            <CardTitle>近 7 天推进趋势</CardTitle>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/30 text-xs text-muted-foreground">
                   <th className="px-4 py-2 text-left font-medium">日期</th>
-                  <th className="px-4 py-2 font-medium">新增工单</th>
-                  <th className="px-4 py-2 font-medium">关闭工单</th>
+                  <th className="px-4 py-2 font-medium">新录入</th>
+                  <th className="px-4 py-2 font-medium">已完成</th>
                   <th className="px-4 py-2 font-medium">提醒生成</th>
-                  <th className="px-4 py-2 font-medium">通知失败</th>
+                  <th className="px-4 py-2 font-medium">送达异常</th>
                 </tr>
               </thead>
               <tbody className="divide-y">

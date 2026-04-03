@@ -354,7 +354,7 @@ function buildMessage(
       lines.push("（请在任务详情页下载附件）");
       lines.push("");
     }
-    lines.push("请查阅任务详情，确认优先级和接手计划，推进最关键的一步。");
+    lines.push("请查阅任务详情，确认接手计划。前任负责人已经把上下文整理好了，你可以直接接上推进。");
     return { msgTitle, msgBody: lines.join("\n") };
   }
 
@@ -372,12 +372,12 @@ function buildMessage(
   const lines: string[] = [];
 
   if (isCreated) {
-    lines.push(`## 新问题已分配`);
+    lines.push(`## 新问题已分配给你`);
     lines.push("");
     lines.push(`问题：${ref}`);
     lines.push("");
-    lines.push(`由 **${ctx.actorName}** 创建并分配给你。`);
-    lines.push(`建议：${buildActionHint(ctx.changes)}`);
+    lines.push(`**${ctx.actorName}** 把这件事交给了你。`);
+    lines.push(`下一步：${buildActionHint(ctx.changes)}`);
   } else {
     // 多变更时用最重要的事件作为标题
     const heading = ctx.changes.length === 1
@@ -393,8 +393,8 @@ function buildMessage(
       if (line) lines.push(line);
     }
     lines.push("");
-    lines.push(`建议：${buildActionHint(ctx.changes)}`);
-    lines.push(`本次变更由 **${ctx.actorName}** 发起。`);
+    lines.push(`下一步：${buildActionHint(ctx.changes)}`);
+    lines.push(`由 **${ctx.actorName}** 推进。`);
   }
 
   return { msgTitle, msgBody: lines.join("\n") };
@@ -411,24 +411,24 @@ function buildActionHint(changes: NotifiableChange[]): string {
   const statusChanges = changes.filter((c): c is Extract<NotifiableChange, { type: "status_changed" }> => c.type === "status_changed");
 
   if (statusChanges.some((c) => c.to === "blocked")) {
-    return "请及时帮忙处理问题；若当前有阻塞，先补充原因和支持诉求，团队可以更快帮你拆障。";
+    return "遇到阻塞很正常，写下卡点和需要的支持，团队可以更快帮你拆障。";
   }
   if (statusChanges.some((c) => c.to === "pending_review")) {
-    return "请及时帮忙处理问题，优先完成验证并更新结论，避免问题在待验证阶段停留过久。";
+    return "负责人已把这件事推进到待验证阶段，下一步需要你来确认结果。";
   }
   if (statusChanges.some((c) => c.to === "resolved" || c.to === "closed")) {
-    return "辛苦啦，请确认关键结论已记录完整，方便后续回溯和经验复用。";
+    return "这件事做到位了！确认关键结论已记录完整，方便后续回溯。";
   }
   if (statusChanges.some((c) => c.to === "in_progress" && c.from === "closed")) {
-    return "问题已重新打开，建议先明确本轮目标，再按优先级推进。";
+    return "问题重新打开了，建议先明确本轮目标，再按优先级推进。";
   }
   if (hasUrgent) {
-    return "请及时帮忙处理问题，这个变更时效性较高；如资源紧张可及时同步风险。";
+    return "这件事时效性较高，如资源紧张请及时同步，团队会帮你协调。";
   }
   if (hasAssignment || hasCreated) {
-    return "请及时帮忙处理问题，先确认优先级和处理计划，推进最关键的一步。";
+    return "先确认优先级和处理计划，推进最关键的一步就好。";
   }
-  return "请结合当前情况补一条简短进展，方便团队协同跟进。";
+  return "方便时补一条简短进展，让协作信息保持完整。";
 }
 
 /**
@@ -436,18 +436,18 @@ function buildActionHint(changes: NotifiableChange[]): string {
  */
 function changeSemanticTitle(change: NotifiableChange): string {
   switch (change.type) {
-    case "issue_created":    return "新问题已分配";
-    case "assignee_changed": return "问题负责人已变更";
-    case "reviewer_changed": return "问题评审人已变更";
+    case "issue_created":    return "新问题已分配给你";
+    case "assignee_changed": return "负责人已更新";
+    case "reviewer_changed": return "审核人已更新";
     case "status_changed":
-      if (change.to === "resolved")                            return "问题已解决";
+      if (change.to === "resolved")                            return "问题已解决，辛苦了";
       if (change.to === "closed")                              return "问题已关闭";
-      if (change.to === "blocked")                             return "问题进入阻塞";
-      if (change.to === "pending_review")                      return "问题待验证，请查阅";
-      if (change.to === "in_progress" && change.from === "closed") return "问题已重新打开";
-      return "问题状态已变更";
-    case "priority_urgent":   return "问题优先级提升为紧急";
-    case "due_date_advanced": return "问题截止日期已提前";
+      if (change.to === "blocked")                             return "问题遇到阻塞，需要协助";
+      if (change.to === "pending_review")                      return "问题待你验证";
+      if (change.to === "in_progress" && change.from === "closed") return "问题重新打开了";
+      return "问题状态有更新";
+    case "priority_urgent":   return "优先级提升为紧急";
+    case "due_date_advanced": return "截止日期提前了";
     default: return "问题有新动态";
   }
 }

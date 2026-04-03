@@ -23,11 +23,11 @@ function buildEscalationMarkdown(
   listUrl: string
 ): string {
   const lines: string[] = [
-    `## 督促提醒 · ${dateLabel}`,
+    `## 推进情况跟踪 · ${dateLabel}`,
     "",
     `**${adminName}**，下午好。`,
     "",
-    `今天早晨已向负责人发送了问题提醒，以下 **${noActionAssignees.length}** 位同事截至目前仍未更新进度：`,
+    `今天早晨已向负责人发送了协作提醒，以下 **${noActionAssignees.length}** 位同事截至目前还没有同步进展：`,
     "",
   ];
 
@@ -44,7 +44,7 @@ function buildEscalationMarkdown(
     lines.push(`[打开问题列表 →](${listUrl}/issues)`);
     lines.push("");
   }
-  lines.push("请及时帮忙推动相关同事处理问题，并补充最新状态，谢谢。");
+  lines.push("可以和相关同事沟通一下进展，帮他们排除阻塞或调整优先级。");
 
   return lines.join("\n");
 }
@@ -160,7 +160,7 @@ export async function GET(request: Request) {
       const adminName = (admin.name as string) ?? "管理员";
 
       const md    = buildEscalationMarkdown(adminName, dateLabel, noActionAssignees, base || "");
-      const title = `督促提醒 · ${noActionAssignees.length} 位同事今日未更新`;
+      const title = `推进跟踪 · ${noActionAssignees.length} 位同事今日待同步`;
 
       const result = await sendAdminDigest({
         targetWecomUserid: adminWc,

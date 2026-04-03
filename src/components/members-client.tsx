@@ -44,8 +44,8 @@ function MemberRow({ member, currentUserId }: { member: User; currentUserId: str
     const value = (formData.get("wecom_userid") as string) ?? "";
     startTransition(async () => {
       const r = await updateUserWecomUserId(member.id, value);
-      if (r.ok) toast.success(`${member.name} 的企业微信 userid 已保存`);
-      else toast.error(r.error ?? "保存失败");
+      if (r.ok) toast.success(`${member.name} 的企业微信 userid 已配置，后续通知可以送达了`);
+      else toast.error(r.error ?? "保存没成功，可以再试一次");
     });
   }
 
@@ -53,10 +53,10 @@ function MemberRow({ member, currentUserId }: { member: User; currentUserId: str
     startTransition(async () => {
       const r = await updateUserName(member.id, nameValue);
       if (r.ok) {
-        toast.success("名称已更新");
+        toast.success("名称已更新，同事们会看到新的显示名");
         setEditingName(false);
       } else {
-        toast.error(r.error ?? "保存失败");
+        toast.error(r.error ?? "保存没成功，可以再试一次");
       }
     });
   }
@@ -69,8 +69,8 @@ function MemberRow({ member, currentUserId }: { member: User; currentUserId: str
   function handleRemove() {
     startTransition(async () => {
       const r = await removeMember(member.id);
-      if (r.ok) toast.success(`已移除成员 ${member.name}`);
-      else toast.error(r.error ?? "移除失败");
+      if (r.ok) toast.success(`成员 ${member.name} 已移除`);
+      else toast.error(r.error ?? "移除没成功，可以稍后再试");
     });
   }
 
@@ -198,10 +198,10 @@ function SendGroupInviteButton({ webhookConfigured }: { webhookConfigured: boole
             });
             const data = (await res.json().catch(() => ({}))) as { error?: string };
             if (!res.ok) {
-              toast.error(data.error ?? "发送失败");
+              toast.error(data.error ?? "发送没成功，可以稍后再试");
               return;
             }
-            toast.success("已发送到工作群");
+            toast.success("登录邀请已发到工作群，同事们可以扫码加入了");
           })
         }
       >

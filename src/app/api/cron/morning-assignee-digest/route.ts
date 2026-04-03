@@ -30,11 +30,11 @@ function buildGentleMorningMarkdown(
     "",
     `**${assigneeName}**，早上好～`,
     "",
-    "我是米伽米问题追踪小助手，今天继续和你并肩推进。",
+    "今天继续一起把事情往前推。",
     "",
     n === 1
-      ? `目前你名下还有 **1** 个待处理问题。请及时帮忙处理问题，方便时补一条进展就可以。`
-      : `目前你名下还有 **${n}** 个待处理问题。请及时帮忙处理问题，方便时补一条进展就可以。`,
+      ? `目前你名下还有 **1** 个待推进的问题，方便时补一条进展就好。`
+      : `目前你名下还有 **${n}** 个待推进的问题，方便时补一条进展就好。`,
     "",
   ];
 
@@ -58,9 +58,9 @@ function buildGentleMorningMarkdown(
     lines.push(`[打开问题列表 →](${listUrl}/issues)`);
     lines.push("");
   }
-  lines.push("若已处理完毕，把对应问题更新为「已解决」或「已关闭」即可，我会少打扰你。");
+  lines.push("已处理完的问题，更新为「已解决」或「已关闭」即可，列表会更清爽。");
   lines.push("");
-  lines.push("祝今天顺利。");
+  lines.push("祝今天顺利，每一步推进都有价值。");
 
   return lines.join("\n");
 }
@@ -221,7 +221,7 @@ export async function GET(request: Request) {
       const groupLines: string[] = [
         `## 早安 · ${dateLabel} 今日待处理任务`,
         "",
-        "以下同事名下有待处理问题，请各自在今天工作结束前更新一条进展：",
+        "以下同事名下有待推进的问题，方便时各自更新一条进展：",
         "",
       ];
 

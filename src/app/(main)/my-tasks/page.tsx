@@ -30,7 +30,7 @@ export default async function MyTasksPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">我的任务</h1>
         <p className="text-sm text-muted-foreground">
-          快速查看分配给你的未关闭问题，并提交每日进度
+          你负责的事项都在这里，每次更新都会让协作更顺畅
         </p>
       </div>
       <MyTasksClient needUpdate={needUpdate} updatedToday={updatedToday} />

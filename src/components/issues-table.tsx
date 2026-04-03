@@ -125,17 +125,17 @@ export function IssuesTable({
         toast.error(result.error);
         return;
       }
-      toast.success("状态已更新");
+      toast.success("状态已更新，这件事又往前推了一步");
       router.refresh();
     } catch {
-      toast.error("更新失败，请稍后再试");
+      toast.error("更新暂时没成功，可以稍后再试");
     }
   }
 
   async function onReasonConfirm() {
     const { issueId, status, reason } = reasonDialog;
     if (!reason.trim()) {
-      toast.error(status === "closed" ? "请填写关闭原因" : "请填写阻塞原因");
+      toast.error(status === "closed" ? "补充一下关闭原因，方便后续复盘" : "写下阻塞原因，团队才能更快帮你解决");
       return;
     }
     setReasonDialog((d) => ({ ...d, submitting: true }));
@@ -150,11 +150,11 @@ export function IssuesTable({
         setReasonDialog((d) => ({ ...d, submitting: false }));
         return;
       }
-      toast.success("状态已更新");
+      toast.success("状态已更新，这件事又往前推了一步");
       setReasonDialog((d) => ({ ...d, open: false, submitting: false }));
       router.refresh();
     } catch {
-      toast.error("更新失败，请稍后再试");
+      toast.error("更新暂时没成功，可以稍后再试");
       setReasonDialog((d) => ({ ...d, submitting: false }));
     }
   }
@@ -163,10 +163,10 @@ export function IssuesTable({
     if (!confirm("确定删除该问题？")) return;
     try {
       await deleteIssue(id);
-      toast.success("已删除");
+      toast.success("问题已移除，列表更清爽了");
       router.refresh();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "删除失败");
+      toast.error(e instanceof Error ? e.message : "删除没成功，可以稍后再试");
     }
   }
 

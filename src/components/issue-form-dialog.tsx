@@ -119,7 +119,7 @@ export function IssueFormDialog({ members }: { members: User[] }) {
 
   function addSubtaskDraft() {
     if (!subtaskTitle.trim()) {
-      toast.error("请先填写子任务名字");
+      toast.error("请先填写子任务名字，方便后续跟进");
       return;
     }
     setSubtasks((prev) => [
@@ -156,7 +156,7 @@ export function IssueFormDialog({ members }: { members: User[] }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) {
-      toast.error("请填写标题");
+      toast.error("标题是协作的起点，请先填写一个简要标题");
       return;
     }
     setLoading(true);
@@ -221,18 +221,18 @@ export function IssueFormDialog({ members }: { members: User[] }) {
 
       const failedSubtasks = subtaskResults.filter((result) => result.status === "rejected").length;
       if (failedSubtasks > 0) {
-        toast.warning(`主任务已创建，${failedSubtasks} 个子任务创建失败`);
+        toast.warning(`主任务已创建，但有 ${failedSubtasks} 个子任务未能同步创建，可稍后在详情页补充`);
       } else if (subtasks.length > 0) {
-        toast.success(`已创建问题，并添加 ${subtasks.length} 个子任务`);
+        toast.success(`问题已录入系统，${subtasks.length} 个子任务也一起就位了，相关同事会收到通知`);
       } else {
-        toast.success("已创建问题");
+        toast.success("问题已录入系统，接下来可以分配负责人继续推进");
       }
       setOpen(false);
       resetForm();
       router.push(`/issues/${id}`);
       router.refresh();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "创建失败");
+      toast.error(err instanceof Error ? err.message : "这次没有创建成功，内容不会丢失，可以再试一次");
     } finally {
       setLoading(false);
     }
@@ -247,6 +247,9 @@ export function IssueFormDialog({ members }: { members: User[] }) {
         <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-5xl">
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>新建问题</DialogTitle>
+            <p className="text-xs text-muted-foreground">
+              每一个问题的录入都在帮团队把事情往前推
+            </p>
           </DialogHeader>
           <form onSubmit={onSubmit} className="max-h-[calc(88vh-88px)] overflow-y-auto px-6 pb-6">
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.9fr)]">
@@ -356,12 +359,12 @@ export function IssueFormDialog({ members }: { members: User[] }) {
                               d.setDate(d.getDate() + result.suggestedDueDays);
                               setDueDate(d);
                             }
-                            toast.success(`AI 建议：${ISSUE_PRIORITY_LABELS[result.priority]} — ${result.reason}`);
+                            toast.success(`AI 建议优先级为「${ISSUE_PRIORITY_LABELS[result.priority]}」— ${result.reason}`);
                           } else {
-                            toast.info("AI 暂无推荐结果，请手动选择");
+                            toast.info("AI 这次没有把握，你可以根据实际情况手动设置");
                           }
                         } catch {
-                          toast.error("AI 推荐失败");
+                          toast.error("AI 推荐暂时不可用，手动设置也很快");
                         } finally {
                           setAiPrioritySuggesting(false);
                         }
@@ -467,12 +470,12 @@ export function IssueFormDialog({ members }: { members: User[] }) {
                           if (result) {
                             if (result.category) setCategory(result.category);
                             if (result.module) setModule(result.module);
-                            toast.success("AI 已推荐分类和模块");
+                            toast.success("AI 已帮你匹配了分类和模块，确认后可以直接使用");
                           } else {
-                            toast.info("AI 暂无推荐结果，请手动选择");
+                            toast.info("AI 这次没有把握，你可以手动选择分类和模块");
                           }
                         } catch {
-                          toast.error("AI 推荐失败");
+                          toast.error("AI 推荐暂时不可用，手动选择也很快");
                         } finally {
                           setAiSuggesting(false);
                         }
@@ -569,7 +572,13 @@ export function IssueFormDialog({ members }: { members: User[] }) {
               </div>
             </div>
 
-            <DialogFooter className="mt-6">
+            {(assigneeId && assigneeId !== "__none__") && (
+              <p className="mt-4 text-xs text-muted-foreground">
+                提交后，{assigneeName ?? "负责人"}会收到通知
+                {reviewerId && reviewerId !== "__none__" ? `，${reviewerName ?? "审核人"}也会同步知悉` : ""}
+              </p>
+            )}
+            <DialogFooter className="mt-4">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 取消
               </Button>

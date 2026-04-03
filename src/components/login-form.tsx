@@ -67,11 +67,11 @@ export function LoginForm({
           },
         });
         if (error) throw error;
-        toast.success("注册成功，如开启邮箱验证请查收邮件");
+        toast.success("注册成功，欢迎加入团队！如开启邮箱验证请查收邮件");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        toast.success("登录成功");
+        toast.success("欢迎回来，一起把事情推进");
       }
       router.push(redirectTo);
       router.refresh();
@@ -85,7 +85,7 @@ export function LoginForm({
 
   async function handleDevLogin() {
     if (!debugUserId) {
-      toast.error("请先选择调试账号");
+      toast.error("请先选择一个调试账号");
       return;
     }
     setDevLoading(true);
@@ -99,7 +99,7 @@ export function LoginForm({
       if (!res.ok) {
         throw new Error(typeof data?.error === "string" ? data.error : "调试登录失败");
       }
-      toast.success("本地调试登录成功");
+      toast.success("调试登录成功，欢迎回来");
       router.push(typeof data?.redirect === "string" ? data.redirect : redirectTo);
       router.refresh();
     } catch (err: unknown) {
@@ -114,7 +114,7 @@ export function LoginForm({
       <Card className="w-full max-w-md overflow-hidden border-0 shadow-2xl">
         <div className="bg-gradient-to-r from-slate-900 to-slate-800 px-6 py-8 text-center">
           <Image src="/mgm-logo.png" alt="米伽米" width={120} height={120} className="mx-auto mb-4 h-[100px] w-auto object-contain drop-shadow-[0_0_12px_rgba(255,255,255,0.15)]" />
-          <h1 className="text-lg font-semibold text-white">米伽米 · 工单管理系统</h1>
+          <h1 className="text-lg font-semibold text-white">米伽米 · 协作推进台</h1>
           <p className="mt-1 text-sm text-slate-400">米伽米（上海）文化科技有限公司</p>
         </div>
         <CardContent className="p-6">

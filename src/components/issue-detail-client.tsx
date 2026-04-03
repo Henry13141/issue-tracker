@@ -141,7 +141,7 @@ export function IssueDetailClient({
   async function saveMeta() {
     if (!canEditFields) return;
     if (status === "pending_review" && hasIncompleteSubtasks) {
-      toast.error("所有子任务完成后，才可以提交待验证");
+      toast.error("还有子任务未完成，全部搞定后就可以提交验证了");
       return;
     }
     setSavingMeta(true);
@@ -162,11 +162,11 @@ export function IssueDetailClient({
       if (result?.error) {
         toast.error(result.error);
       } else {
-        toast.success("已保存");
+        toast.success("信息已更新，相关同事会看到最新内容");
         router.refresh();
       }
     } catch {
-      toast.error("保存失败，请稍后再试");
+      toast.error("保存暂时没成功，你的修改还在，可以再试一次");
     } finally {
       setSavingMeta(false);
     }
@@ -174,7 +174,7 @@ export function IssueDetailClient({
 
   async function submitHandover() {
     if (handoverTo === "__none__") {
-      toast.error("请选择交接对象");
+      toast.error("请选择交接给哪位同事");
       return;
     }
     setSavingHandover(true);
@@ -189,14 +189,14 @@ export function IssueDetailClient({
       });
       if (result?.error) { toast.error(result.error); return; }
 
-      toast.success("交接成功，对方已收到通知");
+      toast.success("交接已完成，新负责人已收到通知并接上了");
       setShowHandover(false);
       setHandoverTo("__none__");
       setHandoverNote("");
       setHandoverAttachments([]);
       router.refresh();
     } catch {
-      toast.error("交接失败，请稍后再试");
+      toast.error("交接暂时没成功，可以稍后再试");
     } finally {
       setSavingHandover(false);
     }
@@ -207,7 +207,7 @@ export function IssueDetailClient({
       await deleteAttachment(attachmentId);
       setIssueAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "删除失败");
+      toast.error(e instanceof Error ? e.message : "删除暂时没成功，可以稍后再试");
     }
   }
 
@@ -239,12 +239,12 @@ export function IssueDetailClient({
                       const draft = await generateDescriptionDraft(title, description);
                       if (draft) {
                         setDescription(draft);
-                        toast.success("已根据当前标题与描述生成草稿，可再修改后保存");
+                        toast.success("AI 草稿已就绪，你可以修改后再保存");
                       } else {
-                        toast.info("请先填写标题或描述，或检查 AI 是否已配置");
+                        toast.info("请先填写标题或描述，AI 需要一些线索才能帮你扩写");
                       }
                     } catch {
-                      toast.error("AI 生成失败");
+                      toast.error("AI 生成暂时不可用，你也可以直接手动补充");
                     } finally {
                       setAiDescDrafting(false);
                     }
@@ -325,12 +325,12 @@ export function IssueDetailClient({
                             d.setDate(d.getDate() + result.suggestedDueDays);
                             setDueDate(d);
                           }
-                          toast.success(`AI 建议：${ISSUE_PRIORITY_LABELS[result.priority]} — ${result.reason}`);
+                          toast.success(`AI 建议优先级为「${ISSUE_PRIORITY_LABELS[result.priority]}」— ${result.reason}`);
                         } else {
-                          toast.info("AI 暂无推荐结果，请手动选择");
+                          toast.info("AI 这次没有把握，你可以根据实际情况手动设置");
                         }
                       } catch {
-                        toast.error("AI 推荐失败");
+                        toast.error("AI 推荐暂时不可用，手动设置也很快");
                       } finally {
                         setAiPrioritySuggesting(false);
                       }
@@ -563,13 +563,13 @@ export function IssueDetailClient({
                           const draft = await generateHandoverDraft(initial.id);
                           if (draft) {
                             setHandoverNote(draft);
-                            toast.success("AI 已生成交接说明草稿");
+                            toast.success("AI 已帮你准备了交接说明，可以修改后确认");
                           } else {
-                            toast.info("AI 暂无法生成，请手动填写");
+                            toast.info("AI 这次没有把握，你可以手动补充交接说明");
                           }
                         } catch {
-                          toast.error("AI 生成失败");
-                        } finally {
+                        toast.error("AI 生成暂时不可用，你可以直接手动填写");
+                    } finally {
                           setAiDrafting(false);
                         }
                       }}
