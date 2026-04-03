@@ -7,9 +7,9 @@
  * 3. 支持管理员重试失败记录
  *
  * 调用关系：
- *   Cron routes / issue-dingtalk-notify.ts
- *     → sendNotification() / sendIssueNotification() / sendReminderNotification() / etc.
- *       → wecom.ts（sendWecomWorkNotice / sendWecomMarkdown）
+ *   Cron routes / event-notification.ts / new-member-welcome.ts
+ *     → sendNotification() / sendLifecycleNotification() / sendIssueNotification() / etc.
+ *       → wecom.ts（sendWecomWorkNotice / sendWecomWebhookText）
  *       → notification_deliveries（admin client）
  *       → issue_events（admin client）
  */
@@ -248,6 +248,24 @@ export async function sendAdminDigest(params: {
     targetWecomUserid: params.targetWecomUserid,
     targetUserId:      params.targetUserId,
     triggerSource:     params.triggerSource,
+    title:             params.title,
+    content:           params.content,
+  });
+}
+
+/** 生命周期消息（欢迎、开通等）→ wecom_app */
+export async function sendLifecycleNotification(params: {
+  targetWecomUserid: string;
+  targetUserId?: string | null;
+  title: string;
+  content: string;
+  triggerSource?: NotificationTriggerSource;
+}): Promise<SendResult> {
+  return sendNotification({
+    channel:           "wecom_app",
+    targetWecomUserid: params.targetWecomUserid,
+    targetUserId:      params.targetUserId,
+    triggerSource:     params.triggerSource ?? "lifecycle_welcome",
     title:             params.title,
     content:           params.content,
   });

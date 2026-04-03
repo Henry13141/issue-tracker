@@ -30,7 +30,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { formatDateTime, formatDateOnly } from "@/lib/dates";
-import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS, ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule } from "@/lib/constants";
+import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS, ISSUE_SOURCE_LABELS, ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule } from "@/lib/constants";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -280,7 +280,11 @@ export function IssueDetailClient({
                 disabled={!canEditStatusInMeta || allowedNextStatuses.length === 0}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>
+                    {status === initial.status
+                      ? `${ISSUE_STATUS_LABELS[status]}（当前）`
+                      : ISSUE_STATUS_LABELS[status]}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={initial.status}>
@@ -347,7 +351,7 @@ export function IssueDetailClient({
                 disabled={!canEditFields}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>{ISSUE_PRIORITY_LABELS[priority]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {(Object.entries(ISSUE_PRIORITY_LABELS) as [IssuePriority, string][]).map(([k, v]) => (
@@ -450,7 +454,7 @@ export function IssueDetailClient({
             <div className="space-y-2">
               <Label>来源</Label>
               <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm text-muted-foreground">
-                {initial.source ?? "manual"}
+                {ISSUE_SOURCE_LABELS[initial.source ?? "manual"] ?? initial.source ?? "手动录入"}
                 {initial.reopen_count > 0 && (
                   <span className="ml-auto text-xs text-orange-500">
                     已重开 {initial.reopen_count} 次

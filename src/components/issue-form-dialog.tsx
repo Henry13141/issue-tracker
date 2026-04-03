@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import { CalendarIcon, Loader2, Paperclip, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
-import { ISSUE_CATEGORIES, ISSUE_MODULES, ISSUE_PRIORITY_LABELS } from "@/lib/constants";
+import { ISSUE_CATEGORIES, ISSUE_MODULES, ISSUE_PRIORITY_LABELS, ISSUE_SOURCE_LABELS } from "@/lib/constants";
 import { suggestCategoryAndModule, suggestPriority } from "@/actions/ai";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -36,12 +36,6 @@ import { formatDateOnly } from "@/lib/dates";
 type SubtaskDraft = {
   title: string;
   description: string;
-};
-
-const SOURCE_LABELS: Record<string, string> = {
-  manual: "手动录入",
-  import: "Excel 导入",
-  webhook: "Webhook",
 };
 
 export function IssueFormDialog({ members }: { members: User[] }) {
@@ -90,7 +84,7 @@ export function IssueFormDialog({ members }: { members: User[] }) {
   );
   const categoryLabel = category !== "__none__" ? category : "未设置";
   const moduleLabel = module !== "__none__" ? module : "未设置";
-  const sourceLabel = SOURCE_LABELS[source] ?? "手动录入";
+  const sourceLabel = ISSUE_SOURCE_LABELS[source] ?? source ?? "手动录入";
 
   useEffect(() => {
     if (!reviewerId && defaultReviewer?.id) {

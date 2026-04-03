@@ -3,7 +3,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/reminder-logic";
 import { isWecomAppConfigured, isWecomWebhookConfigured } from "@/lib/wecom";
 import { sendAdminDigest, sendGroupDigest } from "@/lib/notification-service";
-import { getPublicAppUrl } from "@/lib/app-url";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
 import { chatCompletion, isAIConfigured } from "@/lib/ai";
 import type { IssueStatus } from "@/types";
@@ -21,46 +20,29 @@ function buildGentleMorningMarkdown(
   assigneeName: string,
   dateLabel: string,
   items: { title: string; status: IssueStatus }[],
-  listUrl: string,
   aiSummary?: string | null,
 ): string {
   const n = items.length;
   const lines: string[] = [
-    `## 早安 · ${dateLabel}`,
+    `${assigneeName}，早上好 ☀️（${dateLabel}）`,
     "",
-    `**${assigneeName}**，早上好～`,
-    "",
-    "今天继续一起把事情往前推。",
-    "",
-    n === 1
-      ? `目前你名下还有 **1** 个待推进的问题，方便时补一条进展就好。`
-      : `目前你名下还有 **${n}** 个待推进的问题，方便时补一条进展就好。`,
+    `你名下有 ${n} 个待推进的事项：`,
     "",
   ];
 
   if (aiSummary) {
-    lines.push("### 昨日工作回顾（AI 生成）");
-    lines.push("");
+    lines.push("昨日回顾：");
     lines.push(aiSummary);
     lines.push("");
   }
 
-  lines.push("### 待处理问题清单");
-  lines.push("");
-
   for (const it of items) {
     const st = ISSUE_STATUS_LABELS[it.status] ?? it.status;
-    lines.push(`- **${it.title}**（${st}）`);
+    lines.push(`· ${it.title}（${st}）`);
   }
 
   lines.push("");
-  if (listUrl) {
-    lines.push(`[打开问题列表 →](${listUrl}/issues)`);
-    lines.push("");
-  }
-  lines.push("已处理完的问题，更新为「已解决」或「已关闭」即可，列表会更清爽。");
-  lines.push("");
-  lines.push("祝今天顺利，每一步推进都有价值。");
+  lines.push("方便时补条进展，处理完的标「已解决」即可。加油 💪");
 
   return lines.join("\n");
 }
@@ -173,7 +155,6 @@ export async function GET(request: Request) {
       }
     }
 
-    const base = getPublicAppUrl();
     let sent = 0;
     let skippedNoWecom = 0;
     const errors: string[] = [];
@@ -195,7 +176,7 @@ export async function GET(request: Request) {
           aiSummary = await generateYesterdaySummary(name, userUpdates);
         }
 
-        const md    = buildGentleMorningMarkdown(name, dateLabel, items, base || "", aiSummary);
+        const md    = buildGentleMorningMarkdown(name, dateLabel, items, aiSummary);
         const title = `早安 · 今日待处理问题（${items.length}）`;
 
         const result = await sendAdminDigest({
@@ -218,10 +199,11 @@ export async function GET(request: Request) {
     // ── 群机器人：今日任务汇总（一条，发给整个群）───────────────────────
     let groupSent = false;
     if (byAssignee.size > 0 && isWecomWebhookConfigured()) {
+      let totalItems = 0;
+      for (const rows of byAssignee.values()) totalItems += rows.length;
+
       const groupLines: string[] = [
-        `## 早安 · ${dateLabel} 今日待处理任务`,
-        "",
-        "以下同事名下有待推进的问题，方便时各自更新一条进展：",
+        `早安 ☀️ ${dateLabel}  待处理 ${totalItems} 条`,
         "",
       ];
 
@@ -230,10 +212,10 @@ export async function GET(request: Request) {
         const items = rows.sort((a, b) =>
           a.title.localeCompare(b.title, "zh-CN")
         );
-        groupLines.push(`**${name}（${items.length}个）**`);
+        groupLines.push(`${name}（${items.length}）`);
         for (const r of items) {
           const st = ISSUE_STATUS_LABELS[r.status as IssueStatus] ?? r.status;
-          groupLines.push(`- ${r.title}（${st}）`);
+          groupLines.push(`· ${r.title}（${st}）`);
         }
         groupLines.push("");
       }

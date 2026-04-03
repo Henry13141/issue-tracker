@@ -23,8 +23,8 @@
 
 import type { IssueStatus, IssuePriority } from "@/types";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { sendNotification } from "@/lib/notification-service";
-import { getIssueDetailUrl } from "@/lib/app-url";
 import { isWecomAppConfigured } from "@/lib/wecom";
 
 // ─── 防抖窗口 ─────────────────────────────────────────────────────────────────
@@ -270,10 +270,7 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
   // ── 3. 确定事件桶（防抖粒度）─────────────────────────────────────────────
   const bucket = getEventBucket(ctx.changes);
 
-  // ── 4. 构建消息 ────────────────────────────────────────────────────────────
-  const { msgTitle, msgBody } = buildMessage(ctx, userMap);
-
-  // ── 5. 逐人发送（含按桶防抖）─────────────────────────────────────────────
+  // ── 4. 逐人构建消息并发送（含按桶防抖）────────────────────────────────────
   if (appOk && recipientIds.size > 0) {
     const since = new Date(Date.now() - DEBOUNCE_MS).toISOString();
 
@@ -281,13 +278,9 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
       const u = userMap.get(uid);
       const wecomId = u?.wecom_userid?.trim() || null;
 
-      // wecom_userid 缺失时静默跳过，不写 failed delivery 记录。
-      // 原因：这是配置缺失（非发送失败），频繁写 failed 会污染管理后台失败统计。
-      // 管理员应通过 /members 页的"未配置企业微信"区域修复根因。
       if (!wecomId) return;
 
       // 防抖检查：以 issue_id + user_id + event_bucket 为键，10 分钟内同桶只发一次。
-      // 不同桶（如 assignment vs status）不会互相阻塞，避免重要事件被误杀。
       const { data: recent } = await db
         .from("notification_deliveries")
         .select("id")
@@ -306,6 +299,8 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
         );
         return;
       }
+
+      const { msgTitle, msgBody } = buildMessage(ctx, userMap, uid);
 
       await sendNotification({
         channel:           "wecom_app",
@@ -327,74 +322,59 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
 
 function buildMessage(
   ctx: EventNotificationContext,
-  userMap: Map<string, UserRow>
+  userMap: Map<string, UserRow>,
+  recipientId?: string
 ): { msgTitle: string; msgBody: string } {
-  const url = getIssueDetailUrl(ctx.issueId);
-  const ref = url ? `[${ctx.issueTitle}](${url})` : `**${ctx.issueTitle}**`;
-
   const isCreated  = ctx.changes.length === 1 && ctx.changes[0].type === "issue_created";
   const isHandover = ctx.changes.length === 1 && ctx.changes[0].type === "handover";
 
   // ── 交接专属消息 ──────────────────────────────────────────────────────────
   if (isHandover) {
     const h = ctx.changes[0] as Extract<NotifiableChange, { type: "handover" }>;
-    const shortTitle = ctx.issueTitle.slice(0, 20) + (ctx.issueTitle.length > 20 ? "…" : "");
-    const msgTitle = `${ctx.actorName} 已将任务交接给你 · ${shortTitle}`;
+    const isNewAssignee = recipientId === h.toId;
+    const toName = userMap.get(h.toId)?.name ?? "新负责人";
+    const target = isNewAssignee ? "你" : toName;
+
+    const msgTitle = `${ctx.actorName} 已将「${ctx.issueTitle}」交接给${target}`;
     const lines: string[] = [];
-    lines.push(`## ${ctx.actorName} 已将任务交接给你`);
-    lines.push("");
-    lines.push(`任务：${ref}`);
-    lines.push("");
+    lines.push(`**${ctx.actorName}** 已将「${ctx.issueTitle}」交接给 **${target}**`);
     if (h.note) {
-      lines.push(`**交接说明：**${h.note}`);
-      lines.push("");
+      lines.push(`交接说明：${h.note}`);
     }
     if (h.attachmentNames && h.attachmentNames.length > 0) {
-      lines.push(`**交接附件：**${h.attachmentNames.join("、")}`);
-      lines.push("（请在任务详情页下载附件）");
-      lines.push("");
+      lines.push(`附件：${h.attachmentNames.join("、")}（电脑端查看）`);
     }
-    lines.push("请查阅任务详情，确认接手计划。前任负责人已经把上下文整理好了，你可以直接接上推进。");
+    if (isNewAssignee) {
+      lines.push("上下文已整理好，接上推进就好，加油 💪");
+    }
     return { msgTitle, msgBody: lines.join("\n") };
   }
 
-  // 标题：单变更用语义标题，多变更用摘要
-  let msgTitle: string;
-  if (isCreated) {
-    msgTitle = `新问题：${ctx.issueTitle.slice(0, 20)}${ctx.issueTitle.length > 20 ? "…" : ""}`;
-  } else if (ctx.changes.length === 1) {
-    msgTitle = `${changeSemanticTitle(ctx.changes[0])} · ${ctx.issueTitle.slice(0, 16)}${ctx.issueTitle.length > 16 ? "…" : ""}`;
-  } else {
-    msgTitle = `问题动态（${ctx.changes.length} 项变更）· ${ctx.issueTitle.slice(0, 10)}…`;
-  }
-
-  // 正文
   const lines: string[] = [];
+  let msgTitle: string;
 
   if (isCreated) {
-    lines.push(`## 新问题已分配给你`);
-    lines.push("");
-    lines.push(`问题：${ref}`);
-    lines.push("");
-    lines.push(`**${ctx.actorName}** 把这件事交给了你。`);
-    lines.push(`下一步：${buildActionHint(ctx.changes)}`);
+    const isAssignee = recipientId === ctx.assigneeId;
+    const assigneeName = ctx.assigneeId ? (userMap.get(ctx.assigneeId)?.name ?? "负责人") : "负责人";
+    const target = isAssignee ? "你" : assigneeName;
+
+    msgTitle = `「${ctx.issueTitle}」已分配给${target}`;
+    lines.push(`**${ctx.actorName}** 创建了「${ctx.issueTitle}」，分配给 **${target}**`);
+    if (isAssignee) {
+      lines.push("先确认优先级，推进最关键的一步就好，加油 💪");
+    }
   } else {
-    // 多变更时用最重要的事件作为标题
-    const heading = ctx.changes.length === 1
+    const semanticTitle = ctx.changes.length === 1
       ? changeSemanticTitle(ctx.changes[0])
       : "问题有新动态";
-    lines.push(`## ${heading}`);
-    lines.push("");
-    lines.push(`问题：${ref}`);
-    lines.push("");
-    if (ctx.changes.length > 1) lines.push("本次变更：");
+    msgTitle = `${semanticTitle} · ${ctx.issueTitle}`;
+
+    lines.push(`「${ctx.issueTitle}」${semanticTitle}`);
     for (const change of ctx.changes) {
       const line = formatChangeLine(change, userMap);
       if (line) lines.push(line);
     }
-    lines.push("");
-    lines.push(`下一步：${buildActionHint(ctx.changes)}`);
-    lines.push(`由 **${ctx.actorName}** 推进。`);
+    lines.push(`操作人：${ctx.actorName}`);
   }
 
   return { msgTitle, msgBody: lines.join("\n") };
@@ -404,7 +384,7 @@ function buildMessage(
  * 给接收人一个明确、温和、可执行的下一步建议，
  * 避免通知只有“发生了什么”而没有“接下来做什么”。
  */
-function buildActionHint(changes: NotifiableChange[]): string {
+function _buildActionHint(changes: NotifiableChange[]): string {
   const hasCreated = changes.some((c) => c.type === "issue_created");
   const hasAssignment = changes.some((c) => c.type === "assignee_changed" || c.type === "reviewer_changed");
   const hasUrgent = changes.some((c) => c.type === "priority_urgent" || c.type === "due_date_advanced");
@@ -430,25 +410,27 @@ function buildActionHint(changes: NotifiableChange[]): string {
   }
   return "方便时补一条简短进展，让协作信息保持完整。";
 }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+void _buildActionHint;
 
 /**
- * 结果导向的语义标题（让接收人一眼看到结果词，而非 A→B 状态字段名）
+ * 结果导向的语义标题
  */
 function changeSemanticTitle(change: NotifiableChange): string {
   switch (change.type) {
-    case "issue_created":    return "新问题已分配给你";
+    case "issue_created":    return "新任务已创建";
     case "assignee_changed": return "负责人已更新";
     case "reviewer_changed": return "审核人已更新";
     case "status_changed":
-      if (change.to === "resolved")                            return "问题已解决，辛苦了";
-      if (change.to === "closed")                              return "问题已关闭";
-      if (change.to === "blocked")                             return "问题遇到阻塞，需要协助";
-      if (change.to === "pending_review")                      return "问题待你验证";
-      if (change.to === "in_progress" && change.from === "closed") return "问题重新打开了";
-      return "问题状态有更新";
+      if (change.to === "resolved")                            return "已解决，辛苦了 👏";
+      if (change.to === "closed")                              return "已关闭";
+      if (change.to === "blocked")                             return "遇到阻塞，需要协助";
+      if (change.to === "pending_review")                      return "待验证";
+      if (change.to === "in_progress" && change.from === "closed") return "重新打开了";
+      return "状态有更新";
     case "priority_urgent":   return "优先级提升为紧急";
     case "due_date_advanced": return "截止日期提前了";
-    default: return "问题有新动态";
+    default: return "有新动态";
   }
 }
 
@@ -487,4 +469,110 @@ function formatChangeLine(
     default:
       return "";
   }
+}
+
+// ─── 进度更新相关通知（原 issue-dingtalk-notify.ts 迁入）─────────────────────
+
+function formatIssueTitle(title: string): string {
+  return `「${title}」`;
+}
+
+async function getWecomUserid(userId: string): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("users").select("wecom_userid").eq("id", userId).maybeSingle();
+  const v = (data?.wecom_userid as string | null | undefined)?.trim();
+  return v || null;
+}
+
+async function getAdminUserIds(): Promise<string[]> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("users").select("id").eq("role", "admin");
+  return (data ?? []).map((u) => u.id as string);
+}
+
+async function workNoticeToUser(
+  userId: string,
+  title: string,
+  markdown: string,
+  issueId: string,
+  triggerSource: string = "issue_event.progress"
+) {
+  if (!isWecomAppConfigured()) return;
+  const wc = await getWecomUserid(userId);
+  if (!wc) return;
+  await sendNotification({
+    channel:           "wecom_app",
+    targetWecomUserid: wc,
+    targetUserId:      userId,
+    issueId,
+    triggerSource,
+    title,
+    content:           markdown,
+  });
+}
+
+/** 有人提交了进度更新：实时通知所有管理员（操作者本人除外） */
+export function notifyAdminsOnProgressUpdate(params: {
+  issueId: string;
+  issueTitle: string;
+  content: string;
+  statusFrom: IssueStatus;
+  statusTo: IssueStatus;
+  actorName: string;
+  actorUserId: string;
+}): void {
+  void (async () => {
+    if (!isWecomAppConfigured()) return;
+
+    const admins = await getAdminUserIds();
+    const recipients = admins.filter((id) => id !== params.actorUserId);
+    if (recipients.length === 0) return;
+
+    const ref = formatIssueTitle(params.issueTitle);
+    const statusChanged = params.statusFrom !== params.statusTo;
+
+    const lines = [
+      `${ref} 有新进展`,
+      `更新人：${params.actorName}`,
+    ];
+    if (statusChanged) {
+      lines.push(`状态：${STATUS_LABELS[params.statusFrom] ?? params.statusFrom} → ${STATUS_LABELS[params.statusTo] ?? params.statusTo}`);
+    }
+    const snippet = params.content.length > 120 ? params.content.slice(0, 120) + "…" : params.content;
+    lines.push(`> ${snippet}`);
+
+    const md = lines.join("\n");
+    const shortTitle = `进度更新 · ${params.issueTitle}`;
+
+    for (const uid of recipients) {
+      await workNoticeToUser(uid, shortTitle, md, params.issueId);
+    }
+  })().catch((e) => console.error("[event-notification] progress_update", e));
+}
+
+/** 进度记录里把状态改为阻塞：通知负责人 */
+export function notifyAssigneeOnBlocked(params: {
+  issueId: string;
+  title: string;
+  assigneeId: string | null;
+  actorName: string;
+}): void {
+  void (async () => {
+    if (!params.assigneeId) return;
+    if (!isWecomAppConfigured()) return;
+
+    const md = [
+      `「${params.title}」被标为阻塞`,
+      `操作人：${params.actorName}`,
+      `写下卡点和需要的支持，团队帮你一起推 💪`,
+    ].join("\n");
+
+    await workNoticeToUser(
+      params.assigneeId,
+      `阻塞 · ${params.title}`,
+      md,
+      params.issueId,
+      "issue_event.status"
+    );
+  })().catch((e) => console.error("[event-notification] issue_update blocked", e));
 }

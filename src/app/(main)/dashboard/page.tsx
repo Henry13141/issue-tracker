@@ -14,7 +14,7 @@ import { StatCard } from "@/components/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS } from "@/lib/constants";
+import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS, NOTIFICATION_TRIGGER_LABELS } from "@/lib/constants";
 import type { HighRiskIssue, TrendDay } from "@/lib/dashboard-queries";
 
 export const dynamic = "force-dynamic";
@@ -47,19 +47,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   low:    "text-gray-500",
 };
 
-const TRIGGER_LABELS: Record<string, string> = {
-  cron_morning:              "早间摘要",
-  cron_admin:                "推进跟踪",
-  cron_daily:                "待推进提醒",
-  issue_event:               "协作事件（旧）",
-  "issue_event.status":      "事件·状态变更",
-  "issue_event.priority":    "事件·优先级紧急",
-  "issue_event.due_date":    "事件·截止提前",
-  "issue_event.assignment":  "事件·负责人/评审",
-  "issue_event.handover":    "事件·任务交接",
-  "issue_event.created":     "事件·任务创建",
-  manual_test:               "手动测试",
-};
+const TRIGGER_LABELS = NOTIFICATION_TRIGGER_LABELS;
 
 // ─── 趋势迷你条 ────────────────────────────────────────────────────────────
 
