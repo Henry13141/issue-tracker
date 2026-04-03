@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createIssue } from "@/actions/issues";
+import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
 import type { IssueSummary, IssueWithRelations } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus } from "lucide-react";
+import { Paperclip, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 export function CreateSubtaskDialog({
@@ -30,10 +31,47 @@ export function CreateSubtaskDialog({
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
   function resetForm() {
     setTitle("");
     setDescription("");
+    setPendingFiles([]);
+  }
+
+  async function uploadSubtaskAttachments(issueId: string) {
+    if (pendingFiles.length === 0) return { success: 0, failed: 0 };
+    let success = 0;
+    let failed = 0;
+    for (const file of pendingFiles) {
+      try {
+        const contentType = file.type || "application/octet-stream";
+        const { signedUrl, storagePath } = await createSignedUploadUrl(
+          issueId,
+          file.name,
+          contentType,
+          file.size
+        );
+        const uploadRes = await fetch(signedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": contentType },
+          body: file,
+        });
+        if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})`);
+        await saveAttachmentMeta({
+          issueId,
+          issueUpdateId: null,
+          storagePath,
+          filename: file.name,
+          contentType,
+          sizeBytes: file.size,
+        });
+        success++;
+      } catch {
+        failed++;
+      }
+    }
+    return { success, failed };
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -69,7 +107,17 @@ export function CreateSubtaskDialog({
           : null,
       });
 
-      toast.success("子任务已拆分就位，后续执行会更清晰");
+      const uploaded = await uploadSubtaskAttachments(id);
+
+      if (uploaded.failed === 0) {
+        if (uploaded.success > 0) {
+          toast.success(`子任务已创建，并附上 ${uploaded.success} 个附件`);
+        } else {
+          toast.success("子任务已拆分就位，后续执行会更清晰");
+        }
+      } else {
+        toast.error(`子任务已创建，但有 ${uploaded.failed} 个附件上传失败`);
+      }
       setOpen(false);
       resetForm();
       router.refresh();
@@ -120,6 +168,50 @@ export function CreateSubtaskDialog({
                 placeholder="补充任务详情、备注或验收口径"
                 rows={3}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="subtask-files">附件（可选）</Label>
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="subtask-files"
+                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs text-muted-foreground hover:bg-muted"
+                >
+                  <Paperclip className="h-3.5 w-3.5" />
+                  选择附件
+                </label>
+                <input
+                  id="subtask-files"
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    if (!files.length) return;
+                    setPendingFiles((prev) => [...prev, ...files]);
+                    e.currentTarget.value = "";
+                  }}
+                />
+                {pendingFiles.length > 0 ? (
+                  <span className="text-xs text-muted-foreground">已选 {pendingFiles.length} 个</span>
+                ) : null}
+              </div>
+              {pendingFiles.length > 0 && (
+                <div className="max-h-28 space-y-1 overflow-y-auto rounded-md border p-2">
+                  {pendingFiles.map((f, i) => (
+                    <div key={`${f.name}-${f.size}-${i}`} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate">{f.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label="移除附件"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>

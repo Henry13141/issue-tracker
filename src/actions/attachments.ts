@@ -122,6 +122,67 @@ export async function deleteAttachment(attachmentId: string): Promise<void> {
   revalidatePath(`/issues/${row.issue_id}`);
 }
 
+/** 手动调整附件归属（主任务 / 子任务） */
+export async function reassignAttachmentIssue(params: {
+  attachmentId: string;
+  targetIssueId: string;
+  parentIssueId: string;
+}): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("未登录");
+
+  const supabase = await createClient();
+  const { data: attachment, error: attachmentErr } = await supabase
+    .from("issue_attachments")
+    .select("id, issue_id")
+    .eq("id", params.attachmentId)
+    .single();
+
+  if (attachmentErr || !attachment) throw new Error("附件不存在");
+
+  // 目标 issue 必须是 parentIssueId 本身或其子任务
+  const { data: targetIssue, error: targetErr } = await supabase
+    .from("issues")
+    .select("id, parent_issue_id")
+    .eq("id", params.targetIssueId)
+    .single();
+
+  if (targetErr || !targetIssue) throw new Error("目标任务不存在");
+  const targetBelongsToParent =
+    targetIssue.id === params.parentIssueId ||
+    targetIssue.parent_issue_id === params.parentIssueId;
+  if (!targetBelongsToParent) throw new Error("目标任务不属于当前父任务");
+
+  // 权限：管理员，或父任务创建者/负责人
+  const { data: parentIssue, error: parentErr } = await supabase
+    .from("issues")
+    .select("id, creator_id, assignee_id")
+    .eq("id", params.parentIssueId)
+    .single();
+  if (parentErr || !parentIssue) throw new Error("父任务不存在");
+
+  const isAdmin = user.role === "admin";
+  const canEdit =
+    isAdmin ||
+    user.id === (parentIssue.creator_id as string | null) ||
+    user.id === (parentIssue.assignee_id as string | null);
+  if (!canEdit) throw new Error("无权限修改附件归属");
+
+  if (attachment.issue_id === params.targetIssueId) return;
+
+  const { error: updateErr } = await supabase
+    .from("issue_attachments")
+    .update({ issue_id: params.targetIssueId })
+    .eq("id", params.attachmentId);
+
+  if (updateErr) throw new Error(updateErr.message);
+
+  revalidatePath(`/issues/${params.parentIssueId}`);
+  if (params.targetIssueId !== params.parentIssueId) {
+    revalidatePath(`/issues/${params.targetIssueId}`);
+  }
+}
+
 /** 批量为附件列表生成 signed URL */
 export async function enrichAttachmentsWithUrls(
   attachments: Omit<IssueAttachmentWithUrl, "url">[]

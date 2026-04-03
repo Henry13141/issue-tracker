@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { handoverIssue, updateIssue } from "@/actions/issues";
-import { deleteAttachment } from "@/actions/attachments";
+import { deleteAttachment, reassignAttachmentIssue } from "@/actions/attachments";
 import type {
   IssuePriority,
   IssueAttachmentWithUrl,
@@ -116,6 +116,16 @@ export function IssueDetailClient({
     () => (initial.children ?? []).some((subtask) => subtask.status !== "resolved" && subtask.status !== "closed"),
     [initial.children]
   );
+  const attachmentOwnershipOptions = useMemo(
+    () => [
+      { issueId: initial.id, label: "主任务" },
+      ...((initial.children ?? []).map((child, index) => ({
+        issueId: child.id,
+        label: `子任务${index + 1} · ${child.title}`,
+      }))),
+    ],
+    [initial.id, initial.children]
+  );
 
   // 允许切换的目标状态必须基于数据库里的当前状态（initial.status），
   // 而非用户正在选择的中间值——否则用户选了"已关闭"之后，
@@ -208,6 +218,36 @@ export function IssueDetailClient({
       setIssueAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "删除暂时没成功，可以稍后再试");
+    }
+  }
+
+  async function handleReassignAttachment(attachmentId: string, targetIssueId: string) {
+    try {
+      await reassignAttachmentIssue({
+        attachmentId,
+        targetIssueId,
+        parentIssueId: initial.id,
+      });
+
+      const childMetaMap = new Map(
+        (initial.children ?? []).map((child, index) => [child.id, { idx: index + 1, title: child.title }])
+      );
+      setIssueAttachments((prev) =>
+        prev.map((a) => {
+          if (a.id !== attachmentId) return a;
+          const childMeta = childMetaMap.get(targetIssueId);
+          return {
+            ...a,
+            issue_id: targetIssueId,
+            source_subtask_index: childMeta?.idx ?? null,
+            source_subtask_title: childMeta?.title ?? null,
+          };
+        })
+      );
+      toast.success("附件归属已更新");
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "归属修改失败");
     }
   }
 
@@ -621,6 +661,7 @@ export function IssueDetailClient({
                   {handoverAttachments.length > 0 && (
                     <AttachmentList
                       attachments={handoverAttachments}
+                      variant="list"
                       canDelete
                       onDelete={(id) => {
                         setHandoverAttachments((prev) => prev.filter((a) => a.id !== id));
@@ -677,7 +718,10 @@ export function IssueDetailClient({
               ) : (
                 <AttachmentList
                   attachments={issueAttachments}
+                  variant="list"
                   canDelete={currentUser.role === "admin" || currentUser.id === initial.creator_id}
+                  ownershipOptions={attachmentOwnershipOptions}
+                  onReassign={handleReassignAttachment}
                   onDelete={(id) => handleDeleteAttachment(id)}
                 />
               )}
