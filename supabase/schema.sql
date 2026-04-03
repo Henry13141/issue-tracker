@@ -30,6 +30,7 @@ CREATE TABLE public.issues (
     CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
   assignee_id UUID REFERENCES public.users (id) ON DELETE SET NULL,
   creator_id UUID NOT NULL REFERENCES public.users (id) ON DELETE RESTRICT,
+  parent_issue_id UUID REFERENCES public.issues (id) ON DELETE SET NULL,
   due_date DATE,
   resolved_at TIMESTAMPTZ,
   closed_at TIMESTAMPTZ,
@@ -64,6 +65,7 @@ CREATE INDEX idx_issues_assignee ON public.issues (assignee_id);
 CREATE INDEX idx_issues_status ON public.issues (status);
 CREATE INDEX idx_issues_creator ON public.issues (creator_id);
 CREATE INDEX idx_issues_due_date ON public.issues (due_date);
+CREATE INDEX idx_issues_parent_issue ON public.issues (parent_issue_id);
 CREATE INDEX idx_issue_updates_issue ON public.issue_updates (issue_id);
 CREATE INDEX idx_issue_updates_created ON public.issue_updates (created_at DESC);
 CREATE INDEX idx_reminders_user ON public.reminders (user_id, is_read);

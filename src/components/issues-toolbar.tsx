@@ -15,6 +15,22 @@ import {
 import { ISSUE_CATEGORIES, ISSUE_MODULES, ISSUE_PRIORITY_LABELS, ISSUE_STATUS_LABELS } from "@/lib/constants";
 
 const ALL = "__all__";
+const SOURCE_LABELS: Record<string, string> = {
+  manual: "手动创建",
+  import: "批量导入",
+};
+const RISK_LABELS: Record<string, string> = {
+  overdue: "逾期",
+  blocked: "阻塞",
+  stale: "3天未更新",
+  urgent: "紧急",
+};
+const SORT_BY_LABELS: Record<string, string> = {
+  due_date: "截止日期",
+  last_activity_at: "最后活动",
+  priority: "优先级",
+  created_at: "创建时间",
+};
 
 function buildQuery(base: URLSearchParams, patch: Record<string, string | null>) {
   const next = new URLSearchParams(base.toString());
@@ -64,6 +80,16 @@ export function IssuesToolbar({
   const sortDir  = searchParams.get("sortDir")  ?? "desc";
   const q        = searchParams.get("q")        ?? "";
   const quickPendingReview = status === "pending_review";
+  const assigneeLabel = assignee === ALL
+    ? "全部成员"
+    : members.find((m) => m.id === assignee)?.name ?? "全部成员";
+  const reviewerLabel = reviewer === ALL
+    ? "全部"
+    : members.find((m) => m.id === reviewer)?.name ?? "全部";
+  const riskLabel = risk === ALL ? "全部" : (RISK_LABELS[risk] ?? "全部");
+  const sourceLabel = source === ALL ? "全部" : (SOURCE_LABELS[source] ?? "全部");
+  const sortByLabel = sortBy === ALL ? "默认（更新时间）" : (SORT_BY_LABELS[sortBy] ?? "默认（更新时间）");
+  const sortDirLabel = sortDir === "asc" ? "升序" : "降序";
 
   return (
     <div className="mb-6 space-y-3">
@@ -85,7 +111,11 @@ export function IssuesToolbar({
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">状态</p>
           <Select value={status} onValueChange={(v) => push({ status: (v ?? ALL) === ALL ? null : (v ?? null) })} disabled={pending}>
-            <SelectTrigger className="w-[150px]"><SelectValue placeholder="全部状态" /></SelectTrigger>
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="全部状态">
+                {status === ALL ? "全部状态" : ISSUE_STATUS_LABELS[status as IssueStatus]}
+              </SelectValue>
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>全部状态</SelectItem>
               {(Object.keys(ISSUE_STATUS_LABELS) as IssueStatus[]).map((s) => (
@@ -98,7 +128,11 @@ export function IssuesToolbar({
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">优先级</p>
           <Select value={priority} onValueChange={(v) => push({ priority: (v ?? ALL) === ALL ? null : (v ?? null) })} disabled={pending}>
-            <SelectTrigger className="w-[130px]"><SelectValue placeholder="全部优先级" /></SelectTrigger>
+            <SelectTrigger className="w-[130px]">
+              <SelectValue placeholder="全部优先级">
+                {priority === ALL ? "全部优先级" : ISSUE_PRIORITY_LABELS[priority as IssuePriority]}
+              </SelectValue>
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>全部优先级</SelectItem>
               {(Object.keys(ISSUE_PRIORITY_LABELS) as IssuePriority[]).map((p) => (
@@ -111,7 +145,9 @@ export function IssuesToolbar({
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">负责人</p>
           <Select value={assignee} onValueChange={(v) => push({ assignee: (v ?? ALL) === ALL ? null : (v ?? null) })} disabled={pending}>
-            <SelectTrigger className="w-[160px]"><SelectValue placeholder="全部成员" /></SelectTrigger>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="全部成员">{assigneeLabel}</SelectValue>
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>全部成员</SelectItem>
               {members.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
@@ -144,7 +180,9 @@ export function IssuesToolbar({
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">验收人</p>
             <Select value={reviewer} onValueChange={(v) => push({ reviewer: (v ?? ALL) === ALL ? null : (v ?? null) })} disabled={pending}>
-              <SelectTrigger className="w-[160px]"><SelectValue placeholder="全部" /></SelectTrigger>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="全部">{reviewerLabel}</SelectValue>
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>全部</SelectItem>
                 {members.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
@@ -155,7 +193,9 @@ export function IssuesToolbar({
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">风险标签</p>
             <Select value={risk} onValueChange={(v) => push({ risk: (v ?? ALL) === ALL ? null : (v ?? null) })} disabled={pending}>
-              <SelectTrigger className="w-[140px]"><SelectValue placeholder="全部" /></SelectTrigger>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="全部">{riskLabel}</SelectValue>
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>全部</SelectItem>
                 <SelectItem value="overdue">逾期</SelectItem>
@@ -169,7 +209,9 @@ export function IssuesToolbar({
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">来源</p>
             <Select value={source} onValueChange={(v) => push({ source: (v ?? ALL) === ALL ? null : (v ?? null) })} disabled={pending}>
-              <SelectTrigger className="w-[120px]"><SelectValue placeholder="全部" /></SelectTrigger>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="全部">{sourceLabel}</SelectValue>
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>全部</SelectItem>
                 <SelectItem value="manual">手动创建</SelectItem>
@@ -185,7 +227,9 @@ export function IssuesToolbar({
               onValueChange={(v) => push({ category: (v ?? ALL) === ALL ? null : (v ?? null), page: null })}
               disabled={pending}
             >
-              <SelectTrigger className="w-[140px]"><SelectValue placeholder="全部" /></SelectTrigger>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="全部">{category === ALL ? "全部" : category}</SelectValue>
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>全部</SelectItem>
                 {ISSUE_CATEGORIES.map((c) => (
@@ -204,7 +248,9 @@ export function IssuesToolbar({
               onValueChange={(v) => push({ module: (v ?? ALL) === ALL ? null : (v ?? null), page: null })}
               disabled={pending}
             >
-              <SelectTrigger className="w-[160px]"><SelectValue placeholder="全部" /></SelectTrigger>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="全部">{moduleFilter === ALL ? "全部" : moduleFilter}</SelectValue>
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>全部</SelectItem>
                 {ISSUE_MODULES.map((m) => (
@@ -220,7 +266,9 @@ export function IssuesToolbar({
             <p className="text-xs text-muted-foreground">排序</p>
             <div className="flex gap-1">
               <Select value={sortBy} onValueChange={(v) => push({ sortBy: (v ?? ALL) === ALL ? null : (v ?? null) })} disabled={pending}>
-                <SelectTrigger className="w-[150px]"><SelectValue placeholder="默认排序" /></SelectTrigger>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="默认排序">{sortByLabel}</SelectValue>
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL}>默认（更新时间）</SelectItem>
                   <SelectItem value="due_date">截止日期</SelectItem>
@@ -230,7 +278,9 @@ export function IssuesToolbar({
                 </SelectContent>
               </Select>
               <Select value={sortDir} onValueChange={(v) => push({ sortDir: v ?? "desc" })} disabled={pending}>
-                <SelectTrigger className="w-[80px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-[80px]">
+                  <SelectValue>{sortDirLabel}</SelectValue>
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="desc">降序</SelectItem>
                   <SelectItem value="asc">升序</SelectItem>
