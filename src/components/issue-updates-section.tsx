@@ -6,7 +6,7 @@ export async function IssueUpdatesSection({
   issue,
   currentUser,
 }: {
-  issue: Pick<IssueWithRelations, "id" | "status" | "assignee_id" | "reviewer_id" | "creator_id">;
+  issue: Pick<IssueWithRelations, "id" | "status" | "assignee_id" | "reviewer_id" | "creator_id" | "children">;
   currentUser: User;
 }) {
   const updates = await getIssueUpdatesAndComments(issue.id);

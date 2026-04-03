@@ -39,7 +39,7 @@ export function IssueUpdatesClient({
   updates: initialUpdates,
   currentUser,
 }: {
-  issue: Pick<IssueWithRelations, "id" | "status" | "assignee_id" | "reviewer_id" | "creator_id">;
+  issue: Pick<IssueWithRelations, "id" | "status" | "assignee_id" | "reviewer_id" | "creator_id" | "children">;
   updates: IssueUpdateWithUser[];
   currentUser: User;
 }) {
@@ -58,18 +58,24 @@ export function IssueUpdatesClient({
   const isAdmin    = currentUser.role === "admin";
   const isAssignee = currentUser.id === issue.assignee_id;
   const isReviewer = currentUser.id === issue.reviewer_id;
+  const hasIncompleteSubtasks = useMemo(
+    () => (issue.children ?? []).some((child) => child.status !== "resolved" && child.status !== "closed"),
+    [issue.children]
+  );
   const allowedUpdateStatuses = useMemo(
     () =>
-      getAllowedNextStatuses(issue.status).filter((next) =>
-        canActorTransition({
-          from: issue.status,
-          to: next,
-          isAdmin,
-          isAssignee,
-          isReviewer,
-        })
-      ),
-    [issue.status, isAdmin, isAssignee, isReviewer]
+      getAllowedNextStatuses(issue.status)
+        .filter((next) => !(next === "pending_review" && hasIncompleteSubtasks))
+        .filter((next) =>
+          canActorTransition({
+            from: issue.status,
+            to: next,
+            isAdmin,
+            isAssignee,
+            isReviewer,
+          })
+        ),
+    [issue.status, hasIncompleteSubtasks, isAdmin, isAssignee, isReviewer]
   );
 
   async function submitUpdate() {
@@ -83,6 +89,10 @@ export function IssueUpdatesClient({
     }
     if (updateStatus === "closed" && !updateClosedReason.trim()) {
       toast.error("关闭问题时必须填写关闭原因");
+      return;
+    }
+    if (updateStatus === "pending_review" && hasIncompleteSubtasks) {
+      toast.error("所有子任务完成后，才可以提交待验证");
       return;
     }
     setSavingUpdate(true);
@@ -129,12 +139,12 @@ export function IssueUpdatesClient({
         <CardTitle>进度时间线</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4">
-        <div className="max-h-[420px] space-y-4 overflow-y-auto pr-1">
+        <div className="space-y-4">
           {initialUpdates.length === 0 ? (
             <p className="text-sm text-muted-foreground">暂无进度记录</p>
           ) : (
             initialUpdates.map((u) => (
-              <div key={u.id} className="rounded-lg border bg-muted/20 p-3 space-y-2">
+              <div key={u.id} className="rounded-lg border bg-muted/20 p-4 space-y-3">
                 <div className="flex gap-3">
                   <Avatar className="h-9 w-9 shrink-0">
                     <AvatarFallback>{u.user?.name?.slice(0, 2) ?? "?"}</AvatarFallback>
@@ -159,7 +169,7 @@ export function IssueUpdatesClient({
                   </div>
                 </div>
                 {(updateAttachments[u.id] ?? []).length > 0 && (
-                  <div className="ml-12 mt-1">
+                  <div className="space-y-2 sm:ml-12">
                     <AttachmentList
                       attachments={updateAttachments[u.id] ?? []}
                       canDelete={currentUser.role === "admin" || currentUser.id === u.user?.id}
@@ -212,6 +222,11 @@ export function IssueUpdatesClient({
                 {issue.status === "pending_review"
                   ? "当前处于待验证，仅审核人或管理员可变更状态"
                   : "仅负责人或管理员可变更状态"}
+              </span>
+            )}
+            {allowedUpdateStatuses.length > 0 && hasIncompleteSubtasks && (
+              <span className="text-xs text-muted-foreground">
+                子任务未全部完成，暂不可提交待验证
               </span>
             )}
           </div>
@@ -295,11 +310,11 @@ function UpdateCommentsSection({
   }
 
   return (
-    <div className="ml-12 space-y-2">
+    <div className="space-y-2 border-t border-border/60 pt-3">
       {comments.length > 0 && (
         <div className="space-y-1.5">
           {comments.map((c) => (
-            <div key={c.id} className="flex items-start gap-2 rounded-md bg-background/60 px-2.5 py-1.5">
+            <div key={c.id} className="flex items-start gap-2 rounded-md bg-background/60 px-3 py-2">
               <Avatar className="h-6 w-6 shrink-0">
                 <AvatarFallback className="text-[10px]">{c.user?.name?.slice(0, 2) ?? "?"}</AvatarFallback>
               </Avatar>

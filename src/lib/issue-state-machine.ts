@@ -19,6 +19,7 @@ export type TransitionErrorCode =
   | "CLOSED_REASON_REQUIRED"
   | "UPDATE_REQUIRED"
   | "REVIEWER_REQUIRED"
+  | "SUBTASKS_INCOMPLETE"
   | "FORBIDDEN_TRANSITION_ACTOR";
 
 export interface TransitionError {
@@ -45,6 +46,8 @@ export function validateTransition(
     reviewerId?: string | null;
     /** 当前 issue 是否已存在至少一条非系统生成的进度更新 */
     hasNonSystemUpdate?: boolean;
+    /** 当前 issue 是否仍有未完成子任务 */
+    hasIncompleteSubtasks?: boolean;
   }
 ): TransitionError | null {
   if (from === to) return null;
@@ -74,6 +77,13 @@ export function validateTransition(
     return {
       code: "REVIEWER_REQUIRED",
       message: "提交审核前必须先指定审核人",
+    };
+  }
+
+  if (to === "pending_review" && opts.hasIncompleteSubtasks) {
+    return {
+      code: "SUBTASKS_INCOMPLETE",
+      message: "所有子任务完成后，才可以提交待验证",
     };
   }
 

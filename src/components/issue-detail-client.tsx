@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { updateIssue, handoverIssue } from "@/actions/issues";
+import { handoverIssue, updateIssue } from "@/actions/issues";
 import { deleteAttachment } from "@/actions/attachments";
 import type {
   IssuePriority,
@@ -13,6 +14,7 @@ import type {
 } from "@/types";
 import { canActorTransition, getAllowedNextStatuses } from "@/lib/issue-state-machine";
 import { AttachmentUploadButton, AttachmentList } from "@/components/attachment-upload";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/lib/button-variants";
 import { Input } from "@/components/ui/input";
@@ -32,7 +34,7 @@ import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS, ISSUE_CATEGORIES, ISSUE_MOD
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { CalendarIcon, ArrowRightLeft, Loader2, Sparkles } from "lucide-react";
+import { ArrowRightLeft, CalendarIcon, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { generateDescriptionDraft, generateHandoverDraft, suggestPriority } from "@/actions/ai";
 
@@ -93,6 +95,15 @@ export function IssueDetailClient({
   const [aiDescDrafting,      setAiDescDrafting]      = useState(false);
   const [aiPrioritySuggesting, setAiPrioritySuggesting] = useState(false);
 
+  const assigneeName = useMemo(
+    () => members.find((m) => m.id === assigneeId)?.name ?? null,
+    [members, assigneeId]
+  );
+  const reviewerName = useMemo(
+    () => members.find((m) => m.id === reviewerId)?.name ?? null,
+    [members, reviewerId]
+  );
+
   const dueStr = useMemo(() => {
     if (!dueDate) return null;
     const y = dueDate.getFullYear();
@@ -101,27 +112,38 @@ export function IssueDetailClient({
     return `${y}-${m}-${d}`;
   }, [dueDate]);
 
+  const hasIncompleteSubtasks = useMemo(
+    () => (initial.children ?? []).some((subtask) => subtask.status !== "resolved" && subtask.status !== "closed"),
+    [initial.children]
+  );
+
   // 允许切换的目标状态必须基于数据库里的当前状态（initial.status），
   // 而非用户正在选择的中间值——否则用户选了"已关闭"之后，
   // allowedNextStatuses 会立即换成从 closed 出发的转移，导致 "已关闭" 选项
   // 从列表里消失、Select 触发器显示空白，用户误以为选择失效而重新选别的状态。
   const allowedNextStatuses = useMemo(
     () =>
-      getAllowedNextStatuses(initial.status).filter((next) =>
-        canActorTransition({
-          from: initial.status,
-          to: next,
-          isAdmin,
-          isAssignee,
-          isReviewer,
-        })
-      ),
-    [initial.status, isAdmin, isAssignee, isReviewer]
+      getAllowedNextStatuses(initial.status)
+        .filter((next) => !(next === "pending_review" && hasIncompleteSubtasks))
+        .filter((next) =>
+          canActorTransition({
+            from: initial.status,
+            to: next,
+            isAdmin,
+            isAssignee,
+            isReviewer,
+          })
+        ),
+    [initial.status, hasIncompleteSubtasks, isAdmin, isAssignee, isReviewer]
   );
 
   // ─── 保存元数据 ───────────────────────────────────────────────────────
   async function saveMeta() {
     if (!canEditFields) return;
+    if (status === "pending_review" && hasIncompleteSubtasks) {
+      toast.error("所有子任务完成后，才可以提交待验证");
+      return;
+    }
     setSavingMeta(true);
     try {
       const result = await updateIssue(initial.id, {
@@ -276,6 +298,11 @@ export function IssueDetailClient({
                   当前处于待验证，需由审核人或管理员在进度区提交审核结果。
                 </p>
               )}
+              {initial.status !== "pending_review" && hasIncompleteSubtasks && (
+                <p className="text-xs text-muted-foreground">
+                  需先完成全部子任务，才可提交待验证。
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
@@ -366,7 +393,9 @@ export function IssueDetailClient({
                 disabled={!canEditFields}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="未分配">
+                    {assigneeId && assigneeId !== "__none__" ? assigneeName ?? "未分配" : "未分配"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">未分配</SelectItem>
@@ -384,7 +413,9 @@ export function IssueDetailClient({
                 disabled={!canEditFields}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="未指定">
+                    {reviewerId && reviewerId !== "__none__" ? reviewerName ?? "未指定" : "未指定"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">未指定</SelectItem>
@@ -625,28 +656,49 @@ export function IssueDetailClient({
               </div>
             </>
           )}
-        </CardContent>
-      </Card>
 
-      {/* ── 附件 ── */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-base">附件</CardTitle>
-          <AttachmentUploadButton
-            issueId={initial.id}
-            onUploaded={(a) => setIssueAttachments((prev) => [...prev, a])}
-          />
-        </CardHeader>
-        <CardContent>
-          {issueAttachments.length === 0 ? (
-            <p className="text-sm text-muted-foreground">暂无附件，点击右上角添加</p>
-          ) : (
-            <AttachmentList
-              attachments={issueAttachments}
-              canDelete={currentUser.role === "admin" || currentUser.id === initial.creator_id}
-              onDelete={(id) => handleDeleteAttachment(id)}
-            />
+          <Separator />
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label className="text-base font-semibold">附件</Label>
+              <AttachmentUploadButton
+                issueId={initial.id}
+                onUploaded={(a) => setIssueAttachments((prev) => [...prev, a])}
+              />
+            </div>
+            <div className="rounded-lg border bg-muted/20 p-3">
+              {issueAttachments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">暂无附件，点击右上角添加</p>
+              ) : (
+                <AttachmentList
+                  attachments={issueAttachments}
+                  canDelete={currentUser.role === "admin" || currentUser.id === initial.creator_id}
+                  onDelete={(id) => handleDeleteAttachment(id)}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* ── 父问题引用 ── */}
+          {initial.parent && (
+            <>
+              <Separator />
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">所属父问题</Label>
+                <Link
+                  href={`/issues/${initial.parent.id}`}
+                  className="flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm hover:bg-muted/40 transition-colors"
+                >
+                  <StatusBadge status={initial.parent.status} />
+                  <span className="truncate font-medium text-primary hover:underline">
+                    {initial.parent.title}
+                  </span>
+                </Link>
+              </div>
+            </>
           )}
+
         </CardContent>
       </Card>
     </>

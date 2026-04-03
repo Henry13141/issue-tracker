@@ -12,6 +12,7 @@ import type {
   IssueAttachment,
   IssueAttachmentWithUrl,
   IssueEventWithActor,
+  IssueSummary,
   IssueStatus,
   IssueUpdateWithUser,
   IssueWithRelations,
@@ -80,6 +81,7 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
   let query = supabase
     .from("issues")
     .select(issueSelect, { count: "exact" })
+    .is("parent_issue_id", null)
     .order(dbSortBy, { ascending, nullsFirst: false });
 
   if (tab === "mine" && filters.assigneeId) {
@@ -198,6 +200,39 @@ export async function getIssueBasic(id: string): Promise<IssueWithRelations | nu
   const { data: issue, error } = issueRes;
   if (error || !issue) return null;
 
+  const issueRow = issue as IssueWithRelations;
+
+  // Fetch parent issue summary (if this is a subtask)
+  let parent: IssueWithRelations["parent"] = null;
+  if (issueRow.parent_issue_id) {
+    const { data: parentRow } = await supabase
+      .from("issues")
+      .select("id, title, status, priority")
+      .eq("id", issueRow.parent_issue_id)
+      .single();
+    if (parentRow) {
+      parent = parentRow as IssueWithRelations["parent"];
+    }
+  }
+
+  // Fetch children (subtasks)
+  const { data: childRows } = await supabase
+    .from("issues")
+    .select("id, title, description, status, priority, assignee_id, due_date, assignee:users!issues_assignee_id_fkey(id, name)")
+    .eq("parent_issue_id", id)
+    .order("created_at", { ascending: true });
+
+  const children: IssueSummary[] = (childRows ?? []).map((row) => ({
+    id: row.id as string,
+    title: row.title as string,
+    description: row.description as string | null,
+    status: row.status as IssueSummary["status"],
+    priority: row.priority as IssueSummary["priority"],
+    assignee_id: row.assignee_id as string | null,
+    due_date: row.due_date as string | null,
+    assignee: Array.isArray(row.assignee) ? (row.assignee[0] as Pick<import("@/types").User, "id" | "name"> | undefined) ?? null : (row.assignee as Pick<import("@/types").User, "id" | "name"> | null),
+  }));
+
   const attachmentRows = ((attachmentsRes.data ?? []) as IssueAttachment[]);
   let attachmentsWithUrls: IssueAttachmentWithUrl[] = attachmentRows;
 
@@ -217,9 +252,11 @@ export async function getIssueBasic(id: string): Promise<IssueWithRelations | nu
   }
 
   return {
-    ...(issue as IssueWithRelations),
+    ...issueRow,
     issue_updates: [],
     attachments: attachmentsWithUrls,
+    parent,
+    children,
   };
 }
 
@@ -414,11 +451,23 @@ export async function createIssue(input: {
   category?: string | null;
   module?: string | null;
   source?: string;
+  parent_issue_id?: string | null;
 }) {
   const user = await getCurrentUser();
   if (!user) throw new Error("未登录");
 
   const supabase = await createClient();
+  let inheritedAssigneeId = input.assignee_id ?? null;
+
+  if (input.parent_issue_id && input.assignee_id === undefined) {
+    const { data: parentIssue } = await supabase
+      .from("issues")
+      .select("assignee_id")
+      .eq("id", input.parent_issue_id)
+      .single();
+    inheritedAssigneeId = (parentIssue?.assignee_id as string | null) ?? null;
+  }
+
   // NOTE: category, module, source, reviewer_id require p0_governance.sql migration.
   // Build insert object conditionally to avoid schema cache errors on un-migrated DBs.
   const normalizedCategory = input.category?.trim() ? input.category.trim() : null;
@@ -431,13 +480,14 @@ export async function createIssue(input: {
   }
 
   const insertData: Record<string, unknown> = {
-    title:       input.title,
-    description: input.description ?? null,
-    priority:    input.priority,
-    assignee_id: input.assignee_id ?? null,
-    due_date:    input.due_date || null,
-    status:      input.status ?? "todo",
-    creator_id:  user.id,
+    title:           input.title,
+    description:     input.description ?? null,
+    priority:        input.priority,
+    assignee_id:     inheritedAssigneeId,
+    due_date:        input.due_date || null,
+    status:          input.status ?? "todo",
+    creator_id:      user.id,
+    parent_issue_id: input.parent_issue_id ?? null,
   };
 
   // Probe for governance columns by checking schema cache via a dry-run select
@@ -472,10 +522,11 @@ export async function createIssue(input: {
     actorId:   user.id,
     eventType: "issue_created",
     payload:   {
-      title:       input.title,
-      priority:    input.priority,
-      assignee_id: input.assignee_id ?? null,
-      status:      input.status ?? "todo",
+      title:           input.title,
+      priority:        input.priority,
+      assignee_id:     inheritedAssigneeId,
+      status:          input.status ?? "todo",
+      parent_issue_id: input.parent_issue_id ?? null,
     },
   });
 
@@ -484,7 +535,7 @@ export async function createIssue(input: {
     issueTitle: input.title,
     actorId:    user.id,
     actorName:  user.name,
-    assigneeId: input.assignee_id ?? null,
+    assigneeId: inheritedAssigneeId,
     reviewerId: (insertData.reviewer_id as string | null | undefined) ?? null,
     creatorId:  user.id,
     changes:    [{ type: "issue_created" }],
@@ -493,6 +544,9 @@ export async function createIssue(input: {
   revalidatePath("/issues");
   revalidatePath("/dashboard");
   revalidatePath("/my-tasks");
+  if (input.parent_issue_id) {
+    revalidatePath(`/issues/${input.parent_issue_id}`);
+  }
   return newId;
 }
 
@@ -531,6 +585,9 @@ export async function updateIssue(
   // ---------- 状态机校验（服务端权威） ----------
   if (newStatus && newStatus !== prevStatus) {
     const hasNonSystemUpdate = await checkHasNonSystemUpdate(supabase, id);
+    const hasIncompleteSubtasks = newStatus === "pending_review"
+      ? (await getIncompleteSubtaskCount(supabase, id)) > 0
+      : false;
 
     const transErr = validateTransition(prevStatus, newStatus, {
       blockedReason:       patch.blocked_reason ?? (beforeRow.blocked_reason as string | null),
@@ -539,6 +596,7 @@ export async function updateIssue(
         ? patch.reviewer_id
         : (beforeRow.reviewer_id as string | null),
       hasNonSystemUpdate,
+      hasIncompleteSubtasks,
     });
     if (transErr) return { error: transErr.message };
 
@@ -600,6 +658,10 @@ export async function updateIssue(
     .eq("id", id);
 
   if (error) return { error: error.message };
+
+  if (patch.assignee_id !== undefined) {
+    await syncChildAssignees(supabase, id, patch.assignee_id);
+  }
 
   // ---------- 写事件日志 ----------
   if (user && beforeRow) {
@@ -762,6 +824,9 @@ export async function addIssueUpdate(
   // ---------- 状态机校验 ----------
   if (statusTo && statusTo !== prev) {
     const hasNonSystemUpdate = await checkHasNonSystemUpdate(supabase, issueId);
+    const hasIncompleteSubtasks = statusTo === "pending_review"
+      ? (await getIncompleteSubtaskCount(supabase, issueId)) > 0
+      : false;
 
     const transErr = validateTransition(prev, statusTo, {
       blockedReason:       opts?.blockedReason ?? (issue.blocked_reason as string | null),
@@ -769,6 +834,7 @@ export async function addIssueUpdate(
       reviewerId:          issue.reviewer_id as string | null,
       // 提交进度时 content 本身就是更新，视为满足 hasNonSystemUpdate
       hasNonSystemUpdate:  hasNonSystemUpdate || content.trim().length > 0,
+      hasIncompleteSubtasks,
     });
     if (transErr) throw new Error(transErr.message);
 
@@ -1108,6 +1174,8 @@ export async function handoverIssue(params: {
 
   if (updateErr) return { error: updateErr.message };
 
+  await syncChildAssignees(supabase, params.issueId, params.toUserId);
+
   // 2. 写事件日志
   await writeIssueEvent(supabase, {
     issueId:   params.issueId,
@@ -1158,6 +1226,67 @@ export async function handoverIssue(params: {
   return {};
 }
 
+export async function toggleSubtaskCompletion(subtaskId: string, completed: boolean) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("未登录");
+
+  const supabase = await createClient();
+  const { data: subtask, error } = await supabase
+    .from("issues")
+    .select("id, title, status, parent_issue_id, assignee_id, reviewer_id, creator_id")
+    .eq("id", subtaskId)
+    .single();
+
+  if (error || !subtask) throw new Error("子任务不存在");
+  if (!subtask.parent_issue_id) throw new Error("当前问题不是子任务");
+
+  const { data: parentIssue } = await supabase
+    .from("issues")
+    .select("id, assignee_id")
+    .eq("id", subtask.parent_issue_id)
+    .single();
+
+  const isAdmin = user.role === "admin";
+  const isParentAssignee = (parentIssue?.assignee_id as string | null) === user.id;
+  if (!isAdmin && !isParentAssignee) {
+    throw new Error("仅父任务负责人或管理员可勾选子任务");
+  }
+
+  const nextStatus: IssueStatus = completed ? "resolved" : "todo";
+  const patch: Record<string, unknown> = {
+    status: nextStatus,
+    last_activity_at: new Date().toISOString(),
+    resolved_at: completed ? new Date().toISOString() : null,
+    closed_at: null,
+    blocked_reason: null,
+    closed_reason: null,
+  };
+
+  const { error: updateErr } = await supabase
+    .from("issues")
+    .update(patch)
+    .eq("id", subtaskId);
+
+  if (updateErr) throw new Error(updateErr.message);
+
+  await writeIssueEvent(supabase, {
+    issueId: subtaskId,
+    actorId: user.id,
+    eventType: "status_changed",
+    payload: {
+      from: subtask.status,
+      to: nextStatus,
+      via: "subtask_checkbox",
+    },
+  });
+
+  revalidatePath(`/issues/${subtaskId}`);
+  revalidatePath(`/issues/${subtask.parent_issue_id}`);
+  revalidatePath("/issues");
+  revalidatePath("/dashboard");
+  revalidatePath("/my-tasks");
+}
+
 // ---------------------------------------------------------------------------
 // 内部工具函数
 // ---------------------------------------------------------------------------
@@ -1173,6 +1302,34 @@ async function checkHasNonSystemUpdate(
     .eq("issue_id", issueId)
     .eq("is_system_generated", false);
   return (count ?? 0) > 0;
+}
+
+async function getIncompleteSubtaskCount(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  issueId: string
+): Promise<number> {
+  const { count } = await supabase
+    .from("issues")
+    .select("id", { count: "exact", head: true })
+    .eq("parent_issue_id", issueId)
+    .not("status", "in", '("resolved","closed")');
+
+  return count ?? 0;
+}
+
+async function syncChildAssignees(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  parentIssueId: string,
+  assigneeId: string | null
+) {
+  const { error } = await supabase
+    .from("issues")
+    .update({ assignee_id: assigneeId })
+    .eq("parent_issue_id", parentIssueId);
+
+  if (error) {
+    console.error("[syncChildAssignees] error:", error.message);
+  }
 }
 
 function validateStatusActorPermission(opts: {

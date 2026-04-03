@@ -262,6 +262,11 @@ export function IssuesTable({
                 <TableCell>
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {issue.parent_issue_id && (
+                        <span className="rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-900/70 dark:bg-indigo-950/50 dark:text-indigo-200">
+                          子任务
+                        </span>
+                      )}
                       {riskTags.map((tag) => (
                         <span
                           key={`${issue.id}-${tag}`}

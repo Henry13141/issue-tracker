@@ -5,6 +5,7 @@ import { getIssueBasic } from "@/actions/issues";
 import { getMembers } from "@/actions/members";
 import { getCurrentUser } from "@/lib/auth";
 import { IssueDetailClient } from "@/components/issue-detail-client";
+import { IssueSubtasksClient } from "@/components/issue-subtasks-client";
 import { IssueUpdatesSection } from "@/components/issue-updates-section";
 import { IssueEventsSection } from "@/components/issue-events-section";
 import { SkeletonLine } from "@/components/skeleton-page";
@@ -33,20 +34,34 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
           ← 返回列表
         </Link>
       </div>
+      {issue.parent && (
+        <p className="mb-2 text-sm text-muted-foreground">
+          父问题：
+          <Link href={`/issues/${issue.parent.id}`} className="text-primary hover:underline">
+            {issue.parent.title}
+          </Link>
+        </p>
+      )}
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">{issue.title}</h1>
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* 基础信息 + 附件：首屏即出，不等进度/事件 */}
+      <div className="space-y-6">
+        {!issue.parent_issue_id && (
+          <IssueSubtasksClient parentIssue={issue} currentUser={user} />
+        )}
+
+        {/* 基础信息：首屏即出，不等进度/事件 */}
         <IssueDetailClient issue={issue} members={members} currentUser={user} />
 
-        {/* 进度时间线：流式加载 */}
-        <Suspense fallback={<TimelineSkeleton />}>
-          <IssueUpdatesSection issue={issue} currentUser={user} />
-        </Suspense>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
+          {/* 进度时间线：主阅读区，优先给更宽空间 */}
+          <Suspense fallback={<TimelineSkeleton />}>
+            <IssueUpdatesSection issue={issue} currentUser={user} />
+          </Suspense>
 
-        {/* 事件审计轨迹：流式加载 */}
-        <Suspense fallback={<EventsSkeleton />}>
-          <IssueEventsSection issueId={id} />
-        </Suspense>
+          {/* 事件审计轨迹：放在侧边作为辅助信息 */}
+          <Suspense fallback={<EventsSkeleton />}>
+            <IssueEventsSection issueId={id} />
+          </Suspense>
+        </div>
       </div>
     </div>
   );

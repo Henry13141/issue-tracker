@@ -55,6 +55,7 @@ export interface Issue {
   assignee_id: string | null;
   reviewer_id: string | null;
   creator_id: string;
+  parent_issue_id: string | null;
   due_date: string | null;
   resolved_at: string | null;
   closed_at: string | null;
@@ -104,6 +105,10 @@ export interface Reminder {
   created_at: string;
 }
 
+export type IssueSummary = Pick<Issue, "id" | "title" | "description" | "status" | "priority" | "assignee_id" | "due_date"> & {
+  assignee?: Pick<User, "id" | "name"> | null;
+};
+
 export interface IssueWithRelations extends Issue {
   assignee?: User | null;
   reviewer?: User | null;
@@ -112,6 +117,8 @@ export interface IssueWithRelations extends Issue {
   last_update?: IssueUpdate | null;
   attachments?: IssueAttachmentWithUrl[];
   attachmentCount?: number;
+  parent?: Pick<Issue, "id" | "title" | "status" | "priority"> | null;
+  children?: IssueSummary[];
 }
 
 export interface UpdateComment {
