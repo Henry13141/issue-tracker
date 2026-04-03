@@ -336,7 +336,8 @@ function AttachmentRow({
               value={a.issue_id}
               disabled={reassigning}
               onValueChange={async (nextIssueId) => {
-                if (!onReassign || nextIssueId === a.issue_id) return;
+                if (!onReassign || nextIssueId == null || nextIssueId === "") return;
+                if (nextIssueId === a.issue_id) return;
                 setReassigning(true);
                 try {
                   await onReassign(a.id, nextIssueId);
