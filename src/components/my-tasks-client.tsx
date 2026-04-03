@@ -18,9 +18,11 @@ import { toast } from "sonner";
 export function MyTasksClient({
   needUpdate,
   updatedToday,
+  following = [],
 }: {
   needUpdate: IssueWithRelations[];
   updatedToday: IssueWithRelations[];
+  following?: IssueWithRelations[];
 }) {
   const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export function MyTasksClient({
     }
   }
 
-  if (needUpdate.length === 0 && updatedToday.length === 0) {
+  if (needUpdate.length === 0 && updatedToday.length === 0 && following.length === 0) {
     return (
       <EmptyState
         title="当前没有待推进的任务"
@@ -54,8 +56,6 @@ export function MyTasksClient({
       />
     );
   }
-
-  const totalTasks = needUpdate.length + updatedToday.length;
 
   function TaskCard({
     issue,
@@ -75,8 +75,8 @@ export function MyTasksClient({
       >
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <CardTitle className="text-base font-semibold">
-              <Link href={`/issues/${issue.id}`} className="hover:underline">
+            <CardTitle className="min-w-0 max-w-full flex-1 text-base font-semibold">
+              <Link href={`/issues/${issue.id}`} className="break-words hover:underline">
                 {issue.title}
               </Link>
             </CardTitle>
@@ -99,8 +99,8 @@ export function MyTasksClient({
         <CardContent className="space-y-3">
           {!expanded ? (
             <Button
-              size="sm"
               variant="secondary"
+              className="min-h-10 w-full sm:w-auto"
               onClick={() => {
                 setOpenId(issue.id);
                 setContent("");
@@ -116,17 +116,17 @@ export function MyTasksClient({
                 placeholder="简要说明今日进展…"
                 rows={3}
               />
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
-                  size="sm"
+                  className="min-h-10 w-full sm:w-auto"
                   onClick={() => submit(issue.id)}
                   disabled={loading}
                 >
                   {loading ? "提交中…" : "提交"}
                 </Button>
                 <Button
-                  size="sm"
                   variant="ghost"
+                  className="min-h-10 w-full sm:w-auto"
                   onClick={() => {
                     setOpenId(null);
                     setContent("");
@@ -180,6 +180,51 @@ export function MyTasksClient({
           </div>
         </section>
       ) : null}
+
+      {following.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-lg font-semibold text-blue-700 dark:text-blue-400">
+            我跟进的（{following.length}）
+          </h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            你曾经交接出去、仍需关注结果的事项
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {following.map((issue) => (
+              <Card
+                key={issue.id}
+                className="border-blue-200 bg-blue-50/40 dark:border-blue-900 dark:bg-blue-950/20"
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <CardTitle className="min-w-0 max-w-full flex-1 text-base font-semibold">
+                      <Link href={`/issues/${issue.id}`} className="break-words hover:underline">
+                        {issue.title}
+                      </Link>
+                    </CardTitle>
+                    <div className="flex flex-wrap gap-2">
+                      <StatusBadge status={issue.status} />
+                      <PriorityBadge priority={issue.priority} />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    当前负责人：{issue.assignee?.name ?? "未分配"}
+                    {issue.due_date && <> · 截止：{formatDateOnly(issue.due_date)}</>}
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <Link
+                    href={`/issues/${issue.id}`}
+                    className="text-sm text-primary hover:underline"
+                  >
+                    查看详情 →
+                  </Link>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
