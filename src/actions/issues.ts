@@ -19,11 +19,9 @@ import type {
   UpdateCommentWithUser,
 } from "@/types";
 import {
-  dingtalkAfterIssueUpdateToBlocked,
-  dingtalkAfterProgressUpdate,
-} from "@/lib/issue-dingtalk-notify";
-import {
   dispatchEventNotifications,
+  notifyAdminsOnProgressUpdate,
+  notifyAssigneeOnBlocked,
   type NotifiableChange,
 } from "@/lib/event-notification";
 
@@ -573,7 +571,7 @@ export async function updateIssue(
 
   const { data: beforeRow } = await supabase
     .from("issues")
-    .select("title, creator_id, assignee_id, reviewer_id, status, priority, due_date, reopen_count, blocked_reason, closed_reason")
+    .select("title, creator_id, assignee_id, reviewer_id, status, priority, due_date, reopen_count, blocked_reason, closed_reason, parent_issue_id")
     .eq("id", id)
     .single();
 
@@ -761,7 +759,13 @@ export async function updateIssue(
       notifChanges.push({ type: "due_date_advanced", from: prevDue, to: newDue });
     }
 
-    if (notifChanges.length > 0) {
+    // 子任务的纯负责人/评审变更不单独推送通知（父任务通知已涵盖）
+    const isSubtask = !!(beforeRow.parent_issue_id as string | null);
+    const finalChanges = isSubtask
+      ? notifChanges.filter((c) => c.type !== "assignee_changed" && c.type !== "reviewer_changed")
+      : notifChanges;
+
+    if (finalChanges.length > 0) {
       const afterAssigneeId = patch.assignee_id !== undefined
         ? patch.assignee_id
         : (beforeRow.assignee_id as string | null);
@@ -777,7 +781,7 @@ export async function updateIssue(
         assigneeId: afterAssigneeId,
         reviewerId: afterReviewerId,
         creatorId:  beforeRow.creator_id as string,
-        changes:    notifChanges,
+        changes:    finalChanges,
       });
     }
   }
@@ -947,7 +951,7 @@ export async function addIssueUpdate(
   // ---------- 企业微信通知 ----------
 
   // 进度更新内容→管理员（保留，与事件通知互补，携带更新文本摘要）
-  dingtalkAfterProgressUpdate({
+  notifyAdminsOnProgressUpdate({
     issueId,
     issueTitle:  issue.title as string,
     content,
@@ -973,7 +977,7 @@ export async function addIssueUpdate(
 
   // 进度更新标为阻塞时额外发一条带进度上下文的专项通知给负责人
   if (statusTo === "blocked" && prev !== "blocked") {
-    dingtalkAfterIssueUpdateToBlocked({
+    notifyAssigneeOnBlocked({
       issueId,
       title:      issue.title as string,
       assigneeId: (issue.assignee_id as string | null) ?? null,
@@ -1153,7 +1157,7 @@ export async function handoverIssue(params: {
   // 读取当前 issue
   const { data: issue, error: fetchErr } = await supabase
     .from("issues")
-    .select("title, assignee_id, reviewer_id, creator_id, status")
+    .select("title, assignee_id, reviewer_id, creator_id, status, parent_issue_id")
     .eq("id", params.issueId)
     .single();
 
@@ -1201,22 +1205,26 @@ export async function handoverIssue(params: {
   });
 
   // 4. 发送交接专项通知（fire-and-forget）
-  dispatchEventNotifications({
-    issueId:    params.issueId,
-    issueTitle: issue.title as string,
-    actorId:    user.id,
-    actorName:  user.name,
-    assigneeId: params.toUserId,
-    reviewerId: (issue.reviewer_id as string | null) ?? null,
-    creatorId:  issue.creator_id as string,
-    changes:    [{
-      type:            "handover",
-      fromId:          user.id,
-      toId:            params.toUserId,
-      note:            params.note?.trim() || undefined,
-      attachmentNames: params.attachmentNames?.length ? params.attachmentNames : undefined,
-    }],
-  });
+  // 子任务不独立推送交接通知——父任务的交接通知已包含足够上下文
+  const isSubtask = !!(issue.parent_issue_id as string | null);
+  if (!isSubtask) {
+    dispatchEventNotifications({
+      issueId:    params.issueId,
+      issueTitle: issue.title as string,
+      actorId:    user.id,
+      actorName:  user.name,
+      assigneeId: params.toUserId,
+      reviewerId: (issue.reviewer_id as string | null) ?? null,
+      creatorId:  issue.creator_id as string,
+      changes:    [{
+        type:            "handover",
+        fromId:          user.id,
+        toId:            params.toUserId,
+        note:            params.note?.trim() || undefined,
+        attachmentNames: params.attachmentNames?.length ? params.attachmentNames : undefined,
+      }],
+    });
+  }
 
   revalidatePath(`/issues/${params.issueId}`);
   revalidatePath("/issues");

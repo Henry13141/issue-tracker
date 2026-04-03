@@ -9,6 +9,7 @@ const PAGE_SIZE = 20;
 export type NotificationFilters = {
   status?: string;
   channel?: string;
+  category?: string;
   triggerSource?: string;
   targetUserId?: string;
   dateFrom?: string;
@@ -60,6 +61,23 @@ export async function getNotificationDeliveries(
   }
   if (filters.triggerSource) {
     query = query.eq("trigger_source", filters.triggerSource);
+  } else if (filters.category) {
+    const prefixMap: Record<string, string> = {
+      lifecycle:   "lifecycle",
+      issue_event: "issue_event",
+      reminder:    "cron_daily",
+      digest:      "cron_",
+    };
+    const prefix = prefixMap[filters.category];
+    if (prefix) {
+      if (filters.category === "reminder") {
+        query = query.eq("trigger_source", "cron_daily");
+      } else if (filters.category === "digest") {
+        query = query.or("trigger_source.eq.cron_morning,trigger_source.eq.cron_admin,trigger_source.eq.manual_test");
+      } else {
+        query = query.like("trigger_source", `${prefix}%`);
+      }
+    }
   }
   if (filters.targetUserId) {
     query = query.eq("target_user_id", filters.targetUserId);

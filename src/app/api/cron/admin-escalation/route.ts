@@ -3,7 +3,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/reminder-logic";
 import { isWecomAppConfigured } from "@/lib/wecom";
 import { sendAdminDigest } from "@/lib/notification-service";
-import { getPublicAppUrl } from "@/lib/app-url";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
 import type { IssueStatus } from "@/types";
 
@@ -19,32 +18,25 @@ function authorizeCron(request: Request): boolean {
 function buildEscalationMarkdown(
   adminName: string,
   dateLabel: string,
-  noActionAssignees: { name: string; issues: { title: string; status: IssueStatus }[] }[],
-  listUrl: string
+  noActionAssignees: { name: string; issues: { title: string; status: IssueStatus }[] }[]
 ): string {
   const lines: string[] = [
-    `## 推进情况跟踪 · ${dateLabel}`,
+    `${adminName}，下午好（${dateLabel}）`,
     "",
-    `**${adminName}**，下午好。`,
-    "",
-    `今天早晨已向负责人发送了协作提醒，以下 **${noActionAssignees.length}** 位同事截至目前还没有同步进展：`,
+    `今日提醒已发出，以下 ${noActionAssignees.length} 位同事暂未同步进展：`,
     "",
   ];
 
   for (const a of noActionAssignees) {
-    lines.push(`### ${a.name}（${a.issues.length} 条未完成）`);
+    lines.push(`${a.name}（${a.issues.length}条）`);
     for (const it of a.issues) {
       const st = ISSUE_STATUS_LABELS[it.status] ?? it.status;
-      lines.push(`- ${it.title}（${st}）`);
+      lines.push(`· ${it.title}（${st}）`);
     }
     lines.push("");
   }
 
-  if (listUrl) {
-    lines.push(`[打开问题列表 →](${listUrl}/issues)`);
-    lines.push("");
-  }
-  lines.push("可以和相关同事沟通一下进展，帮他们排除阻塞或调整优先级。");
+  lines.push("可以和同事沟通进展，帮忙排除阻塞或调整优先级。");
 
   return lines.join("\n");
 }
@@ -151,7 +143,6 @@ export async function GET(request: Request) {
       });
     }
 
-    const base = getPublicAppUrl();
     let sent = 0;
     const errors: string[] = [];
 
@@ -159,7 +150,7 @@ export async function GET(request: Request) {
       const adminWc   = ((admin as { wecom_userid?: string | null }).wecom_userid ?? "").trim();
       const adminName = (admin.name as string) ?? "管理员";
 
-      const md    = buildEscalationMarkdown(adminName, dateLabel, noActionAssignees, base || "");
+      const md    = buildEscalationMarkdown(adminName, dateLabel, noActionAssignees);
       const title = `推进跟踪 · ${noActionAssignees.length} 位同事今日待同步`;
 
       const result = await sendAdminDigest({

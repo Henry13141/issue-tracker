@@ -168,15 +168,18 @@ export type NotificationChannel = "wecom_app" | "wecom_bot";
 export type NotificationStatus = "pending" | "success" | "failed";
 
 export type NotificationTriggerSource =
+  | "lifecycle_welcome"    // 新成员欢迎消息
   | "cron_morning"
   | "cron_admin"
   | "cron_daily"
   | "issue_event"          // 旧版兼容（P1 遗留记录）
-  | "issue_event.status"   // P3: 状态变更（blocked/pending_review/resolved/closed/reopened）
-  | "issue_event.priority" // P3: 优先级提升为紧急
-  | "issue_event.due_date" // P3: 截止日期提前
-  | "issue_event.assignment" // P3: 负责人/评审人变更
-  | "issue_event.created"  // P3: 工单创建
+  | "issue_event.status"   // 状态变更（blocked/pending_review/resolved/closed/reopened）
+  | "issue_event.priority" // 优先级提升为紧急
+  | "issue_event.due_date" // 截止日期提前
+  | "issue_event.assignment" // 负责人/评审人变更
+  | "issue_event.handover" // 任务交接
+  | "issue_event.created"  // 工单创建
+  | "issue_event.progress" // 进度更新通知
   | "manual_test";
 
 export interface NotificationDelivery {

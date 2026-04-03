@@ -20,21 +20,22 @@ export default async function NotificationsPage({
   const page          = Number(typeof sp.page === "string" ? sp.page : "1") || 1;
   const status        = typeof sp.status  === "string" && sp.status  ? sp.status  : undefined;
   const channel       = typeof sp.channel === "string" && sp.channel ? sp.channel : undefined;
+  const category      = typeof sp.category === "string" && sp.category ? sp.category : undefined;
   const triggerSource = typeof sp.trigger === "string" && sp.trigger ? sp.trigger : undefined;
   const targetUserId  = typeof sp.user    === "string" && sp.user    ? sp.user    : undefined;
   const dateFrom      = typeof sp.from    === "string" && sp.from    ? sp.from    : undefined;
   const dateTo        = typeof sp.to      === "string" && sp.to      ? sp.to      : undefined;
 
   const [result, members] = await Promise.all([
-    getNotificationDeliveries({ page, status, channel, triggerSource, targetUserId, dateFrom, dateTo }),
+    getNotificationDeliveries({ page, status, channel, category, triggerSource, targetUserId, dateFrom, dateTo }),
     getMembers(),
   ]);
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">通知投递日志</h1>
-        <p className="text-sm text-muted-foreground">查看所有企业微信通知的投递状态，可重试 failed 记录</p>
+        <h1 className="text-2xl font-semibold tracking-tight">外发消息记录</h1>
+        <p className="text-sm text-muted-foreground">按消息类别查看所有企业微信消息的投递状态，可重试失败记录</p>
       </div>
       <NotificationsClient
         initialResult={result}

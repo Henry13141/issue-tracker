@@ -53,28 +53,27 @@ function buildPersonalMarkdown(
   const st = staleItems.filter((i) => i.assigneeId === assigneeId);
   if (nu.length === 0 && od.length === 0 && st.length === 0) return null;
 
+  const total = nu.length + od.length + st.length;
   const lines: string[] = [
-    `## 待你推进（${todayStr}）`,
-    "",
-    "以下事项等你接力推进，每一条进展都能让协作更顺畅：",
+    `待你推进（${todayStr}）共 ${total} 条`,
     "",
   ];
-  if (nu.length > 0) {
-    lines.push(`### 今日等你同步进展（${nu.length}个）`);
-    nu.forEach((i) => lines.push(`- ${i.title}`));
-    lines.push("");
-  }
   if (od.length > 0) {
-    lines.push(`### 已超过截止日期（${od.length}个）`);
-    od.forEach((i) => lines.push(`- ${i.title}（截止日期：${i.dueDate}，补一条进展或调整日期都行）`));
+    lines.push(`⏰ 已过截止（${od.length}）`);
+    od.forEach((i) => lines.push(`· ${i.title}（截止 ${i.dueDate}）`));
     lines.push("");
   }
   if (st.length > 0) {
-    lines.push(`### 3 天没有新进展（${st.length}个）`);
-    st.forEach((i) => lines.push(`- ${i.title}（方便时补一条当前情况，团队就能了解最新状态）`));
+    lines.push(`📌 3天未更新（${st.length}）`);
+    st.forEach((i) => lines.push(`· ${i.title}`));
     lines.push("");
   }
-  lines.push("如果遇到阻塞，直接在问题里写下卡点，团队会更快帮你推进。");
+  if (nu.length > 0) {
+    lines.push(`📝 今日待同步（${nu.length}）`);
+    nu.forEach((i) => lines.push(`· ${i.title}`));
+    lines.push("");
+  }
+  lines.push("方便时补一条进展，遇到阻塞写下卡点，团队帮你推 💪");
   return lines.join("\n");
 }
 
@@ -260,20 +259,20 @@ export async function GET(request: Request) {
     const workNoticeErrors: string[] = [];
 
     if (total > 0 && isWecomWebhookConfigured()) {
-      const lines: string[] = [`## 今日待推进事项（${todayStr}）\n`];
-      if (noUpdateItems.length > 0) {
-        lines.push(`### 等待同步进展（${noUpdateItems.length}个）`);
-        noUpdateItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
-        lines.push("");
-      }
+      const lines: string[] = [`待推进事项（${todayStr}）共 ${total} 条\n`];
       if (overdueItems.length > 0) {
-        lines.push(`### 已过截止日期（${overdueItems.length}个）`);
-        overdueItems.forEach((i) => lines.push(`- ${i.title}（截止 ${i.dueDate}）→ **${i.assignee}**`));
+        lines.push(`⏰ 已过截止（${overdueItems.length}）`);
+        overdueItems.forEach((i) => lines.push(`· ${i.title} → ${i.assignee}`));
         lines.push("");
       }
       if (staleItems.length > 0) {
-        lines.push(`### 3天未有新进展（${staleItems.length}个）`);
-        staleItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
+        lines.push(`📌 3天未更新（${staleItems.length}）`);
+        staleItems.forEach((i) => lines.push(`· ${i.title} → ${i.assignee}`));
+        lines.push("");
+      }
+      if (noUpdateItems.length > 0) {
+        lines.push(`📝 今日待同步（${noUpdateItems.length}）`);
+        noUpdateItems.forEach((i) => lines.push(`· ${i.title} → ${i.assignee}`));
         lines.push("");
       }
       const result = await sendGroupDigest({ content: lines.join("\n"), triggerSource: "cron_daily" });

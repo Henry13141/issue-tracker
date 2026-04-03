@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,12 @@ import { cn } from "@/lib/utils";
 import type { NotificationDeliveryWithRelations } from "@/types";
 import type { NotificationListResult, NotificationFilters } from "@/actions/notifications";
 import type { User } from "@/types";
+import {
+  NOTIFICATION_CATEGORY_LABELS,
+  NOTIFICATION_TRIGGER_LABELS,
+  getNotificationCategory,
+  type NotificationCategory,
+} from "@/lib/constants";
 
 // ─── 配置 ──────────────────────────────────────────────────────────────────
 
@@ -36,18 +42,35 @@ const CHANNEL_LABELS: Record<string, string> = {
   wecom_bot: "群机器人",
 };
 
-const TRIGGER_LABELS: Record<string, string> = {
-  cron_morning:            "早间摘要",
-  cron_admin:              "推进跟踪",
-  cron_daily:              "待推进提醒",
-  issue_event:             "协作事件（旧）",
-  "issue_event.status":    "事件·状态变更",
-  "issue_event.priority":  "事件·优先级紧急",
-  "issue_event.due_date":  "事件·截止提前",
-  "issue_event.assignment":"事件·负责人/评审",
-  "issue_event.handover":  "事件·任务交接",
-  "issue_event.created":   "事件·任务创建",
-  manual_test:             "手动测试",
+const CATEGORY_COLORS: Record<NotificationCategory, string> = {
+  lifecycle:   "bg-sky-100 text-sky-800 border-sky-200",
+  issue_event: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  reminder:    "bg-amber-100 text-amber-800 border-amber-200",
+  digest:      "bg-emerald-100 text-emerald-800 border-emerald-200",
+};
+
+const CATEGORY_TRIGGER_MAP: Record<NotificationCategory, { value: string; label: string }[]> = {
+  lifecycle: [
+    { value: "lifecycle_welcome", label: "欢迎消息" },
+  ],
+  issue_event: [
+    { value: "issue_event", label: "协作事件（旧）" },
+    { value: "issue_event.status", label: "状态变更" },
+    { value: "issue_event.priority", label: "优先级紧急" },
+    { value: "issue_event.due_date", label: "截止提前" },
+    { value: "issue_event.assignment", label: "负责人/评审" },
+    { value: "issue_event.handover", label: "任务交接" },
+    { value: "issue_event.created", label: "任务创建" },
+    { value: "issue_event.progress", label: "进度更新" },
+  ],
+  reminder: [
+    { value: "cron_daily", label: "待推进提醒" },
+  ],
+  digest: [
+    { value: "cron_morning", label: "早间摘要" },
+    { value: "cron_admin", label: "推进跟踪" },
+    { value: "manual_test", label: "手动测试" },
+  ],
 };
 
 // ─── Props ─────────────────────────────────────────────────────────────────
@@ -64,15 +87,24 @@ export function NotificationsClient({ initialResult, members, filters }: Props) 
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  // 本地 filter 状态（用于表单 input，Apply 后才触发 URL 更新）
+  const initCategory = filters.triggerSource
+    ? getNotificationCategory(filters.triggerSource)
+    : "";
+
   const [localFilters, setLocalFilters] = useState({
     status:        filters.status        ?? "",
     channel:       filters.channel       ?? "",
+    category:      initCategory as string,
     triggerSource: filters.triggerSource ?? "",
     targetUserId:  filters.targetUserId  ?? "",
     dateFrom:      filters.dateFrom      ?? "",
     dateTo:        filters.dateTo        ?? "",
   });
+
+  const availableTriggers = useMemo(() => {
+    if (!localFilters.category) return [];
+    return CATEGORY_TRIGGER_MAP[localFilters.category as NotificationCategory] ?? [];
+  }, [localFilters.category]);
 
   // 重试状态
   const [retryingId,  setRetryingId]  = useState<string | null>(null);
@@ -83,7 +115,11 @@ export function NotificationsClient({ initialResult, members, filters }: Props) 
     const params = new URLSearchParams();
     if (merged.status)        params.set("status",  merged.status);
     if (merged.channel)       params.set("channel", merged.channel);
-    if (merged.triggerSource) params.set("trigger", merged.triggerSource);
+    if (merged.triggerSource) {
+      params.set("trigger", merged.triggerSource);
+    } else if (merged.category) {
+      params.set("category", merged.category);
+    }
     if (merged.targetUserId)  params.set("user",    merged.targetUserId);
     if (merged.dateFrom)      params.set("from",    merged.dateFrom);
     if (merged.dateTo)        params.set("to",      merged.dateTo);
@@ -97,7 +133,7 @@ export function NotificationsClient({ initialResult, members, filters }: Props) 
   }
 
   function resetFilters() {
-    setLocalFilters({ status: "", channel: "", triggerSource: "", targetUserId: "", dateFrom: "", dateTo: "" });
+    setLocalFilters({ status: "", channel: "", category: "", triggerSource: "", targetUserId: "", dateFrom: "", dateTo: "" });
     startTransition(() => { router.push("/dashboard/notifications"); });
   }
 
@@ -132,7 +168,7 @@ export function NotificationsClient({ initialResult, members, filters }: Props) 
       {/* ── 筛选器 ── */}
       <Card>
         <CardContent className="pt-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
             {/* Status */}
             <Select value={localFilters.status} onValueChange={(v) => setLocalFilters((p) => ({ ...p, status: (v ?? "") === "_all" ? "" : (v ?? "") }))}>
               <SelectTrigger className="h-8 text-xs">
@@ -158,24 +194,36 @@ export function NotificationsClient({ initialResult, members, filters }: Props) 
               </SelectContent>
             </Select>
 
-            {/* Trigger */}
-            <Select value={localFilters.triggerSource} onValueChange={(v) => setLocalFilters((p) => ({ ...p, triggerSource: (v ?? "") === "_all" ? "" : (v ?? "") }))}>
+            {/* Category */}
+            <Select value={localFilters.category} onValueChange={(v) => {
+              const cat = (v ?? "") === "_all" ? "" : (v ?? "");
+              setLocalFilters((p) => ({ ...p, category: cat, triggerSource: "" }));
+            }}>
               <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="触发来源" />
+                <SelectValue placeholder="消息类别" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">全部类别</SelectItem>
+                {(Object.entries(NOTIFICATION_CATEGORY_LABELS) as [NotificationCategory, string][]).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Trigger (filtered by category) */}
+            <Select
+              value={localFilters.triggerSource}
+              onValueChange={(v) => setLocalFilters((p) => ({ ...p, triggerSource: (v ?? "") === "_all" ? "" : (v ?? "") }))}
+              disabled={availableTriggers.length === 0}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder={localFilters.category ? "具体来源" : "先选类别"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">全部来源</SelectItem>
-                <SelectItem value="cron_morning">早间摘要</SelectItem>
-                <SelectItem value="cron_admin">推进跟踪</SelectItem>
-                <SelectItem value="cron_daily">待推进提醒</SelectItem>
-                <SelectItem value="issue_event">协作事件（旧）</SelectItem>
-                <SelectItem value="issue_event.status">事件·状态变更</SelectItem>
-                <SelectItem value="issue_event.assignment">事件·负责人/评审</SelectItem>
-                <SelectItem value="issue_event.handover">事件·任务交接</SelectItem>
-                <SelectItem value="issue_event.priority">事件·优先级紧急</SelectItem>
-                <SelectItem value="issue_event.due_date">事件·截止提前</SelectItem>
-                <SelectItem value="issue_event.created">事件·任务创建</SelectItem>
-                <SelectItem value="manual_test">手动测试</SelectItem>
+                {availableTriggers.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
@@ -305,9 +353,14 @@ function DeliveryRow({
           {CHANNEL_LABELS[item.channel] ?? item.channel}
         </Badge>
 
-        {/* 触发来源 */}
+        {/* 消息类别 */}
+        <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium", CATEGORY_COLORS[getNotificationCategory(item.trigger_source)])}>
+          {NOTIFICATION_CATEGORY_LABELS[getNotificationCategory(item.trigger_source)]}
+        </span>
+
+        {/* 具体来源 */}
         <Badge variant="secondary" className="text-xs">
-          {TRIGGER_LABELS[item.trigger_source] ?? item.trigger_source}
+          {NOTIFICATION_TRIGGER_LABELS[item.trigger_source] ?? item.trigger_source}
         </Badge>
 
         {/* 接收人 */}
