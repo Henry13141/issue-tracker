@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -20,16 +19,16 @@ const nav = [
   { href: "/reminders",               label: "待你回应",   icon: Bell },
 ];
 
-export function Sidebar({ user }: { user: User }) {
+export function SidebarPanel({
+  user,
+  onNavigate,
+  className,
+}: {
+  user: User;
+  onNavigate?: () => void;
+  className?: string;
+}) {
   const pathname = usePathname();
-
-  useEffect(() => {
-    const supabase = createClient();
-    const interval = setInterval(() => {
-      supabase.auth.getSession();
-    }, 10 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   async function signOut() {
     const supabase = createClient();
@@ -45,15 +44,15 @@ export function Sidebar({ user }: { user: User }) {
     .toUpperCase();
 
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
+    <div className={cn("flex h-full min-h-0 flex-col text-sidebar-foreground", className)}>
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-sidebar-border px-4">
         <Image src="/mgm-logo.png" alt="米伽米" width={36} height={36} className="h-9 w-9 object-contain" />
         <div className="leading-tight">
           <p className="text-sm font-semibold">米伽米</p>
           <p className="text-xs text-sidebar-foreground/60">协作推进台</p>
         </div>
       </div>
-      <nav className="flex flex-1 flex-col gap-0.5 p-2">
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
         {nav
           .filter((item) => !item.adminOnly || user.role === "admin")
           .map((item) => {
@@ -63,8 +62,9 @@ export function Sidebar({ user }: { user: User }) {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => onNavigate?.()}
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60"
@@ -76,8 +76,8 @@ export function Sidebar({ user }: { user: User }) {
             );
           })}
       </nav>
-      <div className="border-t border-sidebar-border" />
-      <div className="flex items-center gap-2 p-3">
+      <div className="shrink-0 border-t border-sidebar-border" />
+      <div className="flex shrink-0 items-center gap-2 p-3">
         <Avatar className="h-9 w-9 border border-sidebar-border">
           <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground text-xs">{initials || "?"}</AvatarFallback>
         </Avatar>
@@ -85,10 +85,24 @@ export function Sidebar({ user }: { user: User }) {
           <p className="truncate text-sm font-medium">{user.name}</p>
           <p className="truncate text-xs text-sidebar-foreground/60">{user.role === "admin" ? "管理员" : "成员"}</p>
         </div>
-        <Button variant="ghost" size="icon" className="shrink-0 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent" onClick={signOut} title="退出">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-11 shrink-0 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          onClick={signOut}
+          title="退出"
+        >
           <LogOut className="h-4 w-4" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+export function Sidebar({ user }: { user: User }) {
+  return (
+    <aside className="hidden h-full w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex md:flex-col">
+      <SidebarPanel user={user} />
     </aside>
   );
 }
