@@ -181,19 +181,11 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
 /** 获取 issue 基础信息（不含进度更新/评论），用于详情页首屏快速加载 */
 export async function getIssueBasic(id: string): Promise<IssueWithRelations | null> {
   const supabase = await createClient();
-  const [issueRes, attachmentsRes] = await Promise.all([
-    supabase
-      .from("issues")
-      .select(issueSelect)
-      .eq("id", id)
-      .single(),
-    supabase
-      .from("issue_attachments")
-      .select("*")
-      .eq("issue_id", id)
-      .is("issue_update_id", null)
-      .order("created_at", { ascending: true }),
-  ]);
+  const issueRes = await supabase
+    .from("issues")
+    .select(issueSelect)
+    .eq("id", id)
+    .single();
 
   const { data: issue, error } = issueRes;
   if (error || !issue) return null;
@@ -231,18 +223,71 @@ export async function getIssueBasic(id: string): Promise<IssueWithRelations | nu
     assignee: Array.isArray(row.assignee) ? (row.assignee[0] as Pick<import("@/types").User, "id" | "name"> | undefined) ?? null : (row.assignee as Pick<import("@/types").User, "id" | "name"> | null),
   }));
 
-  const attachmentRows = ((attachmentsRes.data ?? []) as IssueAttachment[]);
-  let attachmentsWithUrls: IssueAttachmentWithUrl[] = attachmentRows;
+  const childMetaMap = new Map<string, { index: number; title: string }>();
+  children.forEach((child, idx) => {
+    childMetaMap.set(child.id, { index: idx + 1, title: child.title });
+  });
 
-  if (attachmentRows.length > 0) {
+  const allIssueIds = [id, ...children.map((c) => c.id)];
+  const { data: allAttachmentRows } = await supabase
+    .from("issue_attachments")
+    .select("*")
+    .in("issue_id", allIssueIds)
+    .is("issue_update_id", null)
+    .order("created_at", { ascending: true });
+
+  const attachmentRows = ((allAttachmentRows ?? []) as IssueAttachment[]);
+  let attachmentsWithUrls: IssueAttachmentWithUrl[] = attachmentRows.map((row) => {
+    const pathIssueId = row.storage_path.split("/")[0] ?? "";
+    const childMeta = childMetaMap.get(row.issue_id) ?? childMetaMap.get(pathIssueId);
+    return {
+      ...row,
+      source_subtask_index: childMeta?.index ?? null,
+      source_subtask_title: childMeta?.title ?? null,
+    };
+  });
+
+  // 回退规则：若仅有 1 个未标注附件，且仅有 1 个子任务当前没有附件，
+  // 则将该附件归到该子任务（用于兼容早期以父任务名义上传、缺少归属信息的历史数据）。
+  const unlabeledIndexes: number[] = [];
+  const childAttachmentCount = new Map<number, number>();
+  for (const a of attachmentsWithUrls) {
+    if (a.source_subtask_index) {
+      childAttachmentCount.set(
+        a.source_subtask_index,
+        (childAttachmentCount.get(a.source_subtask_index) ?? 0) + 1
+      );
+    } else {
+      unlabeledIndexes.push(attachmentsWithUrls.indexOf(a));
+    }
+  }
+
+  if (children.length > 0 && unlabeledIndexes.length === 1) {
+    const missingChildIndexes = children
+      .map((_, idx) => idx + 1)
+      .filter((idx) => (childAttachmentCount.get(idx) ?? 0) === 0);
+
+    if (missingChildIndexes.length === 1) {
+      const targetIndex = missingChildIndexes[0];
+      const targetTitle = children[targetIndex - 1]?.title ?? null;
+      const at = unlabeledIndexes[0];
+      attachmentsWithUrls[at] = {
+        ...attachmentsWithUrls[at],
+        source_subtask_index: targetIndex,
+        source_subtask_title: targetTitle,
+      };
+    }
+  }
+
+  if (attachmentsWithUrls.length > 0) {
     const { data: signedRows } = await supabase.storage
       .from("issue-files")
-      .createSignedUrls(attachmentRows.map((a) => a.storage_path), 3600);
+      .createSignedUrls(attachmentsWithUrls.map((a) => a.storage_path), 3600);
     if (signedRows) {
       const signedUrlMap = new Map(
         signedRows.map((row) => [row.path ?? "", row.signedUrl ?? undefined])
       );
-      attachmentsWithUrls = attachmentRows.map((a) => ({
+      attachmentsWithUrls = attachmentsWithUrls.map((a) => ({
         ...a,
         url: signedUrlMap.get(a.storage_path),
       }));

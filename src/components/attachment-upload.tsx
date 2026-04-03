@@ -1,9 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { Paperclip, X, FileText, Loader2, FileVideo, ExternalLink, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
 import type { IssueAttachmentWithUrl } from "@/types";
@@ -23,9 +30,9 @@ interface Props {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024) return `${bytes} 字节`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} 千字节`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} 兆字节`;
 }
 
 function isImageType(contentType: string): boolean {
@@ -148,26 +155,61 @@ interface ListProps {
   attachments: IssueAttachmentWithUrl[];
   onDelete?: (id: string) => void;
   canDelete?: boolean;
+  variant?: "grid" | "list";
+  ownershipOptions?: { issueId: string; label: string }[];
+  onReassign?: (attachmentId: string, targetIssueId: string) => Promise<void> | void;
 }
 
-export function AttachmentList({ attachments, onDelete, canDelete }: ListProps) {
+export function AttachmentList({
+  attachments,
+  onDelete,
+  canDelete,
+  variant = "grid",
+  ownershipOptions,
+  onReassign,
+}: ListProps) {
   const [selected, setSelected] = useState<IssueAttachmentWithUrl | null>(null);
 
   if (!attachments.length) return null;
 
+  const sortedAttachments = useMemo(() => {
+    return [...attachments].sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      return tb - ta;
+    });
+  }, [attachments]);
+
   return (
     <>
-      <div className="flex flex-wrap gap-2">
-        {attachments.map((a) => (
-          <AttachmentItem
-            key={a.id}
-            attachment={a}
-            onDelete={onDelete}
-            canDelete={canDelete}
-            onPreview={isPreviewable(a.content_type) ? () => setSelected(a) : undefined}
-          />
-        ))}
-      </div>
+      {variant === "list" ? (
+        <div className="space-y-2">
+          {sortedAttachments.map((a, index) => (
+            <AttachmentRow
+              key={a.id}
+              attachment={a}
+              isLatest={index === 0}
+              onDelete={onDelete}
+              canDelete={canDelete}
+              ownershipOptions={ownershipOptions}
+              onReassign={onReassign}
+              onPreview={isPreviewable(a.content_type) ? () => setSelected(a) : undefined}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {sortedAttachments.map((a) => (
+            <AttachmentItem
+              key={a.id}
+              attachment={a}
+              onDelete={onDelete}
+              canDelete={canDelete}
+              onPreview={isPreviewable(a.content_type) ? () => setSelected(a) : undefined}
+            />
+          ))}
+        </div>
+      )}
 
       {/* 预览弹窗 */}
       <Dialog open={!!selected} onOpenChange={(open) => { if (!open) setSelected(null); }}>
@@ -218,7 +260,7 @@ export function AttachmentList({ attachments, onDelete, canDelete }: ListProps) 
                 </a>
               </div>
               <div className="flex gap-2 text-xs text-white/50">
-                {attachments.filter((a) => isPreviewable(a.content_type)).map((a, i) => (
+                {sortedAttachments.filter((a) => isPreviewable(a.content_type)).map((a, i) => (
                   <button
                     key={a.id}
                     type="button"
@@ -240,6 +282,137 @@ export function AttachmentList({ attachments, onDelete, canDelete }: ListProps) 
       </Dialog>
     </>
   );
+}
+
+function AttachmentRow({
+  attachment: a,
+  isLatest,
+  onDelete,
+  canDelete,
+  ownershipOptions,
+  onReassign,
+  onPreview,
+}: {
+  attachment: IssueAttachmentWithUrl;
+  isLatest?: boolean;
+  onDelete?: (id: string) => void;
+  canDelete?: boolean;
+  ownershipOptions?: { issueId: string; label: string }[];
+  onReassign?: (attachmentId: string, targetIssueId: string) => Promise<void> | void;
+  onPreview?: () => void;
+}) {
+  const isImage = isImageType(a.content_type);
+  const isVideo = isVideoType(a.content_type);
+  const [reassigning, setReassigning] = useState(false);
+  const canReassign = !!ownershipOptions && ownershipOptions.length > 1 && !!onReassign;
+  const ownershipLabel =
+    ownershipOptions?.find((o) => o.issueId === a.issue_id)?.label ?? "选择归属任务";
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          {isVideo ? (
+            <FileVideo className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <FileText className="h-4 w-4 text-muted-foreground" />
+          )}
+          <span className="truncate text-sm font-medium">{a.filename}</span>
+          {a.source_subtask_index ? (
+            <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px]">
+              子任务{a.source_subtask_index}
+            </Badge>
+          ) : null}
+          {isLatest && (
+            <Badge className="h-5 rounded-full px-2 text-[10px]">最新添加</Badge>
+          )}
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {formatDateTime(a.created_at)} · {formatBytes(a.size_bytes)}
+        </div>
+        {canReassign && (
+          <div className="mt-1">
+            <Select
+              value={a.issue_id}
+              disabled={reassigning}
+              onValueChange={async (nextIssueId) => {
+                if (!onReassign || nextIssueId === a.issue_id) return;
+                setReassigning(true);
+                try {
+                  await onReassign(a.id, nextIssueId);
+                } finally {
+                  setReassigning(false);
+                }
+              }}
+            >
+              <SelectTrigger className="h-auto min-h-7 w-full max-w-[min(100%,20rem)] justify-start gap-2 py-1.5 text-xs [&>svg]:shrink-0">
+                <span className="line-clamp-2 flex-1 text-left whitespace-normal" title={ownershipLabel}>
+                  {ownershipLabel}
+                </span>
+              </SelectTrigger>
+              <SelectContent>
+                {ownershipOptions.map((opt) => (
+                  <SelectItem key={opt.issueId} value={opt.issueId} className="text-xs">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1">
+        {onPreview && (isImage || isVideo) ? (
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onPreview} title="预览">
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Button>
+        ) : (
+          <a
+            href={a.url ?? "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+            title="打开"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        )}
+        <a
+          href={`/api/attachments/${a.id}/download`}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+          title="下载"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </a>
+        {canDelete && onDelete && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-destructive"
+            onClick={() => onDelete(a.id)}
+            title="删除"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatDateTime(iso: string): string {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return iso;
+  return t.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function AttachmentItem({

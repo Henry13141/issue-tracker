@@ -157,6 +157,8 @@ export interface IssueAttachment {
 
 export interface IssueAttachmentWithUrl extends IssueAttachment {
   url?: string;
+  source_subtask_index?: number | null;
+  source_subtask_title?: string | null;
 }
 
 // ---------------------------------------------------------------------------

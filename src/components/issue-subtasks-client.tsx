@@ -82,7 +82,7 @@ export function IssueSubtasksClient({
           <p className="text-sm text-muted-foreground">暂无子任务</p>
         ) : (
           <div className="rounded-xl border bg-muted/15">
-            {subtasks.map((child) => {
+            {subtasks.map((child, index) => {
               const isDone = child.status === "resolved" || child.status === "closed";
               const isLoading = togglingSubtaskId === child.id;
 
@@ -116,7 +116,7 @@ export function IssueSubtasksClient({
                         isDone && "text-muted-foreground line-through"
                       )}
                     >
-                      {child.title}
+                      {`子任务${index + 1} · ${child.title}`}
                     </Link>
                     {child.description && (
                       <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
