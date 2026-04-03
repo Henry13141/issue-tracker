@@ -39,38 +39,36 @@ export function CreateSubtaskDialog({
     setPendingFiles([]);
   }
 
-  async function uploadSubtaskAttachments(issueId: string) {
-    if (pendingFiles.length === 0) return { success: 0, failed: 0 };
-    let success = 0;
-    let failed = 0;
-    for (const file of pendingFiles) {
-      try {
-        const contentType = file.type || "application/octet-stream";
-        const { signedUrl, storagePath } = await createSignedUploadUrl(
-          issueId,
-          file.name,
-          contentType,
-          file.size
-        );
-        const uploadRes = await fetch(signedUrl, {
-          method: "PUT",
-          headers: { "Content-Type": contentType },
-          body: file,
-        });
-        if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})`);
-        await saveAttachmentMeta({
-          issueId,
-          issueUpdateId: null,
-          storagePath,
-          filename: file.name,
-          contentType,
-          sizeBytes: file.size,
-        });
-        success++;
-      } catch {
-        failed++;
-      }
-    }
+  async function uploadSubtaskAttachments(issueId: string, files: File[]) {
+    if (files.length === 0) return { success: 0, failed: 0 };
+
+    const tasks = files.map(async (file) => {
+      const contentType = file.type || "application/octet-stream";
+      const { signedUrl, storagePath } = await createSignedUploadUrl(
+        issueId,
+        file.name,
+        contentType,
+        file.size
+      );
+      const uploadRes = await fetch(signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: file,
+      });
+      if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})`);
+      await saveAttachmentMeta({
+        issueId,
+        issueUpdateId: null,
+        storagePath,
+        filename: file.name,
+        contentType,
+        sizeBytes: file.size,
+      });
+    });
+
+    const settled = await Promise.allSettled(tasks);
+    const success = settled.filter((r) => r.status === "fulfilled").length;
+    const failed = settled.length - success;
     return { success, failed };
   }
 
@@ -107,20 +105,33 @@ export function CreateSubtaskDialog({
           : null,
       });
 
-      const uploaded = await uploadSubtaskAttachments(id);
+      const filesToUpload = [...pendingFiles];
+      const hasAttachments = filesToUpload.length > 0;
 
-      if (uploaded.failed === 0) {
-        if (uploaded.success > 0) {
-          toast.success(`子任务已创建，并附上 ${uploaded.success} 个附件`);
-        } else {
-          toast.success("子任务已拆分就位，后续执行会更清晰");
-        }
+      if (hasAttachments) {
+        toast.success(`子任务已创建，正在后台上传 ${filesToUpload.length} 个附件`);
       } else {
-        toast.error(`子任务已创建，但有 ${uploaded.failed} 个附件上传失败`);
+        toast.success("子任务已拆分就位，后续执行会更清晰");
       }
+
       setOpen(false);
       resetForm();
       router.refresh();
+
+      if (hasAttachments) {
+        void uploadSubtaskAttachments(id, filesToUpload)
+          .then((uploaded) => {
+            if (uploaded.failed === 0) {
+              toast.success(`附件上传完成，共 ${uploaded.success} 个`);
+            } else {
+              toast.error(`附件上传完成：成功 ${uploaded.success}，失败 ${uploaded.failed}`);
+            }
+            router.refresh();
+          })
+          .catch(() => {
+            toast.error("附件后台上传失败，请稍后重试");
+          });
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "创建暂时没成功，可以再试一次");
     } finally {
