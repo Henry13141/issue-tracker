@@ -29,7 +29,7 @@ export function MyTasksClient({
 
   async function submit(issueId: string) {
     if (!content.trim()) {
-      toast.error("请填写进度");
+      toast.error("写几句今天的进展，让团队了解最新状态");
       return;
     }
     setLoading(true);
@@ -37,10 +37,10 @@ export function MyTasksClient({
       await addIssueUpdate(issueId, content.trim());
       setContent("");
       setOpenId(null);
-      toast.success("已更新进度");
+      toast.success("进展已同步，这张单的推进轨迹又完整了一步");
       router.refresh();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "失败");
+      toast.error(e instanceof Error ? e.message : "提交暂时没成功，内容还在，可以再试");
     } finally {
       setLoading(false);
     }
@@ -49,11 +49,13 @@ export function MyTasksClient({
   if (needUpdate.length === 0 && updatedToday.length === 0) {
     return (
       <EmptyState
-        title="当前没有分配给你的任务"
-        description="休息一下吧，或到问题列表查看团队其他事项。"
+        title="当前没有待推进的任务"
+        description="难得的清爽时刻，可以去问题列表看看有没有需要帮忙的事项。"
       />
     );
   }
+
+  const totalTasks = needUpdate.length + updatedToday.length;
 
   function TaskCard({
     issue,
@@ -86,10 +88,10 @@ export function MyTasksClient({
           <p className="text-xs text-muted-foreground">
             截止：{formatDateOnly(issue.due_date)}
             {variant === "stale" ? (
-              <span className="ml-2 font-medium text-red-600">今日尚未更新进度</span>
+              <span className="ml-2 font-medium text-amber-600 dark:text-amber-400">等你更新今日进展</span>
             ) : (
               <span className="ml-2 font-medium text-emerald-700 dark:text-emerald-400">
-                今日已更新
+                今日已推进
               </span>
             )}
           </p>
@@ -142,10 +144,22 @@ export function MyTasksClient({
 
   return (
     <div className="space-y-8">
+      {/* 今日推进成果摘要 */}
+      {updatedToday.length > 0 && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+          <p className="text-sm text-emerald-800 dark:text-emerald-300">
+            今天你已推进了 <span className="font-semibold">{updatedToday.length}</span> 项任务
+            {needUpdate.length === 0
+              ? "，全部事项都已更新，节奏很棒"
+              : `，还有 ${needUpdate.length} 项等你同步进展`}
+          </p>
+        </div>
+      )}
+
       {needUpdate.length > 0 ? (
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-red-700 dark:text-red-400">
-            需要今日更新
+          <h2 className="mb-3 text-lg font-semibold text-amber-700 dark:text-amber-400">
+            等你同步进展（{needUpdate.length}）
           </h2>
           <div className="grid gap-4 md:grid-cols-2">
             {needUpdate.map((issue) => (
@@ -157,7 +171,7 @@ export function MyTasksClient({
       {updatedToday.length > 0 ? (
         <section>
           <h2 className="mb-3 text-lg font-semibold text-emerald-800 dark:text-emerald-400">
-            今日已更新
+            今日已推进（{updatedToday.length}）
           </h2>
           <div className="grid gap-4 md:grid-cols-2">
             {updatedToday.map((issue) => (

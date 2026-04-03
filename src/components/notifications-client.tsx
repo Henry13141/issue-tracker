@@ -38,14 +38,15 @@ const CHANNEL_LABELS: Record<string, string> = {
 
 const TRIGGER_LABELS: Record<string, string> = {
   cron_morning:            "早间摘要",
-  cron_admin:              "管理员督促",
-  cron_daily:              "每日催办",
-  issue_event:             "工单事件（旧）",
+  cron_admin:              "推进跟踪",
+  cron_daily:              "待推进提醒",
+  issue_event:             "协作事件（旧）",
   "issue_event.status":    "事件·状态变更",
   "issue_event.priority":  "事件·优先级紧急",
   "issue_event.due_date":  "事件·截止提前",
   "issue_event.assignment":"事件·负责人/评审",
-  "issue_event.created":   "事件·工单创建",
+  "issue_event.handover":  "事件·任务交接",
+  "issue_event.created":   "事件·任务创建",
   manual_test:             "手动测试",
 };
 
@@ -165,14 +166,15 @@ export function NotificationsClient({ initialResult, members, filters }: Props) 
               <SelectContent>
                 <SelectItem value="_all">全部来源</SelectItem>
                 <SelectItem value="cron_morning">早间摘要</SelectItem>
-                <SelectItem value="cron_admin">管理员督促</SelectItem>
-                <SelectItem value="cron_daily">每日催办</SelectItem>
-                <SelectItem value="issue_event">工单事件（旧）</SelectItem>
+                <SelectItem value="cron_admin">推进跟踪</SelectItem>
+                <SelectItem value="cron_daily">待推进提醒</SelectItem>
+                <SelectItem value="issue_event">协作事件（旧）</SelectItem>
                 <SelectItem value="issue_event.status">事件·状态变更</SelectItem>
                 <SelectItem value="issue_event.assignment">事件·负责人/评审</SelectItem>
+                <SelectItem value="issue_event.handover">事件·任务交接</SelectItem>
                 <SelectItem value="issue_event.priority">事件·优先级紧急</SelectItem>
                 <SelectItem value="issue_event.due_date">事件·截止提前</SelectItem>
-                <SelectItem value="issue_event.created">事件·工单创建</SelectItem>
+                <SelectItem value="issue_event.created">事件·任务创建</SelectItem>
                 <SelectItem value="manual_test">手动测试</SelectItem>
               </SelectContent>
             </Select>

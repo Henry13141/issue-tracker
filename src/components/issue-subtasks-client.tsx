@@ -41,10 +41,10 @@ export function IssueSubtasksClient({
             : item
         )
       );
-      toast.success(completed ? "子任务已完成" : "已取消完成");
+      toast.success(completed ? "子任务搞定了，离整体完成又近了一步" : "已取消完成，可以继续处理");
       router.refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "更新子任务失败");
+      toast.error(e instanceof Error ? e.message : "操作暂时没成功，可以再试一次");
     } finally {
       setTogglingSubtaskId(null);
     }

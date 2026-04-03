@@ -39,7 +39,7 @@ export function CreateSubtaskDialog({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) {
-      toast.error("请填写子任务标题");
+      toast.error("请先填写子任务标题，方便后续跟进");
       return;
     }
     setLoading(true);
@@ -69,12 +69,12 @@ export function CreateSubtaskDialog({
           : null,
       });
 
-      toast.success("子任务已创建");
+      toast.success("子任务已拆分就位，后续执行会更清晰");
       setOpen(false);
       resetForm();
       router.refresh();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "创建失败");
+      toast.error(err instanceof Error ? err.message : "创建暂时没成功，可以再试一次");
     } finally {
       setLoading(false);
     }

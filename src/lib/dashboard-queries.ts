@@ -129,6 +129,45 @@ export type NotificationHealth = {
   }[];
 };
 
+// ─── 正向协作指标 ──────────────────────────────────────────────────────────
+
+export type PositiveStats = {
+  todayProgressUpdates: number;
+  todayClosedResolved:  number;
+  todayNewIssues:       number;
+  weekClosedResolved:   number;
+  activeContributors:   number;
+  todayHandovers:       number;
+};
+
+export async function getPositiveStats(): Promise<PositiveStats> {
+  const db = tryDB();
+  if (!db) return { todayProgressUpdates: 0, todayClosedResolved: 0, todayNewIssues: 0, weekClosedResolved: 0, activeContributors: 0, todayHandovers: 0 };
+
+  const { startIso, endIso } = getChinaDayBounds();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+
+  const [updatesRes, closedTodayRes, newTodayRes, closedWeekRes, contributorsRes, handoversRes] = await Promise.all([
+    db.from("issue_updates").select("id", { count: "exact", head: true }).gte("created_at", startIso).lte("created_at", endIso).eq("is_system_generated", false),
+    db.from("issues").select("id", { count: "exact", head: true }).gte("closed_at", startIso).lte("closed_at", endIso).in("status", ["resolved", "closed"]),
+    db.from("issues").select("id", { count: "exact", head: true }).gte("created_at", startIso).lte("created_at", endIso),
+    db.from("issues").select("id", { count: "exact", head: true }).gte("closed_at", sevenDaysAgo).in("status", ["resolved", "closed"]),
+    db.from("issue_updates").select("user_id").gte("created_at", sevenDaysAgo).eq("is_system_generated", false),
+    db.from("issue_events").select("id", { count: "exact", head: true }).eq("event_type", "handover").gte("created_at", startIso).lte("created_at", endIso),
+  ]);
+
+  const contributorIds = new Set(((contributorsRes.data ?? []) as { user_id: string }[]).map(r => r.user_id));
+
+  return {
+    todayProgressUpdates: updatesRes.count ?? 0,
+    todayClosedResolved:  closedTodayRes.count ?? 0,
+    todayNewIssues:       newTodayRes.count ?? 0,
+    weekClosedResolved:   closedWeekRes.count ?? 0,
+    activeContributors:   contributorIds.size,
+    todayHandovers:       handoversRes.count ?? 0,
+  };
+}
+
 // ─── 今日总览统计 ──────────────────────────────────────────────────────────
 
 export async function getOverviewStats(): Promise<OverviewStats> {

@@ -103,7 +103,7 @@ export default async function IssuesPage({
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">问题列表</h1>
-          <p className="text-sm text-muted-foreground">查看、筛选并跟踪所有问题</p>
+          <p className="text-sm text-muted-foreground">团队在推进的事情都在这里</p>
         </div>
         <div className="flex items-center gap-2">
           <ExportTemplateButton />
@@ -143,8 +143,8 @@ export default async function IssuesPage({
 
       {items.length === 0 ? (
         <EmptyState
-          title="还没有问题记录"
-          description="点击右上角「新建问题」创建第一条记录，或使用筛选条件调整查询。"
+          title="当前没有匹配的记录"
+          description="可以新建问题开启跟踪，或调整筛选条件重新查看。"
         />
       ) : (
         <>

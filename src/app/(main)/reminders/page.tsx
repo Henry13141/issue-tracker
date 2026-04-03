@@ -12,8 +12,8 @@ export default async function RemindersPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">提醒与日报</h1>
-        <p className="text-sm text-muted-foreground">系统催办与超期提醒</p>
+        <h1 className="text-2xl font-semibold tracking-tight">待你回应</h1>
+        <p className="text-sm text-muted-foreground">这些事项等你看一眼或接上，处理后就清了</p>
       </div>
       <RemindersClient mine={mine} adminAll={adminAll} user={user} />
     </div>

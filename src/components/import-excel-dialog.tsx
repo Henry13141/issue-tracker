@@ -183,12 +183,12 @@ export function ImportExcelDialog() {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const parsed = parseSheet(ws);
         if (parsed.length === 0) {
-          toast.error("未找到有效数据，请确认表头包含「标题」列");
+          toast.error("没有识别到有效数据，请确认表头包含「标题」列");
           return;
         }
         setRows(parsed);
       } catch {
-        toast.error("文件解析失败，请确认是 .xlsx 或 .xls 格式");
+        toast.error("文件格式没有识别成功，请确认是 .xlsx 或 .xls 格式");
       }
     };
     reader.readAsArrayBuffer(file);
@@ -209,13 +209,13 @@ export function ImportExcelDialog() {
           due_date: r.due_date || null,
         }))
       );
-      toast.success(`成功导入 ${count} 条问题`);
+      toast.success(`${count} 条问题已批量录入系统，团队可以开始跟进了`);
       setOpen(false);
       setRows([]);
       setFileName("");
       router.refresh();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "导入失败");
+      toast.error(err instanceof Error ? err.message : "导入暂时没成功，可以检查文件后再试");
     } finally {
       setLoading(false);
     }

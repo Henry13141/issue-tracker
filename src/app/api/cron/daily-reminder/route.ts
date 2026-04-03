@@ -54,27 +54,27 @@ function buildPersonalMarkdown(
   if (nu.length === 0 && od.length === 0 && st.length === 0) return null;
 
   const lines: string[] = [
-    `## 今日催办（${todayStr}）`,
+    `## 待你推进（${todayStr}）`,
     "",
-    "给你同步一下今天需要你及时帮忙处理的问题：",
+    "以下事项等你接力推进，每一条进展都能让协作更顺畅：",
     "",
   ];
   if (nu.length > 0) {
-    lines.push(`### 今日还没有进展更新（${nu.length}个）`);
+    lines.push(`### 今日等你同步进展（${nu.length}个）`);
     nu.forEach((i) => lines.push(`- ${i.title}`));
     lines.push("");
   }
   if (od.length > 0) {
-    lines.push(`### 已超期未关闭（${od.length}个）`);
-    od.forEach((i) => lines.push(`- ${i.title}（截止日期：${i.dueDate}，建议今天补一下进展或调整截止日期）`));
+    lines.push(`### 已超过截止日期（${od.length}个）`);
+    od.forEach((i) => lines.push(`- ${i.title}（截止日期：${i.dueDate}，补一条进展或调整日期都行）`));
     lines.push("");
   }
   if (st.length > 0) {
-    lines.push(`### 连续 3 天无进度更新（${st.length}个）`);
-    st.forEach((i) => lines.push(`- ${i.title}（连续 3 天没有新进展，方便的话补一条当前情况）`));
+    lines.push(`### 3 天没有新进展（${st.length}个）`);
+    st.forEach((i) => lines.push(`- ${i.title}（方便时补一条当前情况，团队就能了解最新状态）`));
     lines.push("");
   }
-  lines.push("如果当前有阻塞，直接在问题里写下卡点，团队会更快协助你推进。");
+  lines.push("如果遇到阻塞，直接在问题里写下卡点，团队会更快帮你推进。");
   return lines.join("\n");
 }
 
@@ -167,7 +167,7 @@ export async function GET(request: Request) {
                 issue_id: issue.id,
                 user_id:  assignee,
                 type:     "no_update_today",
-                message:  `今日（${todayStr}）尚未提交任何进度更新`,
+                message:  `今日（${todayStr}）还没有进展更新，方便时补一条`,
                 is_read:  false,
               })
               .select("id")
@@ -198,7 +198,7 @@ export async function GET(request: Request) {
               issue_id: issue.id,
               user_id:  assignee,
               type:     "overdue",
-              message:  `问题已超期（截止日期：${issue.due_date}），请尽快处理或更新截止日期`,
+                message:  `已过截止日期（${issue.due_date}），补一条进展或调整日期都行`,
               is_read:  false,
             })
             .select("id")
@@ -231,7 +231,7 @@ export async function GET(request: Request) {
                 issue_id: issue.id,
                 user_id:  assignee,
                 type:     "stale_3_days",
-                message:  `已连续超过 3 个自然日（上海时间）无人工进度更新，请关注`,
+                message:  `已有 3 天没有新进展了，方便时补一条当前情况`,
                 is_read:  false,
               })
               .select("id")
@@ -260,19 +260,19 @@ export async function GET(request: Request) {
     const workNoticeErrors: string[] = [];
 
     if (total > 0 && isWecomWebhookConfigured()) {
-      const lines: string[] = [`## 每日催办提醒（${todayStr}）\n`];
+      const lines: string[] = [`## 今日待推进事项（${todayStr}）\n`];
       if (noUpdateItems.length > 0) {
-        lines.push(`### 今日未更新（${noUpdateItems.length}个）`);
+        lines.push(`### 等待同步进展（${noUpdateItems.length}个）`);
         noUpdateItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
         lines.push("");
       }
       if (overdueItems.length > 0) {
-        lines.push(`### 超期未关闭（${overdueItems.length}个）`);
+        lines.push(`### 已过截止日期（${overdueItems.length}个）`);
         overdueItems.forEach((i) => lines.push(`- ${i.title}（截止 ${i.dueDate}）→ **${i.assignee}**`));
         lines.push("");
       }
       if (staleItems.length > 0) {
-        lines.push(`### 连续3天未更新（${staleItems.length}个）`);
+        lines.push(`### 3天未有新进展（${staleItems.length}个）`);
         staleItems.forEach((i) => lines.push(`- ${i.title} → **${i.assignee}**`));
         lines.push("");
       }
@@ -293,7 +293,7 @@ export async function GET(request: Request) {
         const result = await sendReminderNotification({
           targetWecomUserid: wcUserid,
           targetUserId:      uid,
-          title:             `每日催办 · ${todayStr}`,
+          title:             `待你推进 · ${todayStr}`,
           content:           md,
           triggerSource:     "cron_daily",
         });

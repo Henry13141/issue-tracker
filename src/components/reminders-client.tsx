@@ -131,11 +131,11 @@ export function RemindersClient({
     startTransition(async () => {
       try {
         await markReminderRead(id);
-        toast.success("已标记已读");
+        toast.success("收到，这条提醒已处理");
         setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
         router.refresh();
       } catch (e: unknown) {
-        toast.error(e instanceof Error ? e.message : "失败");
+        toast.error(e instanceof Error ? e.message : "操作没成功，可以再试一次");
       }
     });
   }
@@ -144,11 +144,11 @@ export function RemindersClient({
     startTransition(async () => {
       try {
         await markAllRemindersRead();
-        toast.success("已全部标为已读");
+        toast.success("全部清理完毕，待办清单更聚焦了");
         setSelectedIds(new Set());
         router.refresh();
       } catch (e: unknown) {
-        toast.error(e instanceof Error ? e.message : "失败");
+        toast.error(e instanceof Error ? e.message : "操作没成功，可以再试一次");
       }
     });
   }
@@ -159,11 +159,11 @@ export function RemindersClient({
     startTransition(async () => {
       try {
         await markMultipleRemindersRead(ids);
-        toast.success(`${ids.length} 条已标为已读`);
+        toast.success(`${ids.length} 条提醒已处理，今天的关注项更清晰了`);
         setSelectedIds(new Set());
         router.refresh();
       } catch (e: unknown) {
-        toast.error(e instanceof Error ? e.message : "失败");
+        toast.error(e instanceof Error ? e.message : "操作没成功，可以再试一次");
       }
     });
   }
@@ -219,14 +219,14 @@ export function RemindersClient({
       {/* ── 未读摘要 ── */}
       {mine.filter(r => !r.is_read).length > 0 && (
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>共 {mine.filter(r => !r.is_read).length} 条未读</span>
+          <span>{mine.filter(r => !r.is_read).length} 条等你回应</span>
           {typeFilter !== TYPE_ALL && <span>· 当前类型筛选: {REMINDER_TYPE_LABELS[typeFilter] ?? typeFilter}</span>}
         </div>
       )}
 
       {/* ── 提醒列表 ── */}
       {filtered.length === 0 ? (
-        <EmptyState title="没有提醒" description="当前筛选条件下无提醒记录。" />
+        <EmptyState title="全都处理好了" description="当前没有需要回应的提醒，保持这个节奏。" />
       ) : (
         <div className="space-y-3">
           {filtered.map((r) => (

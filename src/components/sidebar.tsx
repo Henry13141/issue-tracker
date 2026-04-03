@@ -17,7 +17,7 @@ const nav = [
   { href: "/dashboard/notifications", label: "通知日志",   icon: Send,             adminOnly: true },
   { href: "/issues",                  label: "问题列表",   icon: ListTodo },
   { href: "/my-tasks",                label: "我的任务",   icon: ClipboardList },
-  { href: "/reminders",               label: "提醒中心",   icon: Bell },
+  { href: "/reminders",               label: "待你回应",   icon: Bell },
 ];
 
 export function Sidebar({ user }: { user: User }) {
@@ -50,7 +50,7 @@ export function Sidebar({ user }: { user: User }) {
         <Image src="/mgm-logo.png" alt="米伽米" width={36} height={36} className="h-9 w-9 object-contain" />
         <div className="leading-tight">
           <p className="text-sm font-semibold">米伽米</p>
-          <p className="text-xs text-sidebar-foreground/60">工单管理</p>
+          <p className="text-xs text-sidebar-foreground/60">协作推进台</p>
         </div>
       </div>
       <nav className="flex flex-1 flex-col gap-0.5 p-2">
