@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   type AIChatMessage,
@@ -282,6 +282,119 @@ async function replyMarkdown(touser: string, content: string) {
   }
 }
 
+function getMessageIdentifier(msgXml: string) {
+  return extractXmlField(msgXml, "MsgId")
+    || extractXmlField(msgXml, "Msgid")
+    || `${extractXmlField(msgXml, "FromUserName")}:${extractXmlField(msgXml, "CreateTime")}`;
+}
+
+async function processIncomingMessage(msgXml: string) {
+  const msgType = extractXmlField(msgXml, "MsgType");
+  const fromUser = extractXmlField(msgXml, "FromUserName");
+  const conversationScope = extractConversationScope(msgXml);
+  const contextEnabled = conversationScope === "single";
+  const messageId = getMessageIdentifier(msgXml);
+
+  console.info("[wecom-robot] processing message", {
+    fromUser,
+    msgType,
+    conversationScope,
+    messageId,
+  });
+
+  if (msgType === "text") {
+    const rawContent = extractXmlField(msgXml, "Content").trim();
+    const content = contextEnabled
+      ? rawContent
+      : extractGroupMentionContent(rawContent);
+
+    if (!contextEnabled && content === null) {
+      return;
+    }
+
+    if (!content) {
+      await replyMarkdown(fromUser, `请在 @我 后输入问题。\n\n${GROUP_ONLY_NOTICE}`);
+      return;
+    }
+
+    if (HELP_COMMAND_RE.test(content)) {
+      await replyMarkdown(
+        fromUser,
+        contextEnabled ? HELP_MESSAGE : `${HELP_MESSAGE}\n\n${GROUP_ONLY_NOTICE}`
+      );
+      return;
+    }
+
+    if (RESET_CONTEXT_RE.test(content)) {
+      if (!contextEnabled) {
+        await replyMarkdown(fromUser, GROUP_ONLY_NOTICE);
+      } else {
+        const cleared = await clearConversationHistory(fromUser);
+        await replyMarkdown(
+          fromUser,
+          cleared ? "已清空当前上下文记忆。接下来我会把你的下一条消息当作新对话来处理。" : "清空上下文失败，请稍后再试。"
+        );
+      }
+      return;
+    }
+
+    const { reply, fromModel } = await buildKimiReply(fromUser, content, conversationScope);
+    const finalReply = contextEnabled ? reply : `${reply}\n\n${GROUP_ONLY_NOTICE}`;
+    if (fromModel && contextEnabled) {
+      await saveConversationTurn(fromUser, content, reply);
+    }
+    await replyMarkdown(fromUser, finalReply);
+    return;
+  }
+
+  if (msgType === "file") {
+    const mediaId = extractXmlField(msgXml, "MediaId");
+    const fileName = extractXmlField(msgXml, "FileName") || "文件";
+
+    if (!mediaId) {
+      await replyMarkdown(fromUser, "未获取到文件 media_id，请重新发送。");
+      return;
+    }
+
+    const isExcel = /\.(xlsx?|csv)$/i.test(fileName);
+    if (!isExcel) {
+      await replyMarkdown(fromUser, `仅支持 .xlsx / .xls 文件，收到的是「${fileName}」。`);
+      return;
+    }
+
+    let creatorId = await findCreatorId(fromUser);
+    if (!creatorId) {
+      creatorId = await getFirstAdminId();
+    }
+    if (!creatorId) {
+      await replyMarkdown(fromUser, "系统中没有找到你的账号，也没有管理员账号，无法导入。");
+      return;
+    }
+
+    try {
+      const { count, titles } = await importExcel(mediaId, creatorId);
+      const preview = titles.slice(0, 5).map((t, i) => `${i + 1}. ${t}`).join("\n");
+      const more = count > 5 ? `\n…共 ${count} 条` : "";
+      const detailHint = getIssueDetailUrl("") ? "\n\n在系统中查看：" + getIssueDetailUrl("").replace(/\/$/, "") : "";
+      await replyMarkdown(
+        fromUser,
+        [
+          `## 导入成功`,
+          "",
+          `从 **${fileName}** 解析并创建了 **${count}** 条问题：`,
+          "",
+          preview + more,
+          detailHint,
+        ].join("\n")
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[wecom-robot] import failed:", msg);
+      await replyMarkdown(fromUser, `导入失败：${msg}`);
+    }
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* 导入 Excel                                                         */
 /* ------------------------------------------------------------------ */
@@ -386,101 +499,18 @@ export async function POST(request: Request) {
     return new Response("", { status: 200 });
   }
 
-  const msgType = extractXmlField(msgXml, "MsgType");
-  const fromUser = extractXmlField(msgXml, "FromUserName");
-  const conversationScope = extractConversationScope(msgXml);
-  const contextEnabled = conversationScope === "single";
-
-  if (msgType === "text") {
-    const rawContent = extractXmlField(msgXml, "Content").trim();
-    const content = contextEnabled
-      ? rawContent
-      : extractGroupMentionContent(rawContent);
-
-    if (!contextEnabled && content === null) {
-      return new Response("", { status: 200 });
-    }
-
-    if (!content) {
-      await replyMarkdown(fromUser, `请在 @我 后输入问题。\n\n${GROUP_ONLY_NOTICE}`);
-      return new Response("", { status: 200 });
-    }
-
-    if (HELP_COMMAND_RE.test(content)) {
-      await replyMarkdown(
-        fromUser,
-        contextEnabled ? HELP_MESSAGE : `${HELP_MESSAGE}\n\n${GROUP_ONLY_NOTICE}`
-      );
-    } else if (RESET_CONTEXT_RE.test(content)) {
-      if (!contextEnabled) {
-        await replyMarkdown(fromUser, GROUP_ONLY_NOTICE);
-      } else {
-        const cleared = await clearConversationHistory(fromUser);
-        await replyMarkdown(
-          fromUser,
-          cleared ? "已清空当前上下文记忆。接下来我会把你的下一条消息当作新对话来处理。" : "清空上下文失败，请稍后再试。"
-        );
-      }
-    } else {
-      const { reply, fromModel } = await buildKimiReply(fromUser, content, conversationScope);
-      const finalReply = contextEnabled ? reply : `${reply}\n\n${GROUP_ONLY_NOTICE}`;
-      if (fromModel && contextEnabled) {
-        await saveConversationTurn(fromUser, content, reply);
-      }
-      await replyMarkdown(fromUser, finalReply);
-    }
-    return new Response("", { status: 200 });
-  }
-
-  if (msgType === "file") {
-    const mediaId = extractXmlField(msgXml, "MediaId");
-    const fileName = extractXmlField(msgXml, "FileName") || "文件";
-
-    if (!mediaId) {
-      await replyMarkdown(fromUser, "未获取到文件 media_id，请重新发送。");
-      return new Response("", { status: 200 });
-    }
-
-    const isExcel = /\.(xlsx?|csv)$/i.test(fileName);
-    if (!isExcel) {
-      await replyMarkdown(fromUser, `仅支持 .xlsx / .xls 文件，收到的是「${fileName}」。`);
-      return new Response("", { status: 200 });
-    }
-
-    let creatorId = await findCreatorId(fromUser);
-    if (!creatorId) {
-      creatorId = await getFirstAdminId();
-    }
-    if (!creatorId) {
-      await replyMarkdown(fromUser, "系统中没有找到你的账号，也没有管理员账号，无法导入。");
-      return new Response("", { status: 200 });
-    }
-
+  const messageId = getMessageIdentifier(msgXml);
+  after(async () => {
     try {
-      const { count, titles } = await importExcel(mediaId, creatorId);
-      const preview = titles.slice(0, 5).map((t, i) => `${i + 1}. ${t}`).join("\n");
-      const more = count > 5 ? `\n…共 ${count} 条` : "";
-      const detailHint = getIssueDetailUrl("") ? "\n\n在系统中查看：" + getIssueDetailUrl("").replace(/\/$/, "") : "";
-      await replyMarkdown(
-        fromUser,
-        [
-          `## 导入成功`,
-          "",
-          `从 **${fileName}** 解析并创建了 **${count}** 条问题：`,
-          "",
-          preview + more,
-          detailHint,
-        ].join("\n")
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error("[wecom-robot] import failed:", msg);
-      await replyMarkdown(fromUser, `导入失败：${msg}`);
+      await processIncomingMessage(msgXml);
+      console.info("[wecom-robot] processed message", { messageId });
+    } catch (error) {
+      console.error("[wecom-robot] process message failed:", {
+        messageId,
+        error,
+      });
     }
+  });
 
-    return new Response("", { status: 200 });
-  }
-
-  // 其他消息类型忽略
   return new Response("", { status: 200 });
 }
