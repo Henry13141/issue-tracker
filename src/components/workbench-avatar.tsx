@@ -10,6 +10,15 @@ import { createAvatarSignedUploadUrl, updateMyAvatarUrl } from "@/actions/profil
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
 
+/** 最小 PNG（1×1），仅开发环境「测试上传」用 */
+const TEST_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+function testPngFile(): File {
+  const buf = Uint8Array.from(atob(TEST_PNG_BASE64), (c) => c.charCodeAt(0));
+  return new File([buf], "avatar-test.png", { type: "image/png" });
+}
+
 export function WorkbenchAvatar({
   user,
   className,
@@ -28,6 +37,23 @@ export function WorkbenchAvatar({
     .slice(0, 2)
     .toUpperCase();
 
+  async function runAvatarUpload(file: File) {
+    const { signedUrl, publicUrl } = await createAvatarSignedUploadUrl(file.type, file.size);
+    const put = await fetch(signedUrl, {
+      method: "PUT",
+      body: file,
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+    });
+    if (!put.ok) {
+      throw new Error(`上传失败（${put.status}）`);
+    }
+    await updateMyAvatarUrl(publicUrl);
+    toast.success("头像已更新");
+    startTransition(() => {
+      router.refresh();
+    });
+  }
+
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -35,22 +61,24 @@ export function WorkbenchAvatar({
 
     setUploading(true);
     try {
-      const { signedUrl, publicUrl } = await createAvatarSignedUploadUrl(file.type, file.size);
-      const put = await fetch(signedUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-      });
-      if (!put.ok) {
-        throw new Error(`上传失败（${put.status}）`);
-      }
-      await updateMyAvatarUrl(publicUrl);
-      toast.success("头像已更新");
-      startTransition(() => {
-        router.refresh();
-      });
+      await runAvatarUpload(file);
     } catch (err) {
+      if (process.env.NODE_ENV === "development") {
+        console.error("[WorkbenchAvatar] upload failed", err);
+      }
       toast.error(err instanceof Error ? err.message : "上传失败");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function onDevTestUpload() {
+    setUploading(true);
+    try {
+      await runAvatarUpload(testPngFile());
+    } catch (err) {
+      console.error("[WorkbenchAvatar] dev test upload failed", err);
+      toast.error(err instanceof Error ? err.message : "测试上传失败");
     } finally {
       setUploading(false);
     }
@@ -89,6 +117,16 @@ export function WorkbenchAvatar({
           className="sr-only"
           onChange={onPickFile}
         />
+        {process.env.NODE_ENV === "development" ? (
+          <button
+            type="button"
+            className="mt-1 w-full text-center text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+            disabled={uploading}
+            onClick={() => void onDevTestUpload()}
+          >
+            测试上传（1×1 PNG）
+          </button>
+        ) : null}
       </div>
       <div className="min-w-0 flex-1 lg:w-full lg:max-w-[12rem] lg:flex-none lg:text-center">
         <p
