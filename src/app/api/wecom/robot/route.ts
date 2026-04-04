@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  type AIChatMessage,
+  WECOM_INTERNAL_ASSISTANT_SYSTEM_PROMPT,
+  chatCompletionFromMessages,
+  isAIConfigured,
+} from "@/lib/ai";
+import {
   isWecomAppConfigured,
   verifyWecomSignature,
   decryptWecomMessage,
@@ -13,6 +19,232 @@ import { getIssueDetailUrl } from "@/lib/app-url";
 import type { IssuePriority, IssueStatus } from "@/types";
 
 export const dynamic = "force-dynamic";
+
+const HELP_MESSAGE = [
+  "## 米伽米问题助手",
+  "",
+  "1. 直接发文本给我，我会结合最近对话调用 Kimi 回答问题。",
+  "2. 在与我的单聊中发送 Excel 文件（.xlsx/.xls），我会自动解析并导入为新问题。",
+  "3. 发送“清空上下文”或“重置对话”可以清掉当前记忆。",
+  "",
+  "支持的表头：标题/问题、描述/情况说明、优先级、状态/完成情况、负责人、截止日期。",
+].join("\n");
+
+const KIMI_TIMEOUT_MS = 20_000;
+const WECOM_REPLY_LIMIT = 1500;
+const MAX_CONTEXT_TURNS = 5;
+const MAX_CONTEXT_MESSAGES = MAX_CONTEXT_TURNS * 2;
+const HELP_COMMAND_RE = /^(帮助|help)$/i;
+const RESET_CONTEXT_RE = /^(清空上下文|重置对话|清除记忆|reset)$/i;
+const GROUP_ONLY_NOTICE = "当前群聊消息只做单轮回复，不保留上下文记忆。若需要连续对话，请与我单聊。";
+
+type ConversationRole = "user" | "assistant";
+type ConversationScope = "single" | "group";
+type KimiReplyResult = { reply: string; fromModel: boolean };
+
+type ConversationRow = {
+  id: string;
+  role: ConversationRole;
+  content: string;
+};
+
+function extractGroupMentionContent(content: string): string | null {
+  const hasMention = /(^|\s)@\S+/.test(content);
+  if (!hasMention) return null;
+
+  const normalized = content
+    .replace(/(^|\s)@\S+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return normalized;
+}
+
+function clampReply(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= WECOM_REPLY_LIMIT) return trimmed;
+  return `${trimmed.slice(0, WECOM_REPLY_LIMIT)}\n\n[内容较长，已截断]`;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<null>((resolve) => {
+        timeoutHandle = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+function getConversationAdminClient() {
+  try {
+    return createAdminClient();
+  } catch (error) {
+    console.error("[wecom-robot] create admin client failed:", error);
+    return null;
+  }
+}
+
+async function loadConversationHistory(wecomUserid: string): Promise<AIChatMessage[]> {
+  const supabase = getConversationAdminClient();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("wecom_robot_messages")
+    .select("role, content")
+    .eq("wecom_userid", wecomUserid)
+    .order("created_at", { ascending: false })
+    .limit(MAX_CONTEXT_MESSAGES);
+
+  if (error) {
+    console.error("[wecom-robot] load history failed:", error.message);
+    return [];
+  }
+
+  return ((data ?? []) as Array<{ role: ConversationRole; content: string }>)
+    .reverse()
+    .map((item) => ({ role: item.role, content: item.content }));
+}
+
+async function pruneConversationHistory(wecomUserid: string) {
+  const supabase = getConversationAdminClient();
+  if (!supabase) return;
+
+  const { data, error } = await supabase
+    .from("wecom_robot_messages")
+    .select("id")
+    .eq("wecom_userid", wecomUserid)
+    .order("created_at", { ascending: false })
+    .range(MAX_CONTEXT_MESSAGES, MAX_CONTEXT_MESSAGES + 200);
+
+  if (error) {
+    console.error("[wecom-robot] prune history query failed:", error.message);
+    return;
+  }
+
+  const ids = ((data ?? []) as ConversationRow[]).map((item) => item.id);
+  if (ids.length === 0) return;
+
+  const { error: deleteError } = await supabase
+    .from("wecom_robot_messages")
+    .delete()
+    .in("id", ids);
+
+  if (deleteError) {
+    console.error("[wecom-robot] prune history delete failed:", deleteError.message);
+  }
+}
+
+async function saveConversationTurn(wecomUserid: string, userContent: string, assistantContent: string) {
+  const supabase = getConversationAdminClient();
+  if (!supabase) return;
+
+  const { error } = await supabase.from("wecom_robot_messages").insert([
+    { wecom_userid: wecomUserid, role: "user", content: userContent },
+    { wecom_userid: wecomUserid, role: "assistant", content: assistantContent },
+  ]);
+
+  if (error) {
+    console.error("[wecom-robot] save history failed:", error.message);
+    return;
+  }
+
+  await pruneConversationHistory(wecomUserid);
+}
+
+async function clearConversationHistory(wecomUserid: string): Promise<boolean> {
+  const supabase = getConversationAdminClient();
+  if (!supabase) return false;
+
+  const { error } = await supabase
+    .from("wecom_robot_messages")
+    .delete()
+    .eq("wecom_userid", wecomUserid);
+
+  if (error) {
+    console.error("[wecom-robot] clear history failed:", error.message);
+    return false;
+  }
+
+  return true;
+}
+
+function extractConversationScope(msgXml: string): ConversationScope {
+  const chatType =
+    extractXmlField(msgXml, "ChatType") ||
+    extractXmlField(msgXml, "chattype");
+  const chatId =
+    extractXmlField(msgXml, "ChatId") ||
+    extractXmlField(msgXml, "chatid");
+
+  if (chatType.toLowerCase() === "group" || Boolean(chatId)) {
+    return "group";
+  }
+
+  return "single";
+}
+
+async function buildKimiReply(
+  wecomUserid: string,
+  content: string,
+  conversationScope: ConversationScope
+): Promise<KimiReplyResult> {
+  if (!content.trim()) {
+    return {
+      reply: `没有识别到有效文本内容。发送“帮助”可查看我支持的能力。`,
+      fromModel: false,
+    };
+  }
+
+  if (!isAIConfigured()) {
+    return {
+      reply: "当前未配置 MOONSHOT_API_KEY，暂时无法调用 Kimi。发送“帮助”可查看其他可用能力。",
+      fromModel: false,
+    };
+  }
+
+  const history = conversationScope === "single"
+    ? await loadConversationHistory(wecomUserid)
+    : [];
+  const messages: AIChatMessage[] = [
+    { role: "system", content: WECOM_INTERNAL_ASSISTANT_SYSTEM_PROMPT },
+    ...history,
+    { role: "user", content },
+  ];
+
+  const result = await withTimeout(
+    chatCompletionFromMessages(messages, {
+      maxTokens: 700,
+      disableThinking: true,
+    }),
+    KIMI_TIMEOUT_MS
+  );
+
+  if (!result) {
+    return {
+      reply: "这次没有成功从 Kimi 获取回复，可能是超时或服务暂时不可用，请稍后再试。",
+      fromModel: false,
+    };
+  }
+
+  const reply = clampReply(result);
+  if (!reply) {
+    return {
+      reply: "Kimi 这次没有返回可发送的内容，请换个问法再试一次。",
+      fromModel: false,
+    };
+  }
+
+  return { reply, fromModel: true };
+}
 
 /* ------------------------------------------------------------------ */
 /* 查找发送者对应的系统用户                                             */
@@ -156,25 +388,46 @@ export async function POST(request: Request) {
 
   const msgType = extractXmlField(msgXml, "MsgType");
   const fromUser = extractXmlField(msgXml, "FromUserName");
+  const conversationScope = extractConversationScope(msgXml);
+  const contextEnabled = conversationScope === "single";
 
   if (msgType === "text") {
-    const content = extractXmlField(msgXml, "Content").trim();
-    if (/帮助|help|你好/i.test(content)) {
+    const rawContent = extractXmlField(msgXml, "Content").trim();
+    const content = contextEnabled
+      ? rawContent
+      : extractGroupMentionContent(rawContent);
+
+    if (!contextEnabled && content === null) {
+      return new Response("", { status: 200 });
+    }
+
+    if (!content) {
+      await replyMarkdown(fromUser, `请在 @我 后输入问题。\n\n${GROUP_ONLY_NOTICE}`);
+      return new Response("", { status: 200 });
+    }
+
+    if (HELP_COMMAND_RE.test(content)) {
       await replyMarkdown(
         fromUser,
-        [
-          "## 米伽米问题助手",
-          "",
-          "**导入问题**：在与我的单聊中发送 Excel 文件（.xlsx/.xls），我会自动解析并导入为新问题。",
-          "",
-          "**支持的表头**：标题/问题、描述/情况说明、优先级、状态/完成情况、负责人、截止日期。",
-        ].join("\n")
+        contextEnabled ? HELP_MESSAGE : `${HELP_MESSAGE}\n\n${GROUP_ONLY_NOTICE}`
       );
+    } else if (RESET_CONTEXT_RE.test(content)) {
+      if (!contextEnabled) {
+        await replyMarkdown(fromUser, GROUP_ONLY_NOTICE);
+      } else {
+        const cleared = await clearConversationHistory(fromUser);
+        await replyMarkdown(
+          fromUser,
+          cleared ? "已清空当前上下文记忆。接下来我会把你的下一条消息当作新对话来处理。" : "清空上下文失败，请稍后再试。"
+        );
+      }
     } else {
-      await replyMarkdown(
-        fromUser,
-        `收到！回复"帮助"查看我能做什么。\n\n导入问题：请在单聊中直接发送 Excel 文件给我。`
-      );
+      const { reply, fromModel } = await buildKimiReply(fromUser, content, conversationScope);
+      const finalReply = contextEnabled ? reply : `${reply}\n\n${GROUP_ONLY_NOTICE}`;
+      if (fromModel && contextEnabled) {
+        await saveConversationTurn(fromUser, content, reply);
+      }
+      await replyMarkdown(fromUser, finalReply);
     }
     return new Response("", { status: 200 });
   }

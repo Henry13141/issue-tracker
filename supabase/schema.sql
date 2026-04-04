@@ -58,6 +58,14 @@ CREATE TABLE public.reminders (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE public.wecom_robot_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wecom_userid TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Indexes
 -- ---------------------------------------------------------------------------
@@ -70,6 +78,8 @@ CREATE INDEX idx_issue_updates_issue ON public.issue_updates (issue_id);
 CREATE INDEX idx_issue_updates_created ON public.issue_updates (created_at DESC);
 CREATE INDEX idx_reminders_user ON public.reminders (user_id, is_read);
 CREATE INDEX idx_reminders_created ON public.reminders (created_at DESC);
+CREATE INDEX idx_wecom_robot_messages_user_created
+  ON public.wecom_robot_messages (wecom_userid, created_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Triggers: updated_at
@@ -154,6 +164,7 @@ ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.issues ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.issue_updates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reminders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.wecom_robot_messages ENABLE ROW LEVEL SECURITY;
 
 -- users
 CREATE POLICY "users_select_authenticated"
