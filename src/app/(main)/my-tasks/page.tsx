@@ -1,4 +1,4 @@
-import { getMyOpenIssues, issueHasUpdateToday } from "@/actions/issues";
+import { getMyOpenIssues, getMyFollowingIssues, issueHasUpdateToday } from "@/actions/issues";
 import { getCurrentUser } from "@/lib/auth";
 import { MyTasksClient } from "@/components/my-tasks-client";
 import type { IssueWithRelations } from "@/types";
@@ -7,7 +7,10 @@ export default async function MyTasksPage() {
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const issues = await getMyOpenIssues();
+  const [issues, following] = await Promise.all([
+    getMyOpenIssues(),
+    getMyFollowingIssues(),
+  ]);
   const needUpdate: IssueWithRelations[] = [];
   const updatedToday: IssueWithRelations[] = [];
 
@@ -33,7 +36,7 @@ export default async function MyTasksPage() {
           你负责的事项都在这里，每次更新都会让协作更顺畅
         </p>
       </div>
-      <MyTasksClient needUpdate={needUpdate} updatedToday={updatedToday} />
+      <MyTasksClient needUpdate={needUpdate} updatedToday={updatedToday} following={following} />
     </div>
   );
 }

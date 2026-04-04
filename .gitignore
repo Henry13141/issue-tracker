@@ -40,6 +40,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# self-improving-agent — 工作记忆（会话/错误），本地生成即可
+/memory/working/*.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

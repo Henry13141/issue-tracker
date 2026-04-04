@@ -39,7 +39,13 @@ export function getNotificationCategory(triggerSource: string): NotificationCate
   if (triggerSource.startsWith("lifecycle")) return "lifecycle";
   if (triggerSource.startsWith("issue_event")) return "issue_event";
   if (triggerSource === "cron_daily") return "reminder";
-  if (triggerSource === "cron_morning" || triggerSource === "cron_admin") return "digest";
+  if (
+    triggerSource === "cron_morning" ||
+    triggerSource === "cron_admin" ||
+    triggerSource === "cron_week_preview"
+  ) {
+    return "digest";
+  }
   if (triggerSource === "manual_test") return "digest";
   return "issue_event";
 }
@@ -49,6 +55,7 @@ export const NOTIFICATION_TRIGGER_LABELS: Record<string, string> = {
   cron_morning:            "早间摘要",
   cron_admin:              "推进跟踪",
   cron_daily:              "待推进提醒",
+  cron_week_preview:       "下周待继续（周日）",
   issue_event:             "协作事件（旧）",
   "issue_event.status":    "事件·状态变更",
   "issue_event.priority":  "事件·优先级紧急",

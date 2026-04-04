@@ -12,6 +12,8 @@ import type {
   IssueAttachment,
   IssueAttachmentWithUrl,
   IssueEventWithActor,
+  IssueHandoverWithUsers,
+  IssueParticipant,
   IssueSummary,
   IssueStatus,
   IssueUpdateWithUser,
@@ -294,12 +296,38 @@ export async function getIssueBasic(id: string): Promise<IssueWithRelations | nu
     }
   }
 
+  // 查询交接链路与参与者
+  const [handoversRes, participantsRes] = await Promise.all([
+    supabase
+      .from("issue_handovers")
+      .select(`*, from_user:users!issue_handovers_from_user_id_fkey(id, name), to_user:users!issue_handovers_to_user_id_fkey(id, name)`)
+      .eq("issue_id", id)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("issue_participants")
+      .select(`*, user:users!issue_participants_user_id_fkey(id, name)`)
+      .eq("issue_id", id),
+  ]);
+
+  const handovers = (handoversRes.data ?? []).map((h) => ({
+    ...h,
+    from_user: Array.isArray(h.from_user) ? h.from_user[0] ?? null : h.from_user ?? null,
+    to_user: Array.isArray(h.to_user) ? h.to_user[0] ?? null : h.to_user ?? null,
+  })) as IssueHandoverWithUsers[];
+
+  const participants = (participantsRes.data ?? []).map((p) => ({
+    ...p,
+    user: Array.isArray(p.user) ? p.user[0] ?? null : p.user ?? null,
+  })) as IssueParticipant[];
+
   return {
     ...issueRow,
     issue_updates: [],
     attachments: attachmentsWithUrls,
     parent,
     children,
+    handovers,
+    participants,
   };
 }
 
@@ -511,6 +539,20 @@ export async function createIssue(input: {
     inheritedAssigneeId = (parentIssue?.assignee_id as string | null) ?? null;
   }
 
+  // 员工创建：负责人固定为自己；子任务与父任务负责人一致；审核人由系统默认（郝毅等）
+  if (user.role !== "admin") {
+    if (!input.parent_issue_id) {
+      inheritedAssigneeId = user.id;
+    } else {
+      const { data: parentIssue } = await supabase
+        .from("issues")
+        .select("assignee_id")
+        .eq("id", input.parent_issue_id)
+        .single();
+      inheritedAssigneeId = (parentIssue?.assignee_id as string | null) ?? user.id;
+    }
+  }
+
   // NOTE: category, module, source, reviewer_id require p0_governance.sql migration.
   // Build insert object conditionally to avoid schema cache errors on un-migrated DBs.
   const normalizedCategory = input.category?.trim() ? input.category.trim() : null;
@@ -539,10 +581,12 @@ export async function createIssue(input: {
     .select("category, module, source, reviewer_id")
     .limit(0);
   if (!probeErr) {
-    const effectiveReviewerId = input.reviewer_id ?? await getDefaultReviewerId(supabase);
+    const defaultReviewerId = await getDefaultReviewerId(supabase);
+    const effectiveReviewerId =
+      user.role === "admin" ? (input.reviewer_id ?? defaultReviewerId) : defaultReviewerId;
     insertData.category    = normalizedCategory;
     insertData.module      = normalizedModule;
-    insertData.source      = input.source      ?? "manual";
+    insertData.source      = user.role === "admin" ? (input.source ?? "manual") : "manual";
     insertData.reviewer_id = effectiveReviewerId;
   }
 
@@ -587,6 +631,7 @@ export async function createIssue(input: {
   revalidatePath("/issues");
   revalidatePath("/dashboard");
   revalidatePath("/my-tasks");
+  revalidatePath("/home");
   if (input.parent_issue_id) {
     revalidatePath(`/issues/${input.parent_issue_id}`);
   }
@@ -621,6 +666,25 @@ export async function updateIssue(
     .single();
 
   if (!beforeRow) return { error: "问题不存在" };
+
+  // 非管理员不得修改优先级 / 负责人 / 审核人（与详情页权限一致，防绕过前端）
+  if (user.role !== "admin") {
+    if (patch.priority !== undefined && patch.priority !== (beforeRow.priority as IssuePriority)) {
+      return { error: "仅管理员可修改优先级" };
+    }
+    if (
+      patch.assignee_id !== undefined &&
+      patch.assignee_id !== (beforeRow.assignee_id as string | null)
+    ) {
+      return { error: "仅管理员可修改负责人" };
+    }
+    if (
+      patch.reviewer_id !== undefined &&
+      patch.reviewer_id !== (beforeRow.reviewer_id as string | null)
+    ) {
+      return { error: "仅管理员可修改审核人" };
+    }
+  }
 
   const prevStatus = beforeRow.status as IssueStatus;
   const newStatus  = patch.status;
@@ -704,6 +768,10 @@ export async function updateIssue(
 
   if (patch.assignee_id !== undefined) {
     await syncChildAssignees(supabase, id, patch.assignee_id);
+  }
+
+  if (newStatus && (newStatus === "resolved" || newStatus === "closed")) {
+    await markHandoversCompleted(supabase, id);
   }
 
   // ---------- 写事件日志 ----------
@@ -835,6 +903,7 @@ export async function updateIssue(
   revalidatePath(`/issues/${id}`);
   revalidatePath("/dashboard");
   revalidatePath("/my-tasks");
+  revalidatePath("/home");
 }
 
 export async function deleteIssue(id: string) {
@@ -935,6 +1004,10 @@ export async function addIssueUpdate(
       }
       throw new Error(uErr.message);
     }
+
+    if (statusTo === "resolved" || statusTo === "closed") {
+      await markHandoversCompleted(supabase, issueId);
+    }
   }
 
   // ---------- 确定 update_type ----------
@@ -1033,6 +1106,7 @@ export async function addIssueUpdate(
   revalidatePath(`/issues/${issueId}`);
   revalidatePath("/issues");
   revalidatePath("/my-tasks");
+  revalidatePath("/home");
   revalidatePath("/dashboard");
 }
 
@@ -1101,6 +1175,7 @@ export async function bulkCreateIssues(
   revalidatePath("/issues");
   revalidatePath("/dashboard");
   revalidatePath("/my-tasks");
+  revalidatePath("/home");
   return inserts.length;
 }
 
@@ -1116,6 +1191,39 @@ export async function getMyOpenIssues(): Promise<IssueWithRelations[]> {
     .neq("status", "resolved")
     .neq("status", "closed")
     .order("due_date", { ascending: true, nullsFirst: false });
+
+  if (error) {
+    console.error(error);
+    return [];
+  }
+  return (data ?? []) as IssueWithRelations[];
+}
+
+/** 我跟进的：我曾经参与交接但不再是当前负责人的未关闭问题 */
+export async function getMyFollowingIssues(): Promise<IssueWithRelations[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const supabase = await createClient();
+
+  const { data: participantRows, error: pErr } = await supabase
+    .from("issue_participants")
+    .select("issue_id")
+    .eq("user_id", user.id)
+    .eq("active", true)
+    .in("role", ["handover_from"]);
+
+  if (pErr || !participantRows?.length) return [];
+
+  const issueIds = [...new Set(participantRows.map((r) => r.issue_id as string))];
+  const { data, error } = await supabase
+    .from("issues")
+    .select(issueSelect)
+    .in("id", issueIds)
+    .neq("assignee_id", user.id)
+    .neq("status", "resolved")
+    .neq("status", "closed")
+    .order("last_activity_at", { ascending: false });
 
   if (error) {
     console.error(error);
@@ -1185,7 +1293,7 @@ export async function addUpdateComment(updateId: string, content: string) {
 }
 
 // ---------------------------------------------------------------------------
-// 任务交接（专属流程，发交接专项通知而非通用负责人变更通知）
+// 任务交接 / 返工退回（专属流程，含交接链路记录与参与者管理）
 // ---------------------------------------------------------------------------
 
 export async function handoverIssue(params: {
@@ -1193,13 +1301,14 @@ export async function handoverIssue(params: {
   toUserId: string;
   note?: string;
   attachmentNames?: string[];
+  kind?: "handover" | "return";
 }): Promise<{ error?: string }> {
+  const kind = params.kind ?? "handover";
   const user = await getCurrentUser();
   if (!user) return { error: "未登录" };
 
   const supabase = await createClient();
 
-  // 读取当前 issue
   const { data: issue, error: fetchErr } = await supabase
     .from("issues")
     .select("title, assignee_id, reviewer_id, creator_id, status, parent_issue_id")
@@ -1208,12 +1317,28 @@ export async function handoverIssue(params: {
 
   if (fetchErr || !issue) return { error: "问题不存在" };
 
-  // 权限：当前负责人或管理员可交接
   const isAdmin = user.role === "admin";
   const isAssignee = (issue.assignee_id as string | null) === user.id;
   if (!isAdmin && !isAssignee) return { error: "无权限发起交接" };
 
   if (params.toUserId === user.id) return { error: "不能交接给自己" };
+
+  // 如果是返工退回，校验 toUserId 必须是最近一条交接来源
+  if (kind === "return") {
+    const { data: lastHandover } = await supabase
+      .from("issue_handovers")
+      .select("from_user_id")
+      .eq("issue_id", params.issueId)
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!lastHandover || (lastHandover.from_user_id as string) !== params.toUserId) {
+      return { error: "只能退回给最近一位交接来源" };
+    }
+  }
+
+  const fromUserId = issue.assignee_id as string | null;
 
   // 1. 更新负责人
   const { error: updateErr } = await supabase
@@ -1225,16 +1350,48 @@ export async function handoverIssue(params: {
 
   await syncChildAssignees(supabase, params.issueId, params.toUserId);
 
-  // 2. 写事件日志
+  // 2. 写 issue_handovers 记录
+  if (kind === "return") {
+    await supabase
+      .from("issue_handovers")
+      .update({ status: "returned" })
+      .eq("issue_id", params.issueId)
+      .eq("status", "active");
+  }
+  await supabase.from("issue_handovers").insert({
+    issue_id:        params.issueId,
+    from_user_id:    fromUserId ?? user.id,
+    to_user_id:      params.toUserId,
+    kind,
+    note:            params.note?.trim() || null,
+    attachment_names: params.attachmentNames?.length ? params.attachmentNames : null,
+    status:          "active",
+  });
+
+  // 3. upsert issue_participants（原负责人作为跟进人保留）
+  if (fromUserId) {
+    await supabase.from("issue_participants").upsert(
+      { issue_id: params.issueId, user_id: fromUserId, role: "handover_from", active: true },
+      { onConflict: "issue_id,user_id,role" }
+    );
+  }
+  await supabase.from("issue_participants").upsert(
+    { issue_id: params.issueId, user_id: params.toUserId, role: "assignee", active: true },
+    { onConflict: "issue_id,user_id,role" }
+  );
+
+  // 4. 写独立事件日志
+  const eventType = kind === "return" ? "handover_return" : "handover";
   await writeIssueEvent(supabase, {
     issueId:   params.issueId,
     actorId:   user.id,
-    eventType: "assignee_changed",
-    payload:   { from: issue.assignee_id, to: params.toUserId, via: "handover" },
+    eventType,
+    payload:   { from: fromUserId, to: params.toUserId, kind, note: params.note?.trim() || null },
   });
 
-  // 3. 创建进展更新（始终写，作为交接存档）
-  const noteLines: string[] = ["【任务交接】"];
+  // 5. 创建进展更新（作为交接存档）
+  const kindLabel = kind === "return" ? "返工退回" : "任务交接";
+  const noteLines: string[] = [`【${kindLabel}】`];
   if (params.note?.trim()) noteLines.push(params.note.trim());
   if (params.attachmentNames && params.attachmentNames.length > 0) {
     noteLines.push(`已附上交接文件：${params.attachmentNames.join("、")}`);
@@ -1249,8 +1406,7 @@ export async function handoverIssue(params: {
     is_system_generated: false,
   });
 
-  // 4. 发送交接专项通知（fire-and-forget）
-  // 子任务不独立推送交接通知——父任务的交接通知已包含足够上下文
+  // 6. 发送交接/退回专项通知（fire-and-forget）
   const isSubtask = !!(issue.parent_issue_id as string | null);
   if (!isSubtask) {
     dispatchEventNotifications({
@@ -1262,7 +1418,7 @@ export async function handoverIssue(params: {
       reviewerId: (issue.reviewer_id as string | null) ?? null,
       creatorId:  issue.creator_id as string,
       changes:    [{
-        type:            "handover",
+        type:            kind === "return" ? "handover_return" : "handover",
         fromId:          user.id,
         toId:            params.toUserId,
         note:            params.note?.trim() || undefined,
@@ -1274,9 +1430,24 @@ export async function handoverIssue(params: {
   revalidatePath(`/issues/${params.issueId}`);
   revalidatePath("/issues");
   revalidatePath("/my-tasks");
+  revalidatePath("/home");
   revalidatePath("/dashboard");
 
   return {};
+}
+
+/** 查询当前 issue 最近一条 active 交接的来源用户，用于"退回上一位"入口 */
+export async function getLastHandoverFrom(issueId: string): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("issue_handovers")
+    .select("from_user_id")
+    .eq("issue_id", issueId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data?.from_user_id as string) ?? null;
 }
 
 export async function toggleSubtaskCompletion(subtaskId: string, completed: boolean) {
@@ -1338,6 +1509,7 @@ export async function toggleSubtaskCompletion(subtaskId: string, completed: bool
   revalidatePath("/issues");
   revalidatePath("/dashboard");
   revalidatePath("/my-tasks");
+  revalidatePath("/home");
 }
 
 // ---------------------------------------------------------------------------
@@ -1368,6 +1540,17 @@ async function getIncompleteSubtaskCount(
     .not("status", "in", '("resolved","closed")');
 
   return count ?? 0;
+}
+
+async function markHandoversCompleted(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  issueId: string
+) {
+  await supabase
+    .from("issue_handovers")
+    .update({ status: "completed" })
+    .eq("issue_id", issueId)
+    .eq("status", "active");
 }
 
 async function syncChildAssignees(

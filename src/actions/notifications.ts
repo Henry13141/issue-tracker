@@ -73,7 +73,9 @@ export async function getNotificationDeliveries(
       if (filters.category === "reminder") {
         query = query.eq("trigger_source", "cron_daily");
       } else if (filters.category === "digest") {
-        query = query.or("trigger_source.eq.cron_morning,trigger_source.eq.cron_admin,trigger_source.eq.manual_test");
+        query = query.or(
+          "trigger_source.eq.cron_morning,trigger_source.eq.cron_admin,trigger_source.eq.cron_week_preview,trigger_source.eq.manual_test"
+        );
       } else {
         query = query.like("trigger_source", `${prefix}%`);
       }

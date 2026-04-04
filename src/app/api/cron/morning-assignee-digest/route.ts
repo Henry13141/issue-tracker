@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/reminder-logic";
+import { getChinaWeekday } from "@/lib/dates";
 import { isWecomAppConfigured, isWecomWebhookConfigured } from "@/lib/wecom";
 import { sendAdminDigest, sendGroupDigest } from "@/lib/notification-service";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
@@ -90,6 +91,14 @@ export async function GET(request: Request) {
   }
 
   try {
+    if (getChinaWeekday() === 6) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: "周六不打扰：不发送早间摘要与群消息",
+      });
+    }
+
     const supabase = createAdminClient();
     const { dateStr: todayStr } = getChinaDayBounds();
     const dateLabel = `${todayStr.slice(0, 4)}年${Number(todayStr.slice(5, 7))}月${Number(todayStr.slice(8, 10))}日`;

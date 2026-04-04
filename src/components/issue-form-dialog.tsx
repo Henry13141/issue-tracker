@@ -38,7 +38,13 @@ type SubtaskDraft = {
   description: string;
 };
 
-export function IssueFormDialog({ members }: { members: User[] }) {
+export function IssueFormDialog({
+  members,
+  currentUser,
+}: {
+  members: User[];
+  currentUser: User;
+}) {
   const router      = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen]           = useState(false);
@@ -58,6 +64,8 @@ export function IssueFormDialog({ members }: { members: User[] }) {
   const [subtasks, setSubtasks] = useState<SubtaskDraft[]>([]);
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiPrioritySuggesting, setAiPrioritySuggesting] = useState(false);
+  const isMember = currentUser.role === "member";
+
   const defaultReviewer = useMemo(() => {
     const scored = members
       .filter((m) => m.role === "admin")
@@ -135,8 +143,13 @@ export function IssueFormDialog({ members }: { members: User[] }) {
     setTitle("");
     setDescription("");
     setPriority("medium");
-    setAssigneeId("");
-    setReviewerId(defaultReviewer?.id ?? "");
+    if (isMember) {
+      setAssigneeId(currentUser.id);
+      setReviewerId(defaultReviewer?.id ?? "");
+    } else {
+      setAssigneeId("");
+      setReviewerId(defaultReviewer?.id ?? "");
+    }
     setCategory("__none__");
     setModule("__none__");
     setSource("manual");
@@ -219,7 +232,11 @@ export function IssueFormDialog({ members }: { members: User[] }) {
       } else if (subtasks.length > 0) {
         toast.success(`问题已录入系统，${subtasks.length} 个子任务也一起就位了，相关同事会收到通知`);
       } else {
-        toast.success("问题已录入系统，接下来可以分配负责人继续推进");
+        toast.success(
+          isMember
+            ? "问题已录入系统，任务由你负责，审核人将收到知悉"
+            : "问题已录入系统，接下来可以分配负责人继续推进"
+        );
       }
       setOpen(false);
       resetForm();
@@ -234,7 +251,13 @@ export function IssueFormDialog({ members }: { members: User[] }) {
 
   return (
     <>
-      <Button type="button" onClick={() => setOpen(true)}>
+      <Button
+        type="button"
+        onClick={() => {
+          resetForm();
+          setOpen(true);
+        }}
+      >
         新建问题
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -406,51 +429,65 @@ export function IssueFormDialog({ members }: { members: User[] }) {
 
                 <div className="space-y-2">
                   <Label>负责人</Label>
-                  <Select
-                    value={assigneeId || "__none__"}
-                    onValueChange={(v) => setAssigneeId(v ?? "")}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="未分配">
-                        {assigneeId && assigneeId !== "__none__" ? assigneeName ?? "未分配" : "未分配"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">未分配</SelectItem>
-                      {members.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isMember ? (
+                    <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm">
+                      {currentUser.name}
+                    </div>
+                  ) : (
+                    <Select
+                      value={assigneeId || "__none__"}
+                      onValueChange={(v) => setAssigneeId(v ?? "")}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="未分配">
+                          {assigneeId && assigneeId !== "__none__" ? assigneeName ?? "未分配" : "未分配"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">未分配</SelectItem>
+                        {members.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label>审核人</Label>
-                  <Select
-                    value={reviewerId || "__none__"}
-                    onValueChange={(v) => setReviewerId(v ?? "")}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="请选择审核人">
-                        {reviewerId && reviewerId !== "__none__" ? reviewerName ?? "未指定" : "未指定"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">未指定</SelectItem>
-                      {members.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isMember ? (
+                    <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm">
+                      {defaultReviewer?.name ?? "郝毅"}
+                    </div>
+                  ) : (
+                    <Select
+                      value={reviewerId || "__none__"}
+                      onValueChange={(v) => setReviewerId(v ?? "")}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="请选择审核人">
+                          {reviewerId && reviewerId !== "__none__" ? reviewerName ?? "未指定" : "未指定"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">未指定</SelectItem>
+                        {members.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
 
                 <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
                   <div className="flex items-center gap-2">
-                    <Label className="text-xs text-muted-foreground">分类 / 模块</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      {isMember ? "任务类型（分类与模块）" : "分类 / 模块"}
+                    </Label>
                     <Button
                       type="button"
                       variant="ghost"
@@ -515,19 +552,21 @@ export function IssueFormDialog({ members }: { members: User[] }) {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>来源</Label>
-                  <Select value={source} onValueChange={(v) => setSource(v ?? "manual")}>
-                    <SelectTrigger>
-                      <SelectValue>{sourceLabel}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="manual">手动录入</SelectItem>
-                      <SelectItem value="import">Excel 导入</SelectItem>
-                      <SelectItem value="webhook">Webhook</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {!isMember ? (
+                  <div className="space-y-2">
+                    <Label>来源</Label>
+                    <Select value={source} onValueChange={(v) => setSource(v ?? "manual")}>
+                      <SelectTrigger>
+                        <SelectValue>{sourceLabel}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="manual">手动录入</SelectItem>
+                        <SelectItem value="import">Excel 导入</SelectItem>
+                        <SelectItem value="webhook">Webhook</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <input

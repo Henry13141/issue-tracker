@@ -46,6 +46,7 @@ const BUCKET_PRIORITY   = "issue_event.priority";
 const BUCKET_DUE_DATE   = "issue_event.due_date";
 const BUCKET_ASSIGNMENT = "issue_event.assignment";
 const BUCKET_HANDOVER   = "issue_event.handover";
+const BUCKET_RETURN     = "issue_event.return";
 const BUCKET_CREATED    = "issue_event.created";
 
 const BUCKET_PRIORITY_ORDER = [
@@ -53,6 +54,7 @@ const BUCKET_PRIORITY_ORDER = [
   BUCKET_PRIORITY,
   BUCKET_DUE_DATE,
   BUCKET_HANDOVER,
+  BUCKET_RETURN,
   BUCKET_ASSIGNMENT,
   BUCKET_CREATED,
 ] as const;
@@ -71,6 +73,14 @@ export type NotifiableChange =
   /** 任务交接：比 assignee_changed 携带更多上下文，发专属通知 */
   | {
       type: "handover";
+      fromId: string;
+      toId: string;
+      note?: string;
+      attachmentNames?: string[];
+    }
+  /** 返工退回：退回给上一位处理人 */
+  | {
+      type: "handover_return";
       fromId: string;
       toId: string;
       note?: string;
@@ -127,6 +137,7 @@ function getEventBucket(changes: NotifiableChange[]): string {
     if (c.type === "due_date_advanced") buckets.add(BUCKET_DUE_DATE);
     if (c.type === "assignee_changed" || c.type === "reviewer_changed") buckets.add(BUCKET_ASSIGNMENT);
     if (c.type === "handover")         buckets.add(BUCKET_HANDOVER);
+    if (c.type === "handover_return")  buckets.add(BUCKET_RETURN);
     if (c.type === "issue_created")    buckets.add(BUCKET_CREATED);
   }
   for (const b of BUCKET_PRIORITY_ORDER) {
@@ -178,7 +189,11 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
         break;
 
       case "handover":
-        // 被交接的新负责人（旧负责人是操作者，后面统一排除）
+        recipientIds.add(change.toId);
+        if (ctx.reviewerId) recipientIds.add(ctx.reviewerId);
+        break;
+
+      case "handover_return":
         recipientIds.add(change.toId);
         if (ctx.reviewerId) recipientIds.add(ctx.reviewerId);
         break;
@@ -225,6 +240,17 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
     }
   }
 
+  // 加载 active 参与者（交接链路中的跟进人）并加入接收人
+  const { data: activeParticipants } = await db
+    .from("issue_participants")
+    .select("user_id")
+    .eq("issue_id", ctx.issueId)
+    .eq("active", true)
+    .in("role", ["handover_from"]);
+  for (const p of activeParticipants ?? []) {
+    recipientIds.add(p.user_id as string);
+  }
+
   // 操作者本人不收通知（覆盖所有事件类型，统一在此排除）
   recipientIds.delete(ctx.actorId);
 
@@ -250,7 +276,7 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
       if (change.fromId) needUserIds.add(change.fromId);
       if (change.toId)   needUserIds.add(change.toId);
     }
-    if (change.type === "handover") {
+    if (change.type === "handover" || change.type === "handover_return") {
       needUserIds.add(change.fromId);
       needUserIds.add(change.toId);
     }
@@ -327,25 +353,29 @@ function buildMessage(
 ): { msgTitle: string; msgBody: string } {
   const isCreated  = ctx.changes.length === 1 && ctx.changes[0].type === "issue_created";
   const isHandover = ctx.changes.length === 1 && ctx.changes[0].type === "handover";
+  const isReturn   = ctx.changes.length === 1 && ctx.changes[0].type === "handover_return";
 
-  // ── 交接专属消息 ──────────────────────────────────────────────────────────
-  if (isHandover) {
-    const h = ctx.changes[0] as Extract<NotifiableChange, { type: "handover" }>;
+  // ── 交接/退回专属消息 ─────────────────────────────────────────────────────
+  if (isHandover || isReturn) {
+    const h = ctx.changes[0] as Extract<NotifiableChange, { type: "handover" | "handover_return" }>;
     const isNewAssignee = recipientId === h.toId;
     const toName = userMap.get(h.toId)?.name ?? "新负责人";
     const target = isNewAssignee ? "你" : toName;
 
-    const msgTitle = `${ctx.actorName} 已将「${ctx.issueTitle}」交接给${target}`;
+    const verb = isReturn ? "退回" : "交接";
+    const msgTitle = `${ctx.actorName} 已将「${ctx.issueTitle}」${verb}给${target}`;
     const lines: string[] = [];
-    lines.push(`**${ctx.actorName}** 已将「${ctx.issueTitle}」交接给 **${target}**`);
+    lines.push(`**${ctx.actorName}** 已将「${ctx.issueTitle}」${verb}给 **${target}**`);
     if (h.note) {
-      lines.push(`交接说明：${h.note}`);
+      lines.push(`${isReturn ? "退回说明" : "交接说明"}：${h.note}`);
     }
     if (h.attachmentNames && h.attachmentNames.length > 0) {
       lines.push(`附件：${h.attachmentNames.join("、")}（电脑端查看）`);
     }
     if (isNewAssignee) {
-      lines.push("上下文已整理好，接上推进就好，加油 💪");
+      lines.push(isReturn
+        ? "需要你重新处理，具体问题见退回说明 🔧"
+        : "上下文已整理好，接上推进就好，加油 💪");
     }
     return { msgTitle, msgBody: lines.join("\n") };
   }
@@ -430,6 +460,8 @@ function changeSemanticTitle(change: NotifiableChange): string {
       return "状态有更新";
     case "priority_urgent":   return "优先级提升为紧急";
     case "due_date_advanced": return "截止日期提前了";
+    case "handover":          return "任务已交接";
+    case "handover_return":   return "任务被退回返工";
     default: return "有新动态";
   }
 }
@@ -466,6 +498,10 @@ function formatChangeLine(
       return `- 优先级提升至：**紧急**（原：${PRIORITY_LABELS[change.from] ?? change.from}）`;
     case "due_date_advanced":
       return `- 截止日期提前：${change.from} → **${change.to}**`;
+    case "handover":
+      return `- 任务交接：${getName(change.fromId)} → **${getName(change.toId)}**`;
+    case "handover_return":
+      return `- 返工退回：${getName(change.fromId)} → **${getName(change.toId)}**`;
     default:
       return "";
   }

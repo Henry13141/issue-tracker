@@ -13,6 +13,10 @@
       "schedule": "30 9 * * *"
     },
     {
+      "path": "/api/cron/sunday-week-preview",
+      "schedule": "0 13 * * 0"
+    },
+    {
       "path": "/api/cron/notify-register",
       "schedule": "30 1 25 3 *"
     }
