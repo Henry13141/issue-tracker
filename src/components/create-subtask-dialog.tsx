@@ -98,7 +98,11 @@ export function CreateSubtaskDialog({
         assignee_id: parentIssue.assignee_id ?? null,
         due_date: null,
         assignee: parentIssue.assignee
-          ? { id: parentIssue.assignee.id, name: parentIssue.assignee.name }
+          ? {
+              id: parentIssue.assignee.id,
+              name: parentIssue.assignee.name,
+              avatar_url: parentIssue.assignee.avatar_url,
+            }
           : null,
       });
 

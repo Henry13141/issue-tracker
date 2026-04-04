@@ -210,7 +210,7 @@ export async function getIssueBasic(id: string): Promise<IssueWithRelations | nu
   // Fetch children (subtasks)
   const { data: childRows } = await supabase
     .from("issues")
-    .select("id, title, description, status, priority, assignee_id, due_date, assignee:users!issues_assignee_id_fkey(id, name)")
+    .select("id, title, description, status, priority, assignee_id, due_date, assignee:users!issues_assignee_id_fkey(id, name, avatar_url)")
     .eq("parent_issue_id", id)
     .order("created_at", { ascending: true });
 
@@ -222,7 +222,9 @@ export async function getIssueBasic(id: string): Promise<IssueWithRelations | nu
     priority: row.priority as IssueSummary["priority"],
     assignee_id: row.assignee_id as string | null,
     due_date: row.due_date as string | null,
-    assignee: Array.isArray(row.assignee) ? (row.assignee[0] as Pick<import("@/types").User, "id" | "name"> | undefined) ?? null : (row.assignee as Pick<import("@/types").User, "id" | "name"> | null),
+    assignee: Array.isArray(row.assignee)
+      ? (row.assignee[0] as Pick<import("@/types").User, "id" | "name" | "avatar_url"> | undefined) ?? null
+      : (row.assignee as Pick<import("@/types").User, "id" | "name" | "avatar_url"> | null),
   }));
 
   const childMetaMap = new Map<string, { index: number; title: string }>();
@@ -500,7 +502,7 @@ export async function getIssueEvents(issueId: string): Promise<IssueEventWithAct
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("issue_events")
-    .select(`*, actor:users!issue_events_actor_id_fkey(id, name)`)
+    .select(`*, actor:users!issue_events_actor_id_fkey(id, name, avatar_url)`)
     .eq("issue_id", issueId)
     .order("created_at", { ascending: false });
 

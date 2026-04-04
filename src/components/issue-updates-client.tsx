@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/user-avatar";
 import { formatDateTime } from "@/lib/dates";
 import { ISSUE_STATUS_LABELS } from "@/lib/constants";
 import { MessageSquare, Send } from "lucide-react";
@@ -146,9 +146,7 @@ export function IssueUpdatesClient({
             initialUpdates.map((u) => (
               <div key={u.id} className="rounded-lg border bg-muted/20 p-4 space-y-3">
                 <div className="flex gap-3">
-                  <Avatar className="h-9 w-9 shrink-0">
-                    <AvatarFallback>{u.user?.name?.slice(0, 2) ?? "?"}</AvatarFallback>
-                  </Avatar>
+                  <UserAvatar user={u.user} className="h-9 w-9 shrink-0" />
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-medium">{u.user?.name ?? "成员"}</span>
@@ -318,9 +316,7 @@ function UpdateCommentsSection({
         <div className="space-y-1.5">
           {comments.map((c) => (
             <div key={c.id} className="flex items-start gap-2 rounded-md bg-background/60 px-3 py-2">
-              <Avatar className="h-6 w-6 shrink-0">
-                <AvatarFallback className="text-[10px]">{c.user?.name?.slice(0, 2) ?? "?"}</AvatarFallback>
-              </Avatar>
+              <UserAvatar user={c.user} className="h-6 w-6 shrink-0" fallbackClassName="text-[10px]" />
               <div className="min-w-0 flex-1">
                 <span className="text-xs font-medium">{c.user?.name ?? "成员"}</span>
                 <span className="mx-1.5 text-xs text-muted-foreground">{formatDateTime(c.created_at)}</span>

@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { ArrowRightLeft, CalendarIcon, Loader2, RotateCcw, Sparkles, Users } from "lucide-react";
 import { toast } from "sonner";
 import { generateDescriptionDraft, generateHandoverDraft, suggestPriority } from "@/actions/ai";
+import { UserAvatar } from "@/components/user-avatar";
 
 export function IssueDetailClient({
   issue: initial,
@@ -98,13 +99,15 @@ export function IssueDetailClient({
   const [aiDescDrafting,      setAiDescDrafting]      = useState(false);
   const [aiPrioritySuggesting, setAiPrioritySuggesting] = useState(false);
 
-  const assigneeName = useMemo(
-    () => members.find((m) => m.id === assigneeId)?.name ?? null,
-    [members, assigneeId]
+  const assigneeMember = useMemo(
+    () =>
+      assigneeId && assigneeId !== "__none__" ? members.find((m) => m.id === assigneeId) ?? null : null,
+    [members, assigneeId],
   );
-  const reviewerName = useMemo(
-    () => members.find((m) => m.id === reviewerId)?.name ?? null,
-    [members, reviewerId]
+  const reviewerMember = useMemo(
+    () =>
+      reviewerId && reviewerId !== "__none__" ? members.find((m) => m.id === reviewerId) ?? null : null,
+    [members, reviewerId],
   );
   const handoverToLabel = useMemo(() => {
     if (handoverTo === "__none__") return "选择同事";
@@ -482,10 +485,17 @@ export function IssueDetailClient({
                 onValueChange={(v) => setAssigneeId(v ?? "__none__")}
                 disabled={!canEditAssignmentMeta}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="未分配">
-                    {assigneeId && assigneeId !== "__none__" ? assigneeName ?? "未分配" : "未分配"}
-                  </SelectValue>
+                <SelectTrigger className="min-h-9">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {assigneeMember ? (
+                      <>
+                        <UserAvatar user={assigneeMember} className="h-6 w-6 shrink-0" fallbackClassName="text-[10px]" />
+                        <span className="truncate">{assigneeMember.name}</span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">未分配</span>
+                    )}
+                  </div>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">未分配</SelectItem>
@@ -502,10 +512,17 @@ export function IssueDetailClient({
                 onValueChange={(v) => setReviewerId(v ?? "__none__")}
                 disabled={!canEditAssignmentMeta}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="未指定">
-                    {reviewerId && reviewerId !== "__none__" ? reviewerName ?? "未指定" : "未指定"}
-                  </SelectValue>
+                <SelectTrigger className="min-h-9">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {reviewerMember ? (
+                      <>
+                        <UserAvatar user={reviewerMember} className="h-6 w-6 shrink-0" fallbackClassName="text-[10px]" />
+                        <span className="truncate">{reviewerMember.name}</span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">未指定</span>
+                    )}
+                  </div>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">未指定</SelectItem>
@@ -594,8 +611,17 @@ export function IssueDetailClient({
           </div>
 
           <div className="text-sm text-muted-foreground space-y-1">
-            <p>
-              创建者：{initial.creator?.name ?? "—"} · 创建于 {formatDateTime(initial.created_at)}
+            <p className="flex flex-wrap items-center gap-x-1 gap-y-1">
+              <span>创建者：</span>
+              {initial.creator ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <UserAvatar user={initial.creator} className="h-6 w-6 shrink-0" fallbackClassName="text-[10px]" />
+                  <span>{initial.creator.name}</span>
+                </span>
+              ) : (
+                <span>—</span>
+              )}
+              <span>· 创建于 {formatDateTime(initial.created_at)}</span>
             </p>
             <p>最近更新：{formatDateTime(initial.updated_at)}</p>
           </div>

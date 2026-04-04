@@ -14,6 +14,7 @@ import { formatDateOnly } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/empty-state";
 import { toast } from "sonner";
+import { UserAvatar } from "@/components/user-avatar";
 
 export function MyTasksClient({
   needUpdate,
@@ -207,9 +208,17 @@ export function MyTasksClient({
                       <PriorityBadge priority={issue.priority} />
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    当前负责人：{issue.assignee?.name ?? "未分配"}
-                    {issue.due_date && <> · 截止：{formatDateOnly(issue.due_date)}</>}
+                  <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    <span>当前负责人：</span>
+                    {issue.assignee ? (
+                      <span className="inline-flex items-center gap-1.5 text-foreground">
+                        <UserAvatar user={issue.assignee} className="h-5 w-5 shrink-0" fallbackClassName="text-[9px]" />
+                        {issue.assignee.name}
+                      </span>
+                    ) : (
+                      <span>未分配</span>
+                    )}
+                    {issue.due_date && <span>· 截止：{formatDateOnly(issue.due_date)}</span>}
                   </p>
                 </CardHeader>
                 <CardContent>
