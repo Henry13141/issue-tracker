@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { createAvatarSignedUploadUrl, updateMyAvatarUrl } from "@/actions/profile";
+import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
 
@@ -39,11 +40,11 @@ export function WorkbenchAvatar({
 
   async function runAvatarUpload(file: File) {
     const { signedUrl, publicUrl } = await createAvatarSignedUploadUrl(file.type, file.size);
-    const put = await fetch(signedUrl, {
-      method: "PUT",
-      body: file,
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-    });
+    const put = await uploadToSignedUrl(
+      signedUrl,
+      file,
+      file.type || "application/octet-stream",
+    );
     if (!put.ok) {
       throw new Error(`上传失败（${put.status}）`);
     }
