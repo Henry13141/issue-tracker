@@ -3,6 +3,16 @@ import { getCurrentUser } from "@/lib/auth";
 import { getChinaDayBounds } from "@/lib/dates";
 import { ACTIVE_STATUSES } from "@/lib/constants";
 import type { IssueEventType, IssuePriority, IssueWithRelations } from "@/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+async function safeCreateClient(): Promise<SupabaseClient | null> {
+  try {
+    return await createClient();
+  } catch (e) {
+    console.error("[workbench-queries] createClient failed", e);
+    return null;
+  }
+}
 
 function reminderSubtypeLabel(payload: Record<string, unknown> | null | undefined): string | null {
   const t = payload && typeof payload === "object" ? (payload as { type?: string }).type : undefined;
@@ -81,7 +91,7 @@ function dedupeWorkbenchEvents(rows: WorkbenchEventRow[]): WorkbenchEventRow[] {
   const seen = new Set<string>();
   const out: WorkbenchEventRow[] = [];
   for (const e of rows) {
-    const minute = e.created_at.slice(0, 16);
+    const minute = (e.created_at ?? "").slice(0, 16);
     const sub =
       e.event_type === "reminder_created" ? reminderSubtypeLabel(e.event_payload) ?? "" : "";
     const key = `${e.issue_id}|${e.event_type}|${minute}|${sub}`;
@@ -96,7 +106,15 @@ export async function getWorkbenchStats(): Promise<WorkbenchStats | null> {
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const supabase = await createClient();
+  const supabase = await safeCreateClient();
+  if (!supabase) {
+    return {
+      assignedOpen: 0,
+      needUpdateToday: 0,
+      overdue: 0,
+      unreadReminders: 0,
+    };
+  }
   const today = new Date().toISOString().slice(0, 10);
   const { startIso, endIso } = getChinaDayBounds();
 
@@ -162,7 +180,9 @@ export async function getWorkbenchTaskGroups(): Promise<{
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const supabase = await createClient();
+  const supabase = await safeCreateClient();
+  if (!supabase) return { needUpdate: [], updatedToday: [] };
+
   const { startIso, endIso } = getChinaDayBounds();
 
   const { data, error } = await supabase
@@ -208,7 +228,9 @@ export async function getWorkbenchTaskGroups(): Promise<{
   }
 
   const sortByPriorityThenDue = (a: IssueWithRelations, b: IssueWithRelations) => {
-    const pd = PRI_ORDER[a.priority] - PRI_ORDER[b.priority];
+    const pa = PRI_ORDER[a.priority] ?? 99;
+    const pb = PRI_ORDER[b.priority] ?? 99;
+    const pd = pa - pb;
     if (pd !== 0) return pd;
     if (!a.due_date && !b.due_date) return 0;
     if (!a.due_date) return 1;
@@ -229,7 +251,8 @@ export async function getWorkbenchRecentEvents(limit = 18): Promise<WorkbenchEve
   const user = await getCurrentUser();
   if (!user) return [];
 
-  const supabase = await createClient();
+  const supabase = await safeCreateClient();
+  if (!supabase) return [];
 
   const { data: mine } = await supabase
     .from("issues")
@@ -238,12 +261,15 @@ export async function getWorkbenchRecentEvents(limit = 18): Promise<WorkbenchEve
     .neq("status", "resolved")
     .neq("status", "closed");
 
-  const { data: participantRows } = await supabase
+  const { data: participantRows, error: participantErr } = await supabase
     .from("issue_participants")
     .select("issue_id")
     .eq("user_id", user.id)
     .eq("active", true)
     .eq("role", "handover_from");
+  if (participantErr) {
+    console.error("[getWorkbenchRecentEvents] issue_participants:", participantErr.message);
+  }
 
   const idSet = new Set<string>();
   for (const r of mine ?? []) idSet.add(r.id as string);
