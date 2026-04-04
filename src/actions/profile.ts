@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth";
 
 const AVATAR_BUCKET = "avatars";
@@ -34,18 +35,28 @@ export async function createAvatarSignedUploadUrl(
 
   const storagePath = `${user.id}/${Date.now()}.${ext}`;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.storage.from(AVATAR_BUCKET).createSignedUploadUrl(storagePath);
+  // 用 service role 生成签名 URL，避免 Storage RLS 在 createSignedUploadUrl 阶段报
+  // 「new row violates row-level security policy」（路径已由服务端限定为当前用户 id）
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    throw new Error(
+      "服务端未配置 SUPABASE_SERVICE_ROLE_KEY，无法生成头像上传链接。请在部署环境（如 Vercel）添加该密钥。",
+    );
+  }
+
+  const { data, error } = await admin.storage.from(AVATAR_BUCKET).createSignedUploadUrl(storagePath);
 
   if (error || !data?.signedUrl) {
     console.error("[profile] createSignedUploadUrl:", error?.message);
     throw new Error(
       error?.message ??
-        "生成上传链接失败。请在 Supabase 创建公开存储桶「avatars」并执行迁移 add_avatars_bucket.sql"
+        "生成上传链接失败。请在 Supabase 创建公开存储桶「avatars」并执行迁移 add_avatars_bucket.sql",
     );
   }
 
-  const { data: pub } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(storagePath);
+  const { data: pub } = admin.storage.from(AVATAR_BUCKET).getPublicUrl(storagePath);
   return { signedUrl: data.signedUrl, storagePath, publicUrl: pub.publicUrl };
 }
 
