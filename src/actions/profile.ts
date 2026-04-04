@@ -79,6 +79,6 @@ export async function updateMyAvatarUrl(publicUrl: string): Promise<void> {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath("/", "layout");
-  revalidatePath("/home");
+  // 只失效工作台相关树；不要用 "/" layout，避免与根路由 / 的 redirect 逻辑叠加后触发异常 RSC 刷新
+  revalidatePath("/home", "layout");
 }
