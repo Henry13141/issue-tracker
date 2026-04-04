@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
+import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
 import type { IssueAttachmentWithUrl } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -79,11 +80,11 @@ export function AttachmentUploadButton({
           file.size
         );
 
-        const uploadRes = await fetch(signedUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
-        });
+        const uploadRes = await uploadToSignedUrl(
+          signedUrl,
+          file,
+          file.type || "application/octet-stream",
+        );
 
         if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})`);
 

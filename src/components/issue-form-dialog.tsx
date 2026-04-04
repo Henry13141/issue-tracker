@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createIssue } from "@/actions/issues";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
+import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
 import type { IssuePriority, User } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -207,11 +208,11 @@ export function IssueFormDialog({
             file.type || "application/octet-stream",
             file.size
           );
-          const res = await fetch(signedUrl, {
-            method:  "PUT",
-            headers: { "Content-Type": file.type || "application/octet-stream" },
-            body:    file,
-          });
+          const res = await uploadToSignedUrl(
+            signedUrl,
+            file,
+            file.type || "application/octet-stream",
+          );
           if (res.ok) {
             await saveAttachmentMeta({
               issueId:     id,

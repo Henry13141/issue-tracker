@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createIssue } from "@/actions/issues";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
+import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
 import type { IssueSummary, IssueWithRelations } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,11 +51,7 @@ export function CreateSubtaskDialog({
         contentType,
         file.size
       );
-      const uploadRes = await fetch(signedUrl, {
-        method: "PUT",
-        headers: { "Content-Type": contentType },
-        body: file,
-      });
+      const uploadRes = await uploadToSignedUrl(signedUrl, file, contentType);
       if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})`);
       await saveAttachmentMeta({
         issueId,
