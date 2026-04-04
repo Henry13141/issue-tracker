@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:restart": "bash scripts/restart-dev.sh",
+    "push:restart": "bash scripts/push-and-restart-dev.sh",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
     "lint": "eslint",
