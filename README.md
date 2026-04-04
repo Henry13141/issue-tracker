@@ -36,6 +36,7 @@
 | 企业微信私信催办 | 按人发应用消息（兼容个人微信 / 微信插件） |
 | 企业微信群机器人 | Webhook 往指定群推 Markdown 汇总 |
 | 每日 Cron 催办 | 早晨温和提醒 + 下午管理员督促 + 17:30 工单汇总 |
+| 企业微信机器人助手 | 企业微信机器人支持 Kimi 多轮问答，按 `userid` 持久化最近 5 轮上下文 |
 | Excel 机器人导入 | 企业微信机器人接收 Excel 文件，自动创建工单 |
 
 ---
@@ -61,7 +62,7 @@ src/
 │       │   ├── test-dingtalk/            # 手动测试消息发送
 │       │   ├── check-ip/                 # 查询 Vercel 出口 IP
 │       │   └── notify-register/          # 手动群发注册通知
-│       └── wecom/robot/       # 企业微信机器人回调（Excel 导入）
+│       └── wecom/robot/       # 企业微信机器人回调（Kimi 问答 + Excel 导入）
 ├── actions/
 │   ├── issues.ts              # 工单 CRUD Server Actions
 │   └── members.ts             # 成员管理 Server Actions
@@ -129,6 +130,14 @@ public.reminders
   type          TEXT  -- no_update_today | overdue | stale_3_days
   message       TEXT
   is_read       BOOLEAN
+
+-- 企业微信机器人上下文
+public.wecom_robot_messages
+  id            UUID PK
+  wecom_userid  TEXT
+  role          TEXT  -- user | assistant | system
+  content       TEXT
+  created_at    TIMESTAMPTZ
 ```
 
 ### 权限（RLS）
@@ -202,6 +211,15 @@ GET https://tracker.megami-tech.com/api/cron/check-ip
 44.202.213.65
 ```
 
+### 企业微信机器人回调
+
+- 路由：`/api/wecom/robot`
+- 单聊文本：转发给 `Kimi` 生成多轮回复，默认按 `userid` 保留最近 5 轮上下文
+- 群聊文本：只有 `@机器人` 时才回复，且只做单轮回复，不保留上下文记忆
+- 文件消息：支持在单聊里发送 `.xlsx` / `.xls` 文件导入工单
+- 帮助入口：发送 `帮助` 或 `help`
+- 清空上下文：发送 `清空上下文` 或 `重置对话`
+
 ---
 
 ## Cron 定时任务
@@ -254,6 +272,7 @@ GET https://tracker.megami-tech.com/api/cron/test-dingtalk?userid=你的wecom_us
 | 变量 | 说明 |
 |------|------|
 | `CRON_SECRET` | Cron 鉴权密钥，请求头带 `Authorization: Bearer <值>` |
+| `MOONSHOT_API_KEY` | Kimi API Key，企业微信机器人文本问答及部分 AI 能力依赖它 |
 
 ---
 
@@ -267,6 +286,8 @@ npm install
 cp .env.local.example .env.local
 # 填入 NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY
 # 填入企业微信相关变量（可选，不配则无通知功能）
+# 若要启用机器人文本问答，还需配置 MOONSHOT_API_KEY
+# 若要启用上下文记忆，还需确保已执行 add_wecom_robot_messages.sql 迁移
 
 # 3. 初始化数据库（在 Supabase SQL 编辑器执行）
 # supabase/schema.sql           → 建表
@@ -324,7 +345,7 @@ npx vercel --prod
 | GET | `/login` | 登录 / 注册页 | 无 |
 | GET | `/api/auth/wecom/start` | 企业微信扫码登录发起 | 无 |
 | GET | `/api/auth/wecom/callback` | 企业微信 OAuth 回调 | 无 |
-| GET/POST | `/api/wecom/robot` | 企业微信机器人（Excel 导入） | WeCom 签名 |
+| GET/POST | `/api/wecom/robot` | 企业微信机器人（Kimi 多轮问答 + Excel 导入） | WeCom 签名 |
 | GET | `/api/cron/morning-assignee-digest` | 早晨工单提醒 | Cron Secret |
 | GET | `/api/cron/admin-escalation` | 管理员督促通知 | Cron Secret |
 | GET | `/api/cron/daily-reminder` | 每日催办 + 提醒中心 | Cron Secret |
