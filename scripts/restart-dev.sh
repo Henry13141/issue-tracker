@@ -3,6 +3,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 for port in 3000 3001; do
-  lsof -ti ":$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
+  lsof -ti "tcp:$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 exec npm run dev
