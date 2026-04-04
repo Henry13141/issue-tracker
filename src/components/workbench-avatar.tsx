@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { startTransition, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Camera } from "lucide-react";
 import { toast } from "sonner";
@@ -46,7 +46,9 @@ export function WorkbenchAvatar({
       }
       await updateMyAvatarUrl(publicUrl);
       toast.success("头像已更新");
-      router.refresh();
+      startTransition(() => {
+        router.refresh();
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "上传失败");
     } finally {

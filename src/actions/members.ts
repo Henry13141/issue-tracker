@@ -23,7 +23,13 @@ export async function getNotificationCoverageForPage(): Promise<NotificationCove
 }
 
 export const getMembers = cache(async (): Promise<User[]> => {
-  const supabase = await createClient();
+  let supabase;
+  try {
+    supabase = await createClient();
+  } catch (e) {
+    console.error("getMembers: createClient", e);
+    return [];
+  }
   const { data, error } = await supabase
     .from("users")
     .select("*")

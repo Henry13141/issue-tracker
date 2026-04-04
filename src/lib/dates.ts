@@ -51,6 +51,7 @@ export function formatDateOnly(iso: string | null | undefined) {
  */
 export function getTenureDays(createdAtIso: string): number {
   const start = new Date(createdAtIso);
+  if (Number.isNaN(start.getTime())) return 1;
   const now = new Date();
   const tz = "Asia/Shanghai";
   const fmt = (d: Date) =>
