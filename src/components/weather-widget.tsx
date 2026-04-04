@@ -53,6 +53,46 @@ function chinaHour(): number {
   return Number(parts.find((p) => p.type === "hour")?.value ?? 12);
 }
 
+/** 上海日历日 YYYY-MM-DD，用于温馨提示「每天只生成一次」 */
+function shanghaiCalendarDateKey(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const y = parts.find((p) => p.type === "year")?.value;
+  const m = parts.find((p) => p.type === "month")?.value;
+  const d = parts.find((p) => p.type === "day")?.value;
+  return `${y ?? "1970"}-${m ?? "01"}-${d ?? "01"}`;
+}
+
+const WARM_TIP_STORAGE_KEY = "issue-tracker.weatherWarmTip.v1";
+
+function readCachedWarmTip(todayKey: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(WARM_TIP_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { date?: string; tip?: string };
+    if (parsed.date === todayKey && typeof parsed.tip === "string" && parsed.tip.trim()) {
+      return parsed.tip.trim();
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function writeCachedWarmTip(todayKey: string, tip: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(WARM_TIP_STORAGE_KEY, JSON.stringify({ date: todayKey, tip }));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
 function formatDateLabelCN(isoDate: string): string {
   const d = new Date(`${isoDate}T12:00:00+08:00`);
   return new Intl.DateTimeFormat("zh-CN", {
@@ -261,6 +301,13 @@ export function WeatherWidget({ tenureDays }: { tenureDays: number }) {
         setWeather(w);
         if (w.status !== "ok") return;
 
+        const todayKey = shanghaiCalendarDateKey();
+        const cached = readCachedWarmTip(todayKey);
+        if (cached) {
+          setWarmTip(cached);
+          return;
+        }
+
         setTipLoading(true);
         setWarmTip(null);
         try {
@@ -271,12 +318,18 @@ export function WeatherWidget({ tenureDays }: { tenureDays: number }) {
           });
           const data = (await res.json()) as { tip?: string | null };
           if (res.ok && data.tip?.trim()) {
-            setWarmTip(data.tip.trim());
+            const t = data.tip.trim();
+            setWarmTip(t);
+            writeCachedWarmTip(todayKey, t);
           } else {
-            setWarmTip(fallbackWarmTip(w));
+            const fb = fallbackWarmTip(w);
+            setWarmTip(fb);
+            writeCachedWarmTip(todayKey, fb);
           }
         } catch {
-          setWarmTip(fallbackWarmTip(w));
+          const fb = fallbackWarmTip(w);
+          setWarmTip(fb);
+          writeCachedWarmTip(todayKey, fb);
         } finally {
           setTipLoading(false);
         }
