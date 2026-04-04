@@ -82,7 +82,7 @@ export type WorkbenchEventRow = {
   event_type: IssueEventType;
   created_at: string;
   event_payload: Record<string, unknown>;
-  actor: { id: string; name: string } | null;
+  actor: { id: string; name: string; avatar_url: string | null } | null;
   issue: { id: string; title: string } | null;
 };
 
@@ -288,7 +288,7 @@ export async function getWorkbenchRecentEvents(limit = 18): Promise<WorkbenchEve
       event_type,
       created_at,
       event_payload,
-      actor:users!issue_events_actor_id_fkey(id, name),
+      actor:users!issue_events_actor_id_fkey(id, name, avatar_url),
       issue:issues!issue_events_issue_id_fkey(id, title)
     `
     )
@@ -307,7 +307,10 @@ export async function getWorkbenchRecentEvents(limit = 18): Promise<WorkbenchEve
     event_type: IssueEventType;
     created_at: string;
     event_payload: Record<string, unknown> | null;
-    actor: { id: string; name: string } | { id: string; name: string }[] | null;
+    actor:
+      | { id: string; name: string; avatar_url: string | null }
+      | { id: string; name: string; avatar_url: string | null }[]
+      | null;
     issue: { id: string; title: string } | { id: string; title: string }[] | null;
   };
 

@@ -94,7 +94,7 @@ export interface IssueEvent {
 }
 
 export interface IssueEventWithActor extends IssueEvent {
-  actor?: Pick<User, "id" | "name"> | null;
+  actor?: Pick<User, "id" | "name" | "avatar_url"> | null;
 }
 
 export interface Reminder {
@@ -108,7 +108,7 @@ export interface Reminder {
 }
 
 export type IssueSummary = Pick<Issue, "id" | "title" | "description" | "status" | "priority" | "assignee_id" | "due_date"> & {
-  assignee?: Pick<User, "id" | "name"> | null;
+  assignee?: Pick<User, "id" | "name" | "avatar_url"> | null;
 };
 
 export interface IssueWithRelations extends Issue {

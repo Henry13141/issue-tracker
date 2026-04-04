@@ -1,5 +1,6 @@
 import { getIssueEvents } from "@/actions/issues";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { UserAvatar } from "@/components/user-avatar";
 import { Clock, GitBranch } from "lucide-react";
 import { formatDateTime } from "@/lib/dates";
 import type { IssueEventWithActor } from "@/types";
@@ -86,9 +87,13 @@ export async function IssueEventsSection({ issueId }: { issueId: string }) {
             {events.map((ev: IssueEventWithActor, i: number) => (
               <div key={ev.id} className="flex gap-3 pb-4">
                 <div className="flex flex-col items-center">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
+                  {ev.actor ? (
+                    <UserAvatar user={ev.actor} className="h-7 w-7 shrink-0" fallbackClassName="text-[10px]" />
+                  ) : (
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                  )}
                   {i < events.length - 1 && (
                     <div className="w-px flex-1 bg-border" />
                   )}

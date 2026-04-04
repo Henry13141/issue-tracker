@@ -7,7 +7,7 @@ import { updateIssue, deleteIssue } from "@/actions/issues";
 import type { IssueStatus, IssueWithRelations, User } from "@/types";
 import { StatusBadge } from "@/components/status-badge";
 import { PriorityBadge } from "@/components/priority-badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/user-avatar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -321,11 +321,7 @@ export function IssuesTable({
                 <TableCell>
                   {issue.assignee ? (
                     <div className="flex items-center gap-2">
-                      <Avatar className="h-7 w-7">
-                        <AvatarFallback className="text-xs">
-                          {issue.assignee.name.slice(0, 2)}
-                        </AvatarFallback>
-                      </Avatar>
+                      <UserAvatar user={issue.assignee} className="h-7 w-7" fallbackClassName="text-xs" />
                       <span className="text-sm">{issue.assignee.name}</span>
                     </div>
                   ) : (

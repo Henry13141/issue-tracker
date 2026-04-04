@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createIssue } from "@/actions/issues";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
 import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
+import { UserAvatar } from "@/components/user-avatar";
 import type { IssuePriority, User } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -83,13 +84,15 @@ export function IssueFormDialog({
       .sort((a, b) => b.score - a.score);
     return scored[0]?.member ?? null;
   }, [members]);
-  const assigneeName = useMemo(
-    () => members.find((m) => m.id === assigneeId)?.name ?? null,
-    [members, assigneeId]
+  const assigneeMember = useMemo(
+    () =>
+      assigneeId && assigneeId !== "__none__" ? members.find((m) => m.id === assigneeId) ?? null : null,
+    [members, assigneeId],
   );
-  const reviewerName = useMemo(
-    () => members.find((m) => m.id === reviewerId)?.name ?? null,
-    [members, reviewerId]
+  const reviewerMember = useMemo(
+    () =>
+      reviewerId && reviewerId !== "__none__" ? members.find((m) => m.id === reviewerId) ?? null : null,
+    [members, reviewerId],
   );
   const categoryLabel = category !== "__none__" ? category : "未设置";
   const moduleLabel = module !== "__none__" ? module : "未设置";
@@ -439,10 +442,17 @@ export function IssueFormDialog({
                       value={assigneeId || "__none__"}
                       onValueChange={(v) => setAssigneeId(v ?? "")}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="未分配">
-                          {assigneeId && assigneeId !== "__none__" ? assigneeName ?? "未分配" : "未分配"}
-                        </SelectValue>
+                      <SelectTrigger className="min-h-9">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {assigneeMember ? (
+                            <>
+                              <UserAvatar user={assigneeMember} className="h-6 w-6 shrink-0" fallbackClassName="text-[10px]" />
+                              <span className="truncate">{assigneeMember.name}</span>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">未分配</span>
+                          )}
+                        </div>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">未分配</SelectItem>
@@ -467,10 +477,17 @@ export function IssueFormDialog({
                       value={reviewerId || "__none__"}
                       onValueChange={(v) => setReviewerId(v ?? "")}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="请选择审核人">
-                          {reviewerId && reviewerId !== "__none__" ? reviewerName ?? "未指定" : "未指定"}
-                        </SelectValue>
+                      <SelectTrigger className="min-h-9">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {reviewerMember ? (
+                            <>
+                              <UserAvatar user={reviewerMember} className="h-6 w-6 shrink-0" fallbackClassName="text-[10px]" />
+                              <span className="truncate">{reviewerMember.name}</span>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">未指定</span>
+                          )}
+                        </div>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">未指定</SelectItem>
@@ -608,8 +625,8 @@ export function IssueFormDialog({
 
             {(assigneeId && assigneeId !== "__none__") && (
               <p className="mt-4 text-xs text-muted-foreground">
-                提交后，{assigneeName ?? "负责人"}会收到通知
-                {reviewerId && reviewerId !== "__none__" ? `，${reviewerName ?? "审核人"}也会同步知悉` : ""}
+                提交后，{assigneeMember?.name ?? "负责人"}会收到通知
+                {reviewerId && reviewerId !== "__none__" ? `，${reviewerMember?.name ?? "审核人"}也会同步知悉` : ""}
               </p>
             )}
             <DialogFooter className="mt-4">

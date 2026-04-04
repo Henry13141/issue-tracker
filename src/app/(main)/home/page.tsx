@@ -16,6 +16,7 @@ import { formatDateTime, formatDateOnly, getTenureDays } from "@/lib/dates";
 import { StatusBadge } from "@/components/status-badge";
 import { PriorityBadge } from "@/components/priority-badge";
 import { cn } from "@/lib/utils";
+import { UserAvatar } from "@/components/user-avatar";
 
 export const dynamic = "force-dynamic";
 
@@ -171,7 +172,12 @@ export default async function HomeWorkbenchPage() {
                 {events.map((ev) => (
                   <li key={ev.id} className="px-6 py-3 text-sm">
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                      <span className="font-medium">{ev.actor?.name ?? "系统"}</span>
+                      <span className="inline-flex items-center gap-2">
+                        {ev.actor ? (
+                          <UserAvatar user={ev.actor} className="h-7 w-7 shrink-0" fallbackClassName="text-[10px]" />
+                        ) : null}
+                        <span className="font-medium">{ev.actor?.name ?? "系统"}</span>
+                      </span>
                       <span className="text-muted-foreground">
                         {formatWorkbenchEventLabel(ev.event_type, ev.event_payload)}
                       </span>
