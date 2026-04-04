@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds, chinaDateMinusDays } from "@/lib/reminder-logic";
+import { getChinaWeekday } from "@/lib/dates";
 import {
   isWecomAppConfigured,
   isWecomWebhookConfigured,
@@ -258,7 +259,15 @@ export async function GET(request: Request) {
     let workNoticeSent = 0;
     const workNoticeErrors: string[] = [];
 
-    if (total > 0 && isWecomWebhookConfigured()) {
+    const chinaDow = getChinaWeekday();
+    const skipWecomPush =
+      chinaDow === 6
+        ? "周六不打扰：不发送待推进群消息与个人工作通知"
+        : chinaDow === 0
+          ? "周日企微改由晚间「下周待继续」群汇总统一发送，本时段不推送"
+          : null;
+
+    if (!skipWecomPush && total > 0 && isWecomWebhookConfigured()) {
       const lines: string[] = [`待推进事项（${todayStr}）共 ${total} 条\n`];
       if (overdueItems.length > 0) {
         lines.push(`⏰ 已过截止（${overdueItems.length}）`);
@@ -279,7 +288,7 @@ export async function GET(request: Request) {
       webhookSent = result.success;
     }
 
-    if (total > 0 && isWecomAppConfigured()) {
+    if (!skipWecomPush && total > 0 && isWecomAppConfigured()) {
       const assigneeIds = new Set<string>();
       for (const i of [...noUpdateItems, ...overdueItems, ...staleItems]) assigneeIds.add(i.assigneeId);
 
@@ -310,6 +319,8 @@ export async function GET(request: Request) {
       ok:    true,
       today: todayStr,
       inserted: { no_update_today: insertedNoUpdate, overdue: insertedOverdue, stale_3_days: insertedStale },
+      wecom_push_skipped: skipWecomPush ? true : undefined,
+      wecom_push_skip_reason: skipWecomPush ?? undefined,
       wecom_webhook_sent: webhookSent,
       wecom_work_notice: {
         sent:   workNoticeSent,

@@ -10,6 +10,7 @@ import {
 import { getMembers } from "@/actions/members";
 import { getCurrentUser } from "@/lib/auth";
 import { IssuesToolbar } from "@/components/issues-toolbar";
+import { IssuesTabRow } from "@/components/issues-tab-row";
 import { IssuesTable } from "@/components/issues-table";
 import { IssueFormDialog } from "@/components/issue-form-dialog";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
@@ -108,34 +109,34 @@ export default async function IssuesPage({
         <div className="flex items-center gap-2">
           <ExportTemplateButton />
           <ImportExcelDialog />
-          <IssueFormDialog members={members} />
+          <IssueFormDialog members={members} currentUser={user} />
         </div>
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-2">
-        {[
-          { key: "all", label: "全部" },
-          { key: "mine", label: "待我处理" },
-          { key: "risk", label: "高风险" },
-        ].map((tab) => {
-          const active = effectiveTab === tab.key;
-          return (
-            <Link
-              key={tab.key}
-              href={buildHref(
-                sp,
-                { tab: tab.key, page: null },
-                true
-              )}
-              className={cn(
-                buttonVariants({ variant: active ? "default" : "outline", size: "sm" })
-              )}
-            >
-              {tab.label}
-            </Link>
-          );
-        })}
-      </div>
+      <Suspense fallback={<div className="mb-3 h-9" aria-hidden />}>
+        <IssuesTabRow
+          tabs={[
+            {
+              key: "all",
+              label: "全部",
+              href: buildHref(sp, { tab: "all", page: null }, true),
+              active: effectiveTab === "all",
+            },
+            {
+              key: "mine",
+              label: "待我处理",
+              href: buildHref(sp, { tab: "mine", page: null }, true),
+              active: effectiveTab === "mine",
+            },
+            {
+              key: "risk",
+              label: "高风险",
+              href: buildHref(sp, { tab: "risk", page: null }, true),
+              active: effectiveTab === "risk",
+            },
+          ]}
+        />
+      </Suspense>
 
       <Suspense fallback={null}>
         <IssuesToolbar members={members} />

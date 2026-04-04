@@ -79,7 +79,6 @@ export function IssuesToolbar({
   const sortBy   = searchParams.get("sortBy")   ?? ALL;
   const sortDir  = searchParams.get("sortDir")  ?? "desc";
   const q        = searchParams.get("q")        ?? "";
-  const quickPendingReview = status === "pending_review";
   const assigneeLabel = assignee === ALL
     ? "全部成员"
     : members.find((m) => m.id === assignee)?.name ?? "全部成员";
@@ -93,19 +92,6 @@ export function IssuesToolbar({
 
   return (
     <div className="mb-6 space-y-3">
-      {/* ── 快捷筛选 ── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant={quickPendingReview ? "default" : "outline"}
-          disabled={pending}
-          onClick={() => push({ status: quickPendingReview ? null : "pending_review", page: null })}
-        >
-          待验证
-        </Button>
-      </div>
-
       {/* ── 基础筛选行 ── */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">

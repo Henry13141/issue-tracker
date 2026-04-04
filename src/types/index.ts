@@ -33,7 +33,9 @@ export type IssueEventType =
   | "notification_delivery_success"
   | "notification_delivery_failed"
   | "issue_reopened"
-  | "issue_closed";
+  | "issue_closed"
+  | "handover"
+  | "handover_return";
 
 export interface User {
   id: string;
@@ -119,6 +121,44 @@ export interface IssueWithRelations extends Issue {
   attachmentCount?: number;
   parent?: Pick<Issue, "id" | "title" | "status" | "priority"> | null;
   children?: IssueSummary[];
+  handovers?: IssueHandoverWithUsers[];
+  participants?: IssueParticipant[];
+}
+
+// ---------------------------------------------------------------------------
+// 交接/返工闭环
+// ---------------------------------------------------------------------------
+
+export type HandoverKind = "handover" | "return";
+export type HandoverStatus = "active" | "returned" | "completed";
+export type ParticipantRole = "creator" | "assignee" | "reviewer" | "handover_from" | "watcher";
+
+export interface IssueHandover {
+  id: string;
+  issue_id: string;
+  from_user_id: string;
+  to_user_id: string;
+  kind: HandoverKind;
+  note: string | null;
+  attachment_names: string[] | null;
+  status: HandoverStatus;
+  created_at: string;
+}
+
+export interface IssueHandoverWithUsers extends IssueHandover {
+  from_user?: Pick<User, "id" | "name"> | null;
+  to_user?: Pick<User, "id" | "name"> | null;
+}
+
+export interface IssueParticipant {
+  id: string;
+  issue_id: string;
+  user_id: string;
+  role: ParticipantRole;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+  user?: Pick<User, "id" | "name"> | null;
 }
 
 export interface UpdateComment {
@@ -174,12 +214,14 @@ export type NotificationTriggerSource =
   | "cron_morning"
   | "cron_admin"
   | "cron_daily"
+  | "cron_week_preview"    // 周日晚间群内「下周待继续」汇总
   | "issue_event"          // 旧版兼容（P1 遗留记录）
   | "issue_event.status"   // 状态变更（blocked/pending_review/resolved/closed/reopened）
   | "issue_event.priority" // 优先级提升为紧急
   | "issue_event.due_date" // 截止日期提前
   | "issue_event.assignment" // 负责人/评审人变更
   | "issue_event.handover" // 任务交接
+  | "issue_event.return"   // 返工退回
   | "issue_event.created"  // 工单创建
   | "issue_event.progress" // 进度更新通知
   | "manual_test";

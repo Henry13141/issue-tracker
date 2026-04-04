@@ -8,6 +8,7 @@ import { deleteAttachment, reassignAttachmentIssue } from "@/actions/attachments
 import type {
   IssuePriority,
   IssueAttachmentWithUrl,
+  IssueHandoverWithUsers,
   IssueStatus,
   IssueWithRelations,
   User,
@@ -34,7 +35,7 @@ import { ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS, ISSUE_SOURCE_LABELS, ISSUE_
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { ArrowRightLeft, CalendarIcon, Loader2, Sparkles } from "lucide-react";
+import { ArrowRightLeft, CalendarIcon, Loader2, RotateCcw, Sparkles, Users } from "lucide-react";
 import { toast } from "sonner";
 import { generateDescriptionDraft, generateHandoverDraft, suggestPriority } from "@/actions/ai";
 
@@ -79,6 +80,8 @@ export function IssueDetailClient({
 
   const canEditFields = isAdmin || isAssignee || isCreator;
   const canEditStatusInMeta = isAdmin || isAssignee;
+  /** 优先级 / 负责人 / 审核人仅管理员可改，普通员工即使为创建人或负责人也不可改 */
+  const canEditAssignmentMeta = isAdmin;
 
   // 交接：当前负责人或管理员可发起
   const canHandover =
@@ -103,6 +106,10 @@ export function IssueDetailClient({
     () => members.find((m) => m.id === reviewerId)?.name ?? null,
     [members, reviewerId]
   );
+  const handoverToLabel = useMemo(() => {
+    if (handoverTo === "__none__") return "选择同事";
+    return members.find((m) => m.id === handoverTo)?.name ?? "未知成员";
+  }, [members, handoverTo]);
 
   const dueStr = useMemo(() => {
     if (!dueDate) return null;
@@ -156,19 +163,27 @@ export function IssueDetailClient({
     }
     setSavingMeta(true);
     try {
-      const result = await updateIssue(initial.id, {
+      const basePatch = {
         title:          title.trim(),
         description:    description.trim() || null,
         status,
-        priority,
-        assignee_id:    assigneeId === "__none__" ? null : assigneeId,
-        reviewer_id:    reviewerId === "__none__" ? null : reviewerId,
         due_date:       dueStr,
         category:       category === "__none__" ? null : category,
         module:         module === "__none__" ? null : module,
         blocked_reason: status === "blocked" ? blockedReason.trim() || null : null,
         closed_reason:  status === "closed"  ? closedReason.trim()  || null : null,
-      });
+      };
+      const result = await updateIssue(
+        initial.id,
+        canEditAssignmentMeta
+          ? {
+              ...basePatch,
+              priority,
+              assignee_id: assigneeId === "__none__" ? null : assigneeId,
+              reviewer_id: reviewerId === "__none__" ? null : reviewerId,
+            }
+          : basePatch
+      );
       if (result?.error) {
         toast.error(result.error);
       } else {
@@ -181,6 +196,14 @@ export function IssueDetailClient({
       setSavingMeta(false);
     }
   }
+
+  const handovers = initial.handovers ?? [];
+  const lastActiveHandover = [...handovers].reverse().find((h) => h.status === "active");
+  const canReturn = (isAssignee || isAdmin) && lastActiveHandover && lastActiveHandover.from_user_id !== currentUser.id;
+  const returnTargetName = lastActiveHandover?.from_user?.name ?? "上一位处理人";
+  const [showReturnNote, setShowReturnNote] = useState(false);
+  const [returnNote, setReturnNote]         = useState("");
+  const [savingReturn, setSavingReturn]     = useState(false);
 
   async function submitHandover() {
     if (handoverTo === "__none__") {
@@ -196,6 +219,7 @@ export function IssueDetailClient({
         attachmentNames: handoverAttachments.length > 0
           ? handoverAttachments.map((a) => a.filename)
           : undefined,
+        kind:            "handover",
       });
       if (result?.error) { toast.error(result.error); return; }
 
@@ -209,6 +233,28 @@ export function IssueDetailClient({
       toast.error("交接暂时没成功，可以稍后再试");
     } finally {
       setSavingHandover(false);
+    }
+  }
+
+  async function submitReturn() {
+    if (!lastActiveHandover) return;
+    setSavingReturn(true);
+    try {
+      const result = await handoverIssue({
+        issueId:  initial.id,
+        toUserId: lastActiveHandover.from_user_id,
+        note:     returnNote.trim() || undefined,
+        kind:     "return",
+      });
+      if (result?.error) { toast.error(result.error); return; }
+      toast.success("已发送修改需求给上一位处理人，对方会收到通知");
+      setShowReturnNote(false);
+      setReturnNote("");
+      router.refresh();
+    } catch {
+      toast.error("退回暂时没成功，可以稍后再试");
+    } finally {
+      setSavingReturn(false);
     }
   }
 
@@ -351,7 +397,7 @@ export function IssueDetailClient({
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label>优先级</Label>
-                {canEditFields && (
+                {canEditAssignmentMeta && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -388,7 +434,7 @@ export function IssueDetailClient({
               <Select
                 value={priority}
                 onValueChange={(v) => setPriority(v as IssuePriority)}
-                disabled={!canEditFields}
+                disabled={!canEditAssignmentMeta}
               >
                 <SelectTrigger>
                   <SelectValue>{ISSUE_PRIORITY_LABELS[priority]}</SelectValue>
@@ -434,7 +480,7 @@ export function IssueDetailClient({
               <Select
                 value={assigneeId}
                 onValueChange={(v) => setAssigneeId(v ?? "__none__")}
-                disabled={!canEditFields}
+                disabled={!canEditAssignmentMeta}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="未分配">
@@ -454,7 +500,7 @@ export function IssueDetailClient({
               <Select
                 value={reviewerId}
                 onValueChange={(v) => setReviewerId(v ?? "__none__")}
-                disabled={!canEditFields}
+                disabled={!canEditAssignmentMeta}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="未指定">
@@ -580,8 +626,8 @@ export function IssueDetailClient({
                 <div className="space-y-1.5">
                   <Label>交接给 <span className="text-destructive">*</span></Label>
                   <Select value={handoverTo} onValueChange={(v) => setHandoverTo(v ?? "__none__")}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="选择同事" />
+                    <SelectTrigger className="w-full justify-between [&>span]:min-w-0">
+                      <span className="line-clamp-1 flex-1 text-left">{handoverToLabel}</span>
                     </SelectTrigger>
                     <SelectContent>
                       {members
@@ -698,6 +744,99 @@ export function IssueDetailClient({
                     取消
                   </Button>
                 </div>
+              </div>
+            </>
+          )}
+
+          {/* ── 协作流转 ── */}
+          {handovers.length > 0 && (
+            <>
+              <Separator />
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-base font-semibold">协作流转</Label>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <div className="space-y-2">
+                    {handovers.map((h, i) => (
+                      <div key={h.id} className="flex items-start gap-2">
+                        <div className="flex flex-col items-center pt-1.5">
+                          <div className={cn(
+                            "h-2.5 w-2.5 rounded-full shrink-0",
+                            h.kind === "return" ? "bg-amber-500" : "bg-primary"
+                          )} />
+                          {i < handovers.length - 1 && <div className="w-px flex-1 bg-border mt-0.5 min-h-[16px]" />}
+                        </div>
+                        <div className="min-w-0 flex-1 pb-1">
+                          <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                            <span className="font-medium">{h.from_user?.name ?? "未知"}</span>
+                            <span className="text-muted-foreground">
+                                  {h.kind === "return" ? "已发送修改需求给" : "交接给"}
+                            </span>
+                                <span className="font-medium">{h.to_user?.name ?? "未知"}</span>
+                            {h.kind === "return" && (
+                              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                返工
+                              </span>
+                            )}
+                            {h.status === "returned" && (
+                              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                已退回
+                              </span>
+                            )}
+                          </div>
+                          {h.note && (
+                            <p className="mt-0.5 text-xs text-muted-foreground">{h.note}</p>
+                          )}
+                          <p className="text-[11px] text-muted-foreground/70">{formatDateTime(h.created_at)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {canReturn && !showReturnNote && (
+                  <div className="space-y-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowReturnNote(true)}
+                      className="gap-1.5"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      发送修改需求给{returnTargetName}
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      也可以交给其他人发送需求，点击“交接给同事”。
+                    </p>
+                  </div>
+                )}
+
+                {showReturnNote && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-2 dark:border-amber-900/50 dark:bg-amber-950/20">
+                          <p className="text-sm font-medium">发送修改需求给 {returnTargetName}</p>
+                    <Textarea
+                      value={returnNote}
+                      onChange={(e) => setReturnNote(e.target.value)}
+                      placeholder="说明需要返工的原因和具体问题…"
+                      rows={2}
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={submitReturn} disabled={savingReturn}>
+                              {savingReturn ? "发送中…" : "确认发送需求"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={savingReturn}
+                        onClick={() => { setShowReturnNote(false); setReturnNote(""); }}
+                      >
+                        取消
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}

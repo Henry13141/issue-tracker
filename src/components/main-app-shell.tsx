@@ -23,20 +23,26 @@ export function MainAppShell({ user, children }: { user: User; children: React.R
     <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-background">
       <Sidebar user={user} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 items-center gap-3 border-b bg-background px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:hidden">
+        <header className="flex shrink-0 items-center gap-3 border-b border-sidebar-border bg-sidebar px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] text-sidebar-foreground shadow-sm md:hidden">
           <Button
             type="button"
             variant="outline"
             size="icon"
-            className="size-11 shrink-0"
+            className="size-11 shrink-0 border-sidebar-border bg-sidebar-accent/50 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             onClick={() => setMobileNavOpen(true)}
             aria-label="打开菜单"
           >
             <Menu className="h-5 w-5" />
           </Button>
           <div className="flex min-w-0 items-center gap-2">
-            <Image src="/mgm-logo.png" alt="" width={28} height={28} className="h-7 w-7 shrink-0 object-contain" />
-            <span className="truncate text-sm font-semibold">协作推进台</span>
+            <Image
+              src="/mgm-logo.png"
+              alt=""
+              width={28}
+              height={28}
+              className="h-7 w-7 shrink-0 object-contain drop-shadow-sm"
+            />
+            <span className="truncate text-sm font-semibold text-sidebar-foreground">协作推进台</span>
           </div>
         </header>
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

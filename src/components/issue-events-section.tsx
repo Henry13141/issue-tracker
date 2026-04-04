@@ -18,6 +18,8 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   notification_delivery_failed:  "通知发送失败",
   issue_reopened:                "重新打开了问题",
   issue_closed:                  "关闭了问题",
+  handover:                      "交接了任务",
+  handover_return:               "退回了任务（返工）",
 };
 
 function EventPayloadSummary({
@@ -53,6 +55,14 @@ function EventPayloadSummary({
         {from ?? "—"} → {to ?? "—"}
       </span>
     );
+  }
+  if (eventType === "handover" || eventType === "handover_return") {
+    const note = payload.note as string | null;
+    return note ? (
+      <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={note}>
+        {note}
+      </span>
+    ) : null;
   }
   return null;
 }

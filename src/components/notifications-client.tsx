@@ -69,6 +69,7 @@ const CATEGORY_TRIGGER_MAP: Record<NotificationCategory, { value: string; label:
   digest: [
     { value: "cron_morning", label: "早间摘要" },
     { value: "cron_admin", label: "推进跟踪" },
+    { value: "cron_week_preview", label: "下周待继续（周日）" },
     { value: "manual_test", label: "手动测试" },
   ],
 };

@@ -4,13 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
-import { LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send } from "lucide-react";
+import { Home, LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send } from "lucide-react";
 
 const nav = [
+  { href: "/home",                    label: "工作台",     icon: Home },
   { href: "/dashboard",               label: "看板总览",   icon: LayoutDashboard, adminOnly: true },
   { href: "/members",                 label: "成员与钉钉", icon: Users,            adminOnly: true },
   { href: "/dashboard/notifications", label: "通知日志",   icon: Send,             adminOnly: true },
@@ -79,6 +80,9 @@ export function SidebarPanel({
       <div className="shrink-0 border-t border-sidebar-border" />
       <div className="flex shrink-0 items-center gap-2 p-3">
         <Avatar className="h-9 w-9 border border-sidebar-border">
+          {user.avatar_url ? (
+            <AvatarImage src={user.avatar_url} alt="" className="object-cover" />
+          ) : null}
           <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground text-xs">{initials || "?"}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
