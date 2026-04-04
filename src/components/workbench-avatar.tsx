@@ -11,14 +11,6 @@ import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
 
-/** 最小 PNG（1×1），仅开发环境「测试上传」用 */
-const TEST_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-
-function testPngFile(): File {
-  const buf = Uint8Array.from(atob(TEST_PNG_BASE64), (c) => c.charCodeAt(0));
-  return new File([buf], "avatar-test.png", { type: "image/png" });
-}
 
 export function WorkbenchAvatar({
   user,
@@ -73,17 +65,6 @@ export function WorkbenchAvatar({
     }
   }
 
-  async function onDevTestUpload() {
-    setUploading(true);
-    try {
-      await runAvatarUpload(testPngFile());
-    } catch (err) {
-      console.error("[WorkbenchAvatar] dev test upload failed", err);
-      toast.error(err instanceof Error ? err.message : "测试上传失败");
-    } finally {
-      setUploading(false);
-    }
-  }
 
   return (
     <div
@@ -118,16 +99,6 @@ export function WorkbenchAvatar({
           className="sr-only"
           onChange={onPickFile}
         />
-        {process.env.NODE_ENV === "development" ? (
-          <button
-            type="button"
-            className="mt-1 w-full text-center text-[11px] text-muted-foreground underline-offset-2 hover:underline"
-            disabled={uploading}
-            onClick={() => void onDevTestUpload()}
-          >
-            测试上传（1×1 PNG）
-          </button>
-        ) : null}
       </div>
       <div className="min-w-0 flex-1 lg:w-full lg:max-w-[12rem] lg:flex-none lg:text-center">
         <p
