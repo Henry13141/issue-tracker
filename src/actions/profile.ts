@@ -40,9 +40,11 @@ export async function createAvatarSignedUploadUrl(
   let admin;
   try {
     admin = createAdminClient();
-  } catch {
+  } catch (e) {
     throw new Error(
-      "服务端未配置 SUPABASE_SERVICE_ROLE_KEY，无法生成头像上传链接。请在部署环境（如 Vercel）添加该密钥。",
+      e instanceof Error
+        ? `头像上传初始化失败：${e.message}。请在部署环境配置正确的 SUPABASE_SERVICE_ROLE_KEY（service_role）并重新部署。`
+        : "服务端未配置 SUPABASE_SERVICE_ROLE_KEY，无法生成头像上传链接。请在部署环境（如 Vercel）添加该密钥。",
     );
   }
 
@@ -50,6 +52,11 @@ export async function createAvatarSignedUploadUrl(
 
   if (error || !data?.signedUrl) {
     console.error("[profile] createSignedUploadUrl:", error?.message);
+    if (error?.message?.includes("row-level security")) {
+      throw new Error(
+        "头像上传权限校验失败（Storage RLS）。请确认部署环境中的 SUPABASE_SERVICE_ROLE_KEY 为 service_role，并确保 avatars 桶策略已生效后重新部署。",
+      );
+    }
     throw new Error(
       error?.message ??
         "生成上传链接失败。请在 Supabase 创建公开存储桶「avatars」并执行迁移 add_avatars_bucket.sql",
