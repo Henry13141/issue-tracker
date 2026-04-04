@@ -299,8 +299,8 @@ export async function getUserDetailByUserid(userid: string): Promise<WecomUserDe
 
 // ─── 机器人回调验签与 AES 解密 ────────────────────────────────────────────────
 
-const WECOM_TOKEN = process.env.WECOM_TOKEN;
-const WECOM_AES_KEY = process.env.WECOM_ENCODING_AES_KEY;
+const WECOM_TOKEN = process.env.WECOM_TOKEN?.trim();
+const WECOM_AES_KEY = process.env.WECOM_ENCODING_AES_KEY?.trim();
 
 /** SHA1 验签：sort([token, timestamp, nonce, ...extras]).join('') */
 export function verifyWecomSignature(
