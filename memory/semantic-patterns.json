@@ -1,0 +1,22 @@
+{
+  "patterns": {},
+  "_meta": {
+    "description": "自我改进：抽象可复用规则（semantic memory）。由 Agent 在复盘时追加条目；key 为 pattern_id。",
+    "schema_hint": {
+      "pattern_id": {
+        "id": "pat-YYYY-MM-DD-001",
+        "name": "模式名称",
+        "source": "user_feedback|implementation_review|retrospective",
+        "confidence": 0.0,
+        "applications": 0,
+        "created": "YYYY-MM-DD",
+        "category": "prd_structure|react_patterns|async_patterns|...",
+        "pattern": "一句话摘要",
+        "problem": "解决什么问题",
+        "solution": {},
+        "quality_rules": [],
+        "target_skills": []
+      }
+    }
+  }
+}
