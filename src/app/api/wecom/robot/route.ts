@@ -16,6 +16,12 @@ import {
 } from "@/lib/wecom";
 import { parseExcelBuffer } from "@/lib/parse-excel";
 import { getIssueDetailUrl } from "@/lib/app-url";
+import {
+  cancelIssueDraft,
+  continueIssueDraftFlow,
+  hasActiveIssueDraft,
+  startIssueDraftFlow,
+} from "@/lib/wecom-issue-intake";
 import type { IssuePriority, IssueStatus } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -24,8 +30,10 @@ const HELP_MESSAGE = [
   "## 米伽米问题助手",
   "",
   "1. 直接发文本给我，我会结合最近对话调用 Kimi 回答问题。",
-  "2. 在与我的单聊中发送 Excel 文件（.xlsx/.xls），我会自动解析并导入为新问题。",
-  "3. 发送“清空上下文”或“重置对话”可以清掉当前记忆。",
+  "2. 在与我的单聊中发送“新建问题”，我会追问必要信息并直接帮你建单。",
+  "3. 在与我的单聊中发送 Excel 文件（.xlsx/.xls），我会自动解析并导入为新问题。",
+  "4. 发送“取消新建问题”可以退出当前建单流程。",
+  "5. 发送“清空上下文”或“重置对话”可以清掉当前记忆。",
   "",
   "支持的表头：标题/问题、描述/情况说明、优先级、状态/完成情况、负责人、截止日期。",
 ].join("\n");
@@ -36,6 +44,8 @@ const MAX_CONTEXT_TURNS = 5;
 const MAX_CONTEXT_MESSAGES = MAX_CONTEXT_TURNS * 2;
 const HELP_COMMAND_RE = /^(帮助|help)$/i;
 const RESET_CONTEXT_RE = /^(清空上下文|重置对话|清除记忆|reset)$/i;
+const CREATE_ISSUE_COMMAND_RE = /^(?:新建问题|创建问题|提问题|报问题)(?:[：:]\s*(.+))?$/i;
+const CANCEL_CREATE_ISSUE_RE = /^(?:取消新建问题|取消创建问题|退出新建问题|退出创建问题|放弃新建问题)$/i;
 const GROUP_ONLY_NOTICE = "当前群聊消息只做单轮回复，不保留上下文记忆。若需要连续对话，请与我单聊。";
 
 type ConversationRole = "user" | "assistant";
@@ -330,11 +340,46 @@ async function processIncomingMessage(msgXml: string) {
         await replyMarkdown(fromUser, GROUP_ONLY_NOTICE);
       } else {
         const cleared = await clearConversationHistory(fromUser);
+        const cancelledDraft = await cancelIssueDraft(fromUser);
         await replyMarkdown(
           fromUser,
-          cleared ? "已清空当前上下文记忆。接下来我会把你的下一条消息当作新对话来处理。" : "清空上下文失败，请稍后再试。"
+          cleared
+            ? cancelledDraft
+              ? "已清空当前上下文记忆，并取消了正在进行的新建问题。接下来我会把你的下一条消息当作新对话来处理。"
+              : "已清空当前上下文记忆。接下来我会把你的下一条消息当作新对话来处理。"
+            : "清空上下文失败，请稍后再试。"
         );
       }
+      return;
+    }
+
+    const createIssueMatch = CREATE_ISSUE_COMMAND_RE.exec(content);
+    if (!contextEnabled && createIssueMatch) {
+      await replyMarkdown(fromUser, `新建问题目前只支持与我单聊。\n\n${GROUP_ONLY_NOTICE}`);
+      return;
+    }
+
+    if (contextEnabled && CANCEL_CREATE_ISSUE_RE.test(content)) {
+      const cancelled = await cancelIssueDraft(fromUser);
+      await replyMarkdown(
+        fromUser,
+        cancelled
+          ? "好的，已取消这次新建问题。你之后再发“新建问题”就可以重新开始。"
+          : "当前没有进行中的新建问题。你直接发“新建问题”即可开始。"
+      );
+      return;
+    }
+
+    if (contextEnabled && createIssueMatch) {
+      const initialInput = createIssueMatch[1]?.trim() || undefined;
+      const reply = await startIssueDraftFlow(fromUser, initialInput);
+      await replyMarkdown(fromUser, reply);
+      return;
+    }
+
+    if (contextEnabled && await hasActiveIssueDraft(fromUser)) {
+      const reply = await continueIssueDraftFlow(fromUser, content);
+      await replyMarkdown(fromUser, reply);
       return;
     }
 

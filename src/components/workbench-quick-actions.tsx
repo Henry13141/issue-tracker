@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardList, ListTodo, Bell } from "lucide-react";
+import { ClipboardList, ListTodo, Bell, Sparkles } from "lucide-react";
 import { IssueFormDialog } from "@/components/issue-form-dialog";
 import type { User } from "@/types";
 import { buttonVariants } from "@/lib/button-variants";
@@ -41,6 +41,13 @@ export function WorkbenchQuickActions({
         >
           <Bell className="h-4 w-4" />
           待你回应
+        </Link>
+        <Link
+          href="/seedance"
+          className={cn(buttonVariants({ variant: "outline" }), "justify-start gap-2")}
+        >
+          <Sparkles className="h-4 w-4" />
+          Seedance 2.0 体验
         </Link>
       </div>
     </div>

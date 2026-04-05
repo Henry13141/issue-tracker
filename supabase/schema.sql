@@ -66,6 +66,14 @@ CREATE TABLE public.wecom_robot_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE public.wecom_robot_issue_drafts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wecom_userid TEXT NOT NULL UNIQUE,
+  draft JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Indexes
 -- ---------------------------------------------------------------------------
@@ -80,6 +88,8 @@ CREATE INDEX idx_reminders_user ON public.reminders (user_id, is_read);
 CREATE INDEX idx_reminders_created ON public.reminders (created_at DESC);
 CREATE INDEX idx_wecom_robot_messages_user_created
   ON public.wecom_robot_messages (wecom_userid, created_at DESC);
+CREATE INDEX idx_wecom_robot_issue_drafts_user_updated
+  ON public.wecom_robot_issue_drafts (wecom_userid, updated_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Triggers: updated_at
@@ -100,6 +110,10 @@ CREATE TRIGGER users_updated_at
 
 CREATE TRIGGER issues_updated_at
   BEFORE UPDATE ON public.issues
+  FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
+
+CREATE TRIGGER wecom_robot_issue_drafts_updated_at
+  BEFORE UPDATE ON public.wecom_robot_issue_drafts
   FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
@@ -165,6 +179,7 @@ ALTER TABLE public.issues ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.issue_updates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reminders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wecom_robot_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.wecom_robot_issue_drafts ENABLE ROW LEVEL SECURITY;
 
 -- users
 CREATE POLICY "users_select_authenticated"

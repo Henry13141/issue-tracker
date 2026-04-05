@@ -288,6 +288,7 @@ cp .env.local.example .env.local
 # 填入企业微信相关变量（可选，不配则无通知功能）
 # 若要启用机器人文本问答，还需配置 MOONSHOT_API_KEY
 # 若要启用上下文记忆，还需确保已执行 add_wecom_robot_messages.sql 迁移
+# 若要启用私聊“新建问题”多轮建单，还需执行 add_wecom_robot_issue_drafts.sql 迁移
 
 # 3. 初始化数据库（在 Supabase SQL 编辑器执行）
 # supabase/schema.sql           → 建表
