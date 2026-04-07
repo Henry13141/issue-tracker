@@ -7,63 +7,7 @@ import { getCurrentUser } from "@/lib/auth";
 import type { IssueAttachmentWithUrl } from "@/types";
 
 const BUCKET = "issue-files";
-const MAX_SIZE_BYTES = 500 * 1024 * 1024; // 500 MB
-let bucketReadyPromise: Promise<void> | null = null;
-
-async function ensureIssueFilesBucket() {
-  if (!bucketReadyPromise) {
-    bucketReadyPromise = (async () => {
-      const admin = createAdminClient();
-      const { data: bucket, error: bucketError } = await admin.storage.getBucket(BUCKET);
-
-      if (bucketError) {
-        const message = bucketError.message.toLowerCase();
-        if (!message.includes("not found")) {
-          throw new Error(bucketError.message);
-        }
-
-        const { error: createError } = await admin.storage.createBucket(BUCKET, {
-          public: false,
-          fileSizeLimit: MAX_SIZE_BYTES,
-          allowedMimeTypes: null,
-        });
-        if (createError && !createError.message.toLowerCase().includes("already exists")) {
-          throw new Error(createError.message);
-        }
-        return;
-      }
-
-      const bucketLimit =
-        typeof bucket.file_size_limit === "number"
-          ? bucket.file_size_limit
-          : typeof bucket.file_size_limit === "string"
-            ? Number(bucket.file_size_limit)
-            : null;
-
-      const shouldUpdate =
-        bucket.public !== false ||
-        bucketLimit == null ||
-        !Number.isFinite(bucketLimit) ||
-        bucketLimit < MAX_SIZE_BYTES;
-
-      if (!shouldUpdate) return;
-
-      const { error: updateError } = await admin.storage.updateBucket(BUCKET, {
-        public: false,
-        fileSizeLimit: MAX_SIZE_BYTES,
-        allowedMimeTypes: bucket.allowed_mime_types ?? null,
-      });
-      if (updateError) {
-        throw new Error(updateError.message);
-      }
-    })().catch((error) => {
-      bucketReadyPromise = null;
-      throw error;
-    });
-  }
-
-  await bucketReadyPromise;
-}
+const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB（Supabase Free Plan 全局上限）
 
 /** 生成客户端直传用的 signed upload URL（有效期 60 秒） */
 export async function createSignedUploadUrl(
@@ -74,15 +18,14 @@ export async function createSignedUploadUrl(
 ): Promise<{ signedUrl: string; storagePath: string }> {
   const user = await getCurrentUser();
   if (!user) throw new Error("未登录");
-  if (sizeBytes > MAX_SIZE_BYTES) throw new Error("文件不能超过 500 MB");
-  await ensureIssueFilesBucket();
+  if (sizeBytes > MAX_SIZE_BYTES) throw new Error("文件不能超过 50 MB");
 
   const ext = filename.split(".").pop() ?? "bin";
   const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
   const storagePath = `${issueId}/${Date.now()}-${safeFilename}`;
 
-  const admin = createAdminClient();
-  const { data, error } = await admin.storage
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage
     .from(BUCKET)
     .createSignedUploadUrl(storagePath);
 

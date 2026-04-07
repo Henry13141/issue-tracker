@@ -17,7 +17,7 @@ import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
 import type { IssueAttachmentWithUrl } from "@/types";
 import { cn } from "@/lib/utils";
 
-const MAX_MB = 500;
+const MAX_MB = 50; // Supabase Free Plan 全局上限 50 MB
 
 interface Props {
   issueId: string;
