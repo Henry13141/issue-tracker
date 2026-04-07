@@ -1,9 +1,7 @@
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
 
-export type SeedanceReferenceRole =
-  | "reference_image"
-  | "reference_video"
-  | "reference_audio";
+export type SeedanceImageRole = "reference_image" | "first_frame" | "last_frame";
+export type SeedanceReferenceRole = SeedanceImageRole | "reference_video" | "reference_audio";
 
 export type SeedanceContentItem =
   | {
@@ -12,7 +10,7 @@ export type SeedanceContentItem =
     }
   | {
       type: "image_url";
-      role: Extract<SeedanceReferenceRole, "reference_image">;
+      role?: SeedanceImageRole;
       image_url: { url: string };
     }
   | {
@@ -26,13 +24,21 @@ export type SeedanceContentItem =
       audio_url: { url: string };
     };
 
+export type SeedanceTool = {
+  type: "web_search";
+};
+
 export type SeedanceCreateTaskInput = {
   model: string;
   content: SeedanceContentItem[];
   generate_audio: boolean;
   ratio: string;
   duration: number;
+  resolution?: "480p" | "720p";
   watermark: boolean;
+  return_last_frame?: boolean;
+  safety_identifier?: string;
+  tools?: SeedanceTool[];
 };
 
 export type SeedanceTaskSummary = {
@@ -42,7 +48,16 @@ export type SeedanceTaskSummary = {
   createdAt: string | null;
   updatedAt: string | null;
   videoUrls: string[];
+  lastFrameUrls: string[];
   message: string | null;
+  resolution: string | null;
+  ratio: string | null;
+  durationSeconds: number | null;
+  framesPerSecond: number | null;
+  serviceTier: string | null;
+  executionExpiresAfter: number | null;
+  usageTokens: number | null;
+  seed: number | null;
   raw: unknown;
 };
 
@@ -100,6 +115,17 @@ function readNestedRecord(record: Record<string, unknown> | null, keys: string[]
   for (const key of keys) {
     const nested = asRecord(record[key]);
     if (nested) return nested;
+  }
+  return null;
+}
+
+function readNumber(record: Record<string, unknown> | null, keys: string[]): number | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
   }
   return null;
 }
@@ -178,6 +204,35 @@ function collectVideoUrls(value: unknown, results = new Set<string>()) {
   return results;
 }
 
+function collectNamedUrls(
+  value: unknown,
+  targetKeys: string[],
+  results = new Set<string>()
+) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectNamedUrls(item, targetKeys, results);
+    }
+    return results;
+  }
+
+  const record = asRecord(value);
+  if (!record) return results;
+
+  for (const key of targetKeys) {
+    const maybeUrl = record[key];
+    if (typeof maybeUrl === "string" && /^https?:\/\//i.test(maybeUrl)) {
+      results.add(maybeUrl);
+    }
+  }
+
+  for (const nested of Object.values(record)) {
+    collectNamedUrls(nested, targetKeys, results);
+  }
+
+  return results;
+}
+
 function normalizeTaskSummary(payload: unknown): SeedanceTaskSummary {
   const root = asRecord(payload);
   const dataNode = readNestedRecord(root, ["data", "task", "result"]);
@@ -200,6 +255,7 @@ function normalizeTaskSummary(payload: unknown): SeedanceTaskSummary {
   const updatedAt =
     readDateString(primary, ["updated_at", "updatedAt"]) ??
     readDateString(root, ["updated_at", "updatedAt"]);
+  const usage = readNestedRecord(primary, ["usage"]) ?? readNestedRecord(root, ["usage"]);
   const message =
     extractErrorMessage(payload) ??
     readString(primary, ["reason", "failure_reason", "fail_reason", "message"]);
@@ -211,7 +267,33 @@ function normalizeTaskSummary(payload: unknown): SeedanceTaskSummary {
     createdAt,
     updatedAt,
     videoUrls: Array.from(collectVideoUrls(payload)),
+    lastFrameUrls: Array.from(collectNamedUrls(payload, ["last_frame_url", "lastFrameUrl"])),
     message,
+    resolution:
+      readString(primary, ["resolution"]) ??
+      readString(root, ["resolution"]),
+    ratio:
+      readString(primary, ["ratio"]) ??
+      readString(root, ["ratio"]),
+    durationSeconds:
+      readNumber(primary, ["duration"]) ??
+      readNumber(root, ["duration"]),
+    framesPerSecond:
+      readNumber(primary, ["framespersecond", "frames_per_second", "fps"]) ??
+      readNumber(root, ["framespersecond", "frames_per_second", "fps"]),
+    serviceTier:
+      readString(primary, ["service_tier", "serviceTier"]) ??
+      readString(root, ["service_tier", "serviceTier"]),
+    executionExpiresAfter:
+      readNumber(primary, ["execution_expires_after", "executionExpiresAfter"]) ??
+      readNumber(root, ["execution_expires_after", "executionExpiresAfter"]),
+    usageTokens:
+      readNumber(usage, ["total_tokens", "completion_tokens", "tokens"]) ??
+      readNumber(primary, ["total_tokens", "completion_tokens"]) ??
+      readNumber(root, ["total_tokens", "completion_tokens"]),
+    seed:
+      readNumber(primary, ["seed"]) ??
+      readNumber(root, ["seed"]),
     raw: payload,
   };
 }
@@ -256,6 +338,22 @@ export async function getSeedanceTask(taskId: string): Promise<SeedanceTaskSumma
   }
 
   return normalizeTaskSummary(payload);
+}
+
+export async function deleteSeedanceTask(taskId: string): Promise<void> {
+  const response = await fetch(`${ARK_BASE_URL}/contents/generations/tasks/${encodeURIComponent(taskId)}`, {
+    method: "DELETE",
+    headers: createArkHeaders(),
+  });
+
+  const payload = await parseJsonSafely(response);
+  if (!response.ok) {
+    throw new ArkRequestError(
+      extractErrorMessage(payload) ?? "删除或取消 Seedance 任务失败。",
+      response.status,
+      payload
+    );
+  }
 }
 
 export async function listSeedanceTasks(params?: {
