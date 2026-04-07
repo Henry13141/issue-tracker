@@ -80,13 +80,15 @@ export function AttachmentUploadButton({
           file.size
         );
 
-        const uploadRes = await uploadToSignedUrl(
+        const uploadRes = await uploadToSignedUrl({
+          bucket: "issue-files",
+          storagePath,
           signedUrl,
-          file,
-          file.type || "application/octet-stream",
-        );
+          fileBody: file,
+          contentType: file.type || "application/octet-stream",
+        });
 
-        if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})`);
+        if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})：${uploadRes.message}`);
 
         const attachmentId = await saveAttachmentMeta({
           issueId,

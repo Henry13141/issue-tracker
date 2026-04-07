@@ -51,8 +51,14 @@ export function CreateSubtaskDialog({
         contentType,
         file.size
       );
-      const uploadRes = await uploadToSignedUrl(signedUrl, file, contentType);
-      if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})`);
+      const uploadRes = await uploadToSignedUrl({
+        bucket: "issue-files",
+        storagePath,
+        signedUrl,
+        fileBody: file,
+        contentType,
+      });
+      if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})：${uploadRes.message}`);
       await saveAttachmentMeta({
         issueId,
         issueUpdateId: null,

@@ -31,14 +31,16 @@ export function WorkbenchAvatar({
     .toUpperCase();
 
   async function runAvatarUpload(file: File) {
-    const { signedUrl, publicUrl } = await createAvatarSignedUploadUrl(file.type, file.size);
-    const put = await uploadToSignedUrl(
+    const { signedUrl, storagePath, publicUrl } = await createAvatarSignedUploadUrl(file.type, file.size);
+    const put = await uploadToSignedUrl({
+      bucket: "avatars",
+      storagePath,
       signedUrl,
-      file,
-      file.type || "application/octet-stream",
-    );
+      fileBody: file,
+      contentType: file.type || "application/octet-stream",
+    });
     if (!put.ok) {
-      throw new Error(`上传失败（${put.status}）`);
+      throw new Error(`上传失败（${put.status}）：${put.message}`);
     }
     await updateMyAvatarUrl(publicUrl);
     toast.success("头像已更新");

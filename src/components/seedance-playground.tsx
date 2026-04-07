@@ -929,7 +929,7 @@ export function SeedancePlayground({
         UPLOAD_CONCURRENCY,
         async (item, index) => {
           const signed = signedItems[index];
-          if (!signed?.signedUrl || !signed?.url) {
+          if (!signed?.signedUrl || !signed?.url || !signed?.storagePath) {
             const message = "服务端未返回上传地址";
             setAssetCards((prev) => ({
               ...prev,
@@ -940,9 +940,15 @@ export function SeedancePlayground({
             return { ok: false as const, errorMessage: message };
           }
 
-          const uploadResponse = await uploadToSignedUrl(signed.signedUrl, item.uploadFile, item.contentType);
+          const uploadResponse = await uploadToSignedUrl({
+            bucket: "seedance-assets",
+            storagePath: signed.storagePath,
+            signedUrl: signed.signedUrl,
+            fileBody: item.uploadFile,
+            contentType: item.contentType,
+          });
           if (!uploadResponse.ok) {
-            const message = `上传文件失败 (${uploadResponse.status})`;
+            const message = `上传文件失败 (${uploadResponse.status})：${uploadResponse.message}`;
             setAssetCards((prev) => ({
               ...prev,
               [kind]: prev[kind].map((card) =>
