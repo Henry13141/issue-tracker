@@ -4,26 +4,49 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth";
+import { generateClientTokenFromReadWriteToken } from "@vercel/blob/client";
+import { del as blobDel } from "@vercel/blob";
 import type { IssueAttachmentWithUrl } from "@/types";
 
 const BUCKET = "issue-files";
-const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB（Supabase Free Plan 全局上限）
+const SUPABASE_MAX_BYTES = 50 * 1024 * 1024;   // 50 MB（Supabase Free Plan 全局上限）
+const BLOB_MAX_BYTES     = 500 * 1024 * 1024;  // 500 MB（Vercel Blob 上限）
+const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // > 10 MB 改走 Vercel Blob
 
-/** 生成客户端直传用的 signed upload URL（有效期 60 秒） */
+export type CreateUploadUrlResult =
+  | { provider: "supabase"; signedUrl: string; storagePath: string }
+  | { provider: "blob"; clientToken: string; pathname: string };
+
+/** 生成客户端直传凭证，自动按文件大小选择存储后端 */
 export async function createSignedUploadUrl(
   issueId: string,
   filename: string,
   contentType: string,
   sizeBytes: number
-): Promise<{ signedUrl: string; storagePath: string }> {
+): Promise<CreateUploadUrlResult> {
   const user = await getCurrentUser();
   if (!user) throw new Error("未登录");
-  if (sizeBytes > MAX_SIZE_BYTES) throw new Error("文件不能超过 50 MB");
 
-  const ext = filename.split(".").pop() ?? "bin";
   const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-  const storagePath = `${issueId}/${Date.now()}-${safeFilename}`;
 
+  if (sizeBytes > LARGE_FILE_THRESHOLD) {
+    // 大文件走 Vercel Blob
+    if (sizeBytes > BLOB_MAX_BYTES) throw new Error("文件不能超过 500 MB");
+    const pathname = `issues/${issueId}/${Date.now()}-${safeFilename}`;
+    const clientToken = await generateClientTokenFromReadWriteToken({
+      token: process.env.BLOB_READ_WRITE_TOKEN!,
+      pathname,
+      maximumSizeInBytes: BLOB_MAX_BYTES,
+      allowedContentTypes: ["*/*"],
+      validUntil: Date.now() + 5 * 60 * 1000, // 5 分钟有效期
+      addRandomSuffix: false,
+    });
+    return { provider: "blob", clientToken, pathname };
+  }
+
+  // 小文件走 Supabase Storage
+  if (sizeBytes > SUPABASE_MAX_BYTES) throw new Error("文件不能超过 50 MB");
+  const storagePath = `${issueId}/${Date.now()}-${safeFilename}`;
   const supabase = await createClient();
   const { data, error } = await supabase.storage
     .from(BUCKET)
@@ -33,8 +56,7 @@ export async function createSignedUploadUrl(
     throw new Error(error?.message ?? "生成上传链接失败");
   }
 
-  void ext;
-  return { signedUrl: data.signedUrl, storagePath };
+  return { provider: "supabase", signedUrl: data.signedUrl, storagePath };
 }
 
 /** 上传完成后写元数据到 issue_attachments */
@@ -103,13 +125,23 @@ export async function deleteAttachment(attachmentId: string): Promise<void> {
   const isAdmin = user.role === "admin";
   if (!isOwner && !isAdmin) throw new Error("无权限删除此附件");
 
-  // 删 Storage 对象（用 admin client 跳过 Storage RLS 限制）
-  const admin = createAdminClient();
-  const { error: storageErr } = await admin.storage
-    .from(BUCKET)
-    .remove([row.storage_path as string]);
+  const storagePath = row.storage_path as string;
 
-  if (storageErr) console.error("[deleteAttachment] storage remove:", storageErr.message);
+  if (storagePath.startsWith("https://")) {
+    // Vercel Blob — 直接按 URL 删除
+    try {
+      await blobDel(storagePath);
+    } catch (e) {
+      console.error("[deleteAttachment] blob del:", e);
+    }
+  } else {
+    // Supabase Storage — 用 admin client 跳过 RLS
+    const admin = createAdminClient();
+    const { error: storageErr } = await admin.storage
+      .from(BUCKET)
+      .remove([storagePath]);
+    if (storageErr) console.error("[deleteAttachment] storage remove:", storageErr.message);
+  }
 
   // 删元数据行
   const { error: dbErr } = await supabase
@@ -183,23 +215,38 @@ export async function reassignAttachmentIssue(params: {
   }
 }
 
-/** 批量为附件列表生成 signed URL */
+/** 批量为附件列表生成 signed URL（Blob 附件直接用其 URL） */
 export async function enrichAttachmentsWithUrls(
   attachments: Omit<IssueAttachmentWithUrl, "url">[]
 ): Promise<IssueAttachmentWithUrl[]> {
   if (!attachments.length) return [];
-  const supabase = await createClient();
-  const { data, error } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrls(attachments.map((a) => a.storage_path), 3600);
 
-  if (error || !data) {
-    throw new Error(error?.message ?? "批量生成下载链接失败");
+  // 分开 Blob 附件（storage_path 是完整 URL）和 Supabase 附件
+  const blobAttachments = attachments.filter((a) => a.storage_path.startsWith("https://"));
+  const supabaseAttachments = attachments.filter((a) => !a.storage_path.startsWith("https://"));
+
+  const result: IssueAttachmentWithUrl[] = blobAttachments.map((a) => ({
+    ...a,
+    url: a.storage_path, // Vercel Blob 公开 URL 直接可用
+  }));
+
+  if (supabaseAttachments.length > 0) {
+    const supabase = await createClient();
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrls(supabaseAttachments.map((a) => a.storage_path), 3600);
+
+    if (error || !data) {
+      throw new Error(error?.message ?? "批量生成下载链接失败");
+    }
+
+    const signedUrlMap = new Map(data.map((row) => [row.path ?? "", row.signedUrl ?? undefined]));
+    for (const a of supabaseAttachments) {
+      result.push({ ...a, url: signedUrlMap.get(a.storage_path) });
+    }
   }
 
-  const signedUrlMap = new Map(data.map((row) => [row.path ?? "", row.signedUrl ?? undefined]));
-  return attachments.map((a) => ({
-    ...a,
-    url: signedUrlMap.get(a.storage_path),
-  }));
+  // 保持原顺序
+  const orderMap = new Map(attachments.map((a, i) => [a.id, i]));
+  return result.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
 }

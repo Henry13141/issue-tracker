@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createIssue } from "@/actions/issues";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
 import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
+import { put as blobPut } from "@vercel/blob/client";
 import { UserAvatar } from "@/components/user-avatar";
 import type { IssuePriority, User } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -205,28 +206,39 @@ export function IssueFormDialog({
           if (file.size <= 0) {
             throw new Error(`${file.name} 是空文件，请重新打包后再上传`);
           }
-          const { signedUrl, storagePath } = await createSignedUploadUrl(
+          const uploadInfo = await createSignedUploadUrl(
             id,
             file.name,
             file.type || "application/octet-stream",
             file.size
           );
-          const res = await uploadToSignedUrl({
-            bucket: "issue-files",
-            storagePath,
-            signedUrl,
-            fileBody: file,
-            contentType: file.type || "application/octet-stream",
-          });
-          if (res.ok) {
-            await saveAttachmentMeta({
-              issueId:     id,
-              storagePath,
-              filename:    file.name,
+          let finalStoragePath: string;
+          if (uploadInfo.provider === "blob") {
+            const blob = await blobPut(uploadInfo.pathname, file, {
+              access: "public",
+              token: uploadInfo.clientToken,
               contentType: file.type || "application/octet-stream",
-              sizeBytes:   file.size,
+              multipart: true,
             });
+            finalStoragePath = blob.url;
+          } else {
+            const res = await uploadToSignedUrl({
+              bucket: "issue-files",
+              storagePath: uploadInfo.storagePath,
+              signedUrl: uploadInfo.signedUrl,
+              fileBody: file,
+              contentType: file.type || "application/octet-stream",
+            });
+            if (!res.ok) throw new Error(`上传失败 (${res.status})：${res.message}`);
+            finalStoragePath = uploadInfo.storagePath;
           }
+          await saveAttachmentMeta({
+            issueId:     id,
+            storagePath: finalStoragePath,
+            filename:    file.name,
+            contentType: file.type || "application/octet-stream",
+            sizeBytes:   file.size,
+          });
         } catch {
           // 单个文件失败不影响创建
         }
