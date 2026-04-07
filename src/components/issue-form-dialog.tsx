@@ -211,11 +211,13 @@ export function IssueFormDialog({
             file.type || "application/octet-stream",
             file.size
           );
-          const res = await uploadToSignedUrl(
+          const res = await uploadToSignedUrl({
+            bucket: "issue-files",
+            storagePath,
             signedUrl,
-            file,
-            file.type || "application/octet-stream",
-          );
+            fileBody: file,
+            contentType: file.type || "application/octet-stream",
+          });
           if (res.ok) {
             await saveAttachmentMeta({
               issueId:     id,
