@@ -14,10 +14,11 @@ import {
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
 import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
+import { put as blobPut } from "@vercel/blob/client";
 import type { IssueAttachmentWithUrl } from "@/types";
 import { cn } from "@/lib/utils";
 
-const MAX_MB = 50; // Supabase Free Plan 全局上限 50 MB
+const MAX_MB = 500; // Vercel Blob 最大 500 MB，Supabase 小文件走 50 MB
 
 interface Props {
   issueId: string;
@@ -73,27 +74,41 @@ export function AttachmentUploadButton({
         continue;
       }
       try {
-        const { signedUrl, storagePath } = await createSignedUploadUrl(
+        const uploadInfo = await createSignedUploadUrl(
           issueId,
           file.name,
           file.type || "application/octet-stream",
           file.size
         );
 
-        const uploadRes = await uploadToSignedUrl({
-          bucket: "issue-files",
-          storagePath,
-          signedUrl,
-          fileBody: file,
-          contentType: file.type || "application/octet-stream",
-        });
+        let finalStoragePath: string;
 
-        if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})：${uploadRes.message}`);
+        if (uploadInfo.provider === "blob") {
+          // 大文件走 Vercel Blob（支持多达 500MB，自动分片）
+          const blob = await blobPut(uploadInfo.pathname, file, {
+            access: "public",
+            token: uploadInfo.clientToken,
+            contentType: file.type || "application/octet-stream",
+            multipart: true,
+          });
+          finalStoragePath = blob.url; // 以完整 HTTPS URL 存入 storage_path
+        } else {
+          // 小文件走 Supabase Storage
+          const uploadRes = await uploadToSignedUrl({
+            bucket: "issue-files",
+            storagePath: uploadInfo.storagePath,
+            signedUrl: uploadInfo.signedUrl,
+            fileBody: file,
+            contentType: file.type || "application/octet-stream",
+          });
+          if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})：${uploadRes.message}`);
+          finalStoragePath = uploadInfo.storagePath;
+        }
 
         const attachmentId = await saveAttachmentMeta({
           issueId,
           issueUpdateId: issueUpdateId ?? null,
-          storagePath,
+          storagePath: finalStoragePath,
           filename: file.name,
           contentType: file.type || "application/octet-stream",
           sizeBytes: file.size,
@@ -103,13 +118,15 @@ export function AttachmentUploadButton({
           id: attachmentId,
           issue_id: issueId,
           issue_update_id: issueUpdateId ?? null,
-          storage_path: storagePath,
+          storage_path: finalStoragePath,
           filename: file.name,
           content_type: file.type || "application/octet-stream",
           size_bytes: file.size,
           uploaded_by: "",
           created_at: new Date().toISOString(),
-          url: URL.createObjectURL(file),
+          url: finalStoragePath.startsWith("https://")
+            ? finalStoragePath
+            : URL.createObjectURL(file),
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : "上传失败");

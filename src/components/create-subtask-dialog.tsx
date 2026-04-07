@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createIssue } from "@/actions/issues";
 import { createSignedUploadUrl, saveAttachmentMeta } from "@/actions/attachments";
 import { uploadToSignedUrl } from "@/lib/supabase/upload-to-signed-url";
+import { put as blobPut } from "@vercel/blob/client";
 import type { IssueSummary, IssueWithRelations } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,24 +46,31 @@ export function CreateSubtaskDialog({
 
     const tasks = files.map(async (file) => {
       const contentType = file.type || "application/octet-stream";
-      const { signedUrl, storagePath } = await createSignedUploadUrl(
-        issueId,
-        file.name,
-        contentType,
-        file.size
-      );
-      const uploadRes = await uploadToSignedUrl({
-        bucket: "issue-files",
-        storagePath,
-        signedUrl,
-        fileBody: file,
-        contentType,
-      });
-      if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})：${uploadRes.message}`);
+      const uploadInfo = await createSignedUploadUrl(issueId, file.name, contentType, file.size);
+      let finalStoragePath: string;
+      if (uploadInfo.provider === "blob") {
+        const blob = await blobPut(uploadInfo.pathname, file, {
+          access: "public",
+          token: uploadInfo.clientToken,
+          contentType,
+          multipart: true,
+        });
+        finalStoragePath = blob.url;
+      } else {
+        const uploadRes = await uploadToSignedUrl({
+          bucket: "issue-files",
+          storagePath: uploadInfo.storagePath,
+          signedUrl: uploadInfo.signedUrl,
+          fileBody: file,
+          contentType,
+        });
+        if (!uploadRes.ok) throw new Error(`上传失败 (${uploadRes.status})：${uploadRes.message}`);
+        finalStoragePath = uploadInfo.storagePath;
+      }
       await saveAttachmentMeta({
         issueId,
         issueUpdateId: null,
-        storagePath,
+        storagePath: finalStoragePath,
         filename: file.name,
         contentType,
         sizeBytes: file.size,
