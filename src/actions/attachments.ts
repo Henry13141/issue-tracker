@@ -37,7 +37,7 @@ export async function createSignedUploadUrl(
       token: process.env.BLOB_READ_WRITE_TOKEN!,
       pathname,
       maximumSizeInBytes: BLOB_MAX_BYTES,
-      allowedContentTypes: ["*/*"],
+      // allowedContentTypes 不传 = 默认允许所有类型（含 fbx/zip/binary 等）
       validUntil: Date.now() + 5 * 60 * 1000, // 5 分钟有效期
       addRandomSuffix: false,
     });
