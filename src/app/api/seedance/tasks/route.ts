@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
-import { getCurrentUser } from "@/lib/auth";
+import { getSessionGate } from "@/lib/auth";
+import { SEEDANCE_PROFILE_MISSING_MESSAGE } from "@/lib/seedance-auth-messages";
 import {
   createSeedanceTask,
   listSeedanceTasks,
@@ -17,6 +18,11 @@ import {
   isValidSeedance20DurationValue,
   validateSeedanceReferenceCounts,
 } from "@/lib/seedance-params";
+import {
+  extractPromptTextFromContent,
+  upsertSeedanceTaskPrompt,
+  fetchSeedanceTaskPromptsByTaskIds,
+} from "@/lib/seedance-task-prompts";
 
 export const dynamic = "force-dynamic";
 
@@ -228,10 +234,17 @@ function describePayloadError(body: unknown): string {
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "未登录，无法调用 Seedance 体验功能。" }, { status: 401 });
+  const gate = await getSessionGate();
+  if (gate.status === "profile_missing") {
+    return NextResponse.json(
+      { error: SEEDANCE_PROFILE_MISSING_MESSAGE, code: "profile_missing" },
+      { status: 403 }
+    );
   }
+  if (gate.status !== "ok") {
+    return NextResponse.json({ error: "未登录，无法调用 Seedance 体验功能。", code: "unauthenticated" }, { status: 401 });
+  }
+  const user = gate.user;
 
   let body: unknown;
   try {
@@ -251,6 +264,14 @@ export async function POST(request: Request) {
 
   try {
     const task = await createSeedanceTask(payload);
+    const promptSnapshot = extractPromptTextFromContent(payload.content);
+    if (task.taskId) {
+      await upsertSeedanceTaskPrompt({
+        taskId: task.taskId,
+        promptText: promptSnapshot,
+        createdByUserId: user.id,
+      });
+    }
     return NextResponse.json({ task });
   } catch (error) {
     const response = toArkErrorResponse(error);
@@ -259,9 +280,18 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "未登录，无法查询 Seedance 历史任务。" }, { status: 401 });
+  const gate = await getSessionGate();
+  if (gate.status === "profile_missing") {
+    return NextResponse.json(
+      { error: SEEDANCE_PROFILE_MISSING_MESSAGE, code: "profile_missing" },
+      { status: 403 }
+    );
+  }
+  if (gate.status !== "ok") {
+    return NextResponse.json(
+      { error: "未登录，无法查询 Seedance 历史任务。", code: "unauthenticated" },
+      { status: 401 }
+    );
   }
 
   const { searchParams } = new URL(request.url);
@@ -273,7 +303,9 @@ export async function GET(request: Request) {
       pageNum: Number.isFinite(pageNum) && pageNum >= 1 ? pageNum : 1,
       pageSize: Number.isFinite(pageSize) && pageSize >= 1 && pageSize <= 100 ? pageSize : 12,
     });
-    return NextResponse.json(result);
+    const taskIds = result.items.map((item) => item.taskId).filter(Boolean);
+    const prompts = await fetchSeedanceTaskPromptsByTaskIds(taskIds);
+    return NextResponse.json({ ...result, prompts });
   } catch (error) {
     const response = toArkErrorResponse(error);
     return NextResponse.json(response.body, { status: response.status });

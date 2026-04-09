@@ -65,6 +65,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
+import { SEEDANCE_PROFILE_MISSING_MESSAGE } from "@/lib/seedance-auth-messages";
 
 type LocalAssetKind = "image" | "video" | "audio";
 type ImageInputMode = "multimodal" | "first_frame" | "first_last_frame";
@@ -106,13 +108,16 @@ type ApiResult = {
   task?: SeedanceTaskSummary;
   error?: string;
   details?: unknown;
+  prompt?: string | null;
 };
 
 type HistoryResult = SeedanceTaskListResult & {
   error?: string;
+  prompts?: Record<string, string>;
 };
 
 const MAX_IMAGE_TOTAL_PIXELS = 36_000_000;
+const LOCAL_PROMPT_STORAGE_KEY = "seedance_prompt_history";
 
 const SEEDANCE_MODEL_OPTIONS: { id: SeedanceModelId; label: string }[] = [
   { id: SEEDANCE_MODEL_IDS.standard, label: "Seedance 2.0" },
@@ -524,7 +529,9 @@ function UploadedAssetGallery({
                 variant="ghost"
                 size="sm"
                 className="h-8 shrink-0 px-3 text-sm"
-                onClick={() => uploadedIndex !== undefined && onInsertReference(referencePromptSnippet(kind, uploadedIndex))}
+                onClick={() =>
+                  uploadedIndex !== undefined && onInsertReference(`@${referenceLabel(kind, uploadedIndex)}`)
+                }
                 disabled={uploadedIndex === undefined}
               >
                 引用
@@ -570,7 +577,9 @@ function UploadedAssetGallery({
                 variant="ghost"
                 size="default"
                 className="px-3 text-sm"
-                onClick={() => uploadedIndex !== undefined && onInsertReference(referencePromptSnippet(kind, uploadedIndex))}
+                onClick={() =>
+                  uploadedIndex !== undefined && onInsertReference(`@${referenceLabel(kind, uploadedIndex)}`)
+                }
                 disabled={uploadedIndex === undefined}
               >
                 引用
@@ -604,8 +613,12 @@ function UploadedAssetGallery({
 
 export function SeedancePlayground({
   configured,
+  authenticated,
+  profileMissing = false,
 }: {
   configured: boolean;
+  authenticated: boolean;
+  profileMissing?: boolean;
 }) {
   const [promptDialogOpen, setPromptDialogOpen] = useState(false);
   const [promptBuilderMode, setPromptBuilderMode] = useState<PromptBuilderMode>("optimizer");
@@ -636,7 +649,7 @@ export function SeedancePlayground({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [promptHistory, setPromptHistory] = useState<Record<string, string>>(() => {
     try {
-      const raw = localStorage.getItem("seedance_prompt_history");
+      const raw = localStorage.getItem(LOCAL_PROMPT_STORAGE_KEY);
       return raw ? (JSON.parse(raw) as Record<string, string>) : {};
     } catch {
       return {};
@@ -755,7 +768,7 @@ export function SeedancePlayground({
     return estimateSeedance20TaskCostFromUsage(task.model, task.raw);
   }, [task]);
 
-  async function parseResponse(response: Response) {
+  async function parseTaskResponse(response: Response) {
     const data = (await response.json().catch(() => ({}))) as ApiResult;
     if (!response.ok) {
       throw new Error(data.error || "请求失败");
@@ -763,7 +776,24 @@ export function SeedancePlayground({
     if (!data.task) {
       throw new Error("服务端未返回任务信息");
     }
-    return data.task;
+    return { task: data.task, prompt: data.prompt ?? null };
+  }
+
+  function persistPromptHistory(next: Record<string, string>) {
+    try {
+      localStorage.setItem(LOCAL_PROMPT_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function mergePromptIntoState(taskId: string | undefined, prompt: string | null | undefined) {
+    if (!taskId || prompt == null) return;
+    setPromptHistory((prev) => {
+      const next = { ...prev, [taskId]: prompt };
+      persistPromptHistory(next);
+      return next;
+    });
   }
 
   async function refreshTask(targetTaskId?: string) {
@@ -772,15 +802,24 @@ export function SeedancePlayground({
       toast.error("请先输入任务 ID");
       return;
     }
+    if (profileMissing) {
+      toast.error(SEEDANCE_PROFILE_MISSING_MESSAGE);
+      return;
+    }
+    if (!authenticated) {
+      toast.info("请先登录后再查询任务详情");
+      return;
+    }
 
     setRefreshing(true);
     try {
-      const nextTask = await parseResponse(
+      const { task: nextTask, prompt } = await parseTaskResponse(
         await fetch(`/api/seedance/tasks/${encodeURIComponent(nextTaskId)}`, {
           method: "GET",
           cache: "no-store",
         })
       );
+      mergePromptIntoState(nextTask.taskId || nextTaskId, prompt);
       setTask(nextTask);
       setTaskIdInput(nextTask.taskId || nextTaskId);
     } catch (error) {
@@ -794,6 +833,14 @@ export function SeedancePlayground({
     const nextTaskId = (targetTaskId ?? task?.taskId ?? taskIdInput).trim();
     if (!nextTaskId) {
       toast.error("请先选择一个任务");
+      return;
+    }
+    if (profileMissing) {
+      toast.error(SEEDANCE_PROFILE_MISSING_MESSAGE);
+      return;
+    }
+    if (!authenticated) {
+      toast.info("请先登录后再取消或删除任务");
       return;
     }
 
@@ -818,18 +865,49 @@ export function SeedancePlayground({
     }
   }
 
-  async function loadHistory() {
+  async function loadHistory(options?: { silent?: boolean }) {
+    if (profileMissing) {
+      if (!options?.silent) {
+        toast.error(SEEDANCE_PROFILE_MISSING_MESSAGE);
+      }
+      return;
+    }
+    if (!authenticated) {
+      if (!options?.silent) {
+        toast.info("请先登录后再查看全站历史与提示词快照");
+      }
+      return;
+    }
+
     setHistoryLoading(true);
     try {
       const response = await fetch("/api/seedance/tasks?pageNum=1&pageSize=12", {
         method: "GET",
         cache: "no-store",
       });
-      const payload = (await response.json().catch(() => ({}))) as HistoryResult;
+      const payload = (await response.json().catch(() => ({}))) as HistoryResult & {
+        code?: string;
+      };
+      if (response.status === 403 && payload.code === "profile_missing") {
+        toast.error(payload.error || SEEDANCE_PROFILE_MISSING_MESSAGE);
+        return;
+      }
+      if (response.status === 401) {
+        toast.info("登录已过期，请重新登录后再刷新");
+        return;
+      }
       if (!response.ok) {
         throw new Error(payload.error || "查询历史任务失败");
       }
       setHistoryItems(payload.items ?? []);
+      const serverPrompts = payload.prompts ?? {};
+      if (Object.keys(serverPrompts).length > 0) {
+        setPromptHistory((prev) => {
+          const next = { ...prev, ...serverPrompts };
+          persistPromptHistory(next);
+          return next;
+        });
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "查询历史任务失败");
     } finally {
@@ -1037,6 +1115,14 @@ export function SeedancePlayground({
       toast.error("服务端还没有配置 ARK_API_KEY");
       return;
     }
+    if (profileMissing) {
+      toast.error(SEEDANCE_PROFILE_MISSING_MESSAGE);
+      return;
+    }
+    if (!authenticated) {
+      toast.info("请先登录后再提交生成任务");
+      return;
+    }
     const referenceError = validateSeedanceReferenceCounts(referenceAssetCounts);
     if (referenceError) {
       toast.error(referenceError);
@@ -1101,7 +1187,7 @@ export function SeedancePlayground({
 
     setSubmitting(true);
     try {
-      const nextTask = await parseResponse(
+      const { task: nextTask } = await parseTaskResponse(
         await fetch("/api/seedance/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1112,10 +1198,10 @@ export function SeedancePlayground({
       setTaskIdInput(nextTask.taskId);
       setSubmittedParams({ resolution, ratio, duration, modelId });
       notifiedRef.current = null;
-      if (nextTask.taskId && prompt.trim()) {
+      if (nextTask.taskId) {
         setPromptHistory((prev) => {
-          const next = { [nextTask.taskId]: prompt.trim(), ...prev };
-          try { localStorage.setItem("seedance_prompt_history", JSON.stringify(next)); } catch { /* ignore */ }
+          const next = { [nextTask.taskId!]: prompt.trim(), ...prev };
+          persistPromptHistory(next);
           return next;
         });
       }
@@ -1126,6 +1212,19 @@ export function SeedancePlayground({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function applyLastFrameAsFirstFrame(frameUrl: string) {
+    const cardId = `image-lastframe-${Date.now()}`;
+    const filename = "尾帧首帧.png";
+    setImageMode("first_frame");
+    setImageUrls(frameUrl);
+    setAssetCards((prev) => ({
+      ...prev,
+      image: [{ id: cardId, kind: "image", filename, url: frameUrl, status: "uploaded" }],
+    }));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    toast.success("已将尾帧设为首帧，在上方填写提示词后生成");
   }
 
   function resetForm() {
@@ -1272,8 +1371,8 @@ export function SeedancePlayground({
   }
 
   useEffect(() => {
-    void loadHistory();
-  }, []);
+    void loadHistory({ silent: true });
+  }, [authenticated, profileMissing]);
 
   useEffect(() => {
     setPromptReferenceActiveIndex(0);
@@ -1325,9 +1424,14 @@ export function SeedancePlayground({
           return;
         }
 
+        if (response.status === 401 || response.status === 403) {
+          return;
+        }
+
         pollBackoffMs = 0;
-        const nextTask = await parseResponse(response);
+        const { task: nextTask, prompt } = await parseTaskResponse(response);
         if (cancelled) return;
+        mergePromptIntoState(nextTask.taskId, prompt);
         setTask(nextTask);
         setTaskIdInput(nextTask.taskId);
         if (isTerminal(nextTask.status)) {
@@ -1521,14 +1625,6 @@ export function SeedancePlayground({
                 ) : null}
               </div>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                当前模式：{imageModeLabel(imageMode)}。
-                {imageMode === "multimodal"
-                  ? " 图片会作为 reference_image，可搭配视频和音频参考。"
-                  : imageMode === "first_frame"
-                    ? " 仅使用 1 张图片作为 first_frame，不与参考视频/音频混用。"
-                    : " 需要 2 张图片，分别作为 first_frame 和 last_frame。"}
-              </p>
-              <p className="text-sm leading-relaxed text-muted-foreground">
                 输入 @ 可插入素材引用；素材区卡片上的「引用」按钮会插入到当前光标处。历史任务的提示词在下方「最近生成」里与视频一起展示。
               </p>
             </div>
@@ -1593,6 +1689,9 @@ export function SeedancePlayground({
                       点击上方添加视频，或展开手动 URL。
                     </div>
                   ) : null}
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    ⚠️ 所有参考视频合计时长须 ≤ 15.2 秒，超出会被 API 拒绝。
+                  </p>
                 </div>
 
                 <div className="space-y-3">
@@ -1661,28 +1760,50 @@ export function SeedancePlayground({
               <div className="space-y-4">
                 <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:gap-6">
                   <span className="w-20 shrink-0 pt-1 text-sm font-medium text-muted-foreground">模式</span>
-                  <div className="flex flex-wrap gap-2">
-                    {(
-                      [
-                        ["multimodal", "多模态参考"],
-                        ["first_frame", "首帧图生视频"],
-                        ["first_last_frame", "首尾帧生视频"],
-                      ] as const
-                    ).map(([mode, label]) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setImageMode(mode)}
-                        className={cn(
-                          "rounded-full border px-4 py-2 text-sm font-medium transition",
-                          imageMode === mode
-                            ? "border-primary bg-primary/8 text-primary"
-                            : "border-border bg-muted/40 text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          ["multimodal", "多模态参考"],
+                          ["first_frame", "首帧图生视频"],
+                          ["first_last_frame", "首尾帧生视频"],
+                        ] as const
+                      ).map(([mode, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setImageMode(mode)}
+                          className={cn(
+                            "rounded-full border px-4 py-2 text-sm font-medium transition",
+                            imageMode === mode
+                              ? "border-primary bg-primary/8 text-primary"
+                              : "border-border bg-muted/40 text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+                      {imageMode === "multimodal" && (
+                        <>
+                          <span className="font-semibold text-foreground">多模态参考</span>
+                          {" — "}上传的图片作为「外观/风格参考」，不固定首帧画面；可同时加入参考视频（动作参考）和参考音频（节奏/BGM）。适合：有参考素材但不需要精确控制起始画面的场景。
+                        </>
+                      )}
+                      {imageMode === "first_frame" && (
+                        <>
+                          <span className="font-semibold text-foreground">首帧图生视频</span>
+                          {" — "}上传 1 张图片作为视频的第 1 帧，生成内容从该画面自然延伸。<span className="font-medium text-foreground">不能同时携带参考视频或参考音频。</span>适合：续拍（把上一段的尾帧作为首帧）、固定开场镜头、产品展示等。
+                        </>
+                      )}
+                      {imageMode === "first_last_frame" && (
+                        <>
+                          <span className="font-semibold text-foreground">首尾帧生视频</span>
+                          {" — "}上传 2 张图片，第 1 张固定视频起点，第 2 张固定视频终点，模型自动填充中间过渡动画。<span className="font-medium text-foreground">不能同时携带参考视频或参考音频。</span>适合：需要精确控制开头和结尾画面的镜头，例如产品变形、场景转换。
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:gap-6">
@@ -1889,29 +2010,45 @@ export function SeedancePlayground({
 
                 {task.taskId ? (
                   <div className="rounded-xl border border-border/80 bg-muted/15 px-4 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm font-semibold text-foreground">提交时的提示词</p>
-                      {promptHistory[task.taskId] ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="shrink-0 text-sm"
-                          onClick={() => setPrompt(promptHistory[task.taskId])}
-                        >
-                          填入创作区
-                        </Button>
-                      ) : null}
-                    </div>
-                    {promptHistory[task.taskId] ? (
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/95">
-                        {promptHistory[task.taskId]}
-                      </p>
-                    ) : (
-                      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                        本机未记录该任务的提示词。仅当你在本页填写提示词并成功创建任务时会自动保存；换设备或清除站点数据后无法显示。
-                      </p>
-                    )}
+                    {(() => {
+                      const tid = task.taskId;
+                      const hasSnapshot =
+                        tid != null && Object.prototype.hasOwnProperty.call(promptHistory, tid);
+                      const snapshotText = hasSnapshot && tid != null ? promptHistory[tid] : undefined;
+                      return (
+                        <>
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="text-sm font-semibold text-foreground">提交时的提示词</p>
+                            {snapshotText != null && snapshotText.length > 0 ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="shrink-0 text-sm"
+                                onClick={() => setPrompt(snapshotText)}
+                              >
+                                填入创作区
+                              </Button>
+                            ) : null}
+                          </div>
+                          {snapshotText != null ? (
+                            snapshotText.length > 0 ? (
+                              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/95">
+                                {snapshotText}
+                              </p>
+                            ) : (
+                              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                                本次提交未包含文本提示词（例如仅使用参考素材的多模态任务）。
+                              </p>
+                            )
+                          ) : (
+                            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                              暂无全站保存的提示词快照（可能为该任务创建于本功能上线之前，或写入失败）。可尝试刷新任务或联系管理员检查数据库迁移是否已执行。
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 ) : null}
 
@@ -2017,13 +2154,10 @@ export function SeedancePlayground({
                         variant="outline"
                         size="default"
                         className="text-sm"
-                        onClick={() => {
-                          setImageMode("first_frame");
-                          setImageUrls(task.lastFrameUrls[0]);
-                          toast.success("已将尾帧回填为新的首帧素材");
-                        }}
+                        onClick={() => applyLastFrameAsFirstFrame(task.lastFrameUrls[0])}
                       >
-                        作为下一段首帧
+                        <Play className="h-4 w-4" />
+                        以此接续生成
                       </Button>
                     </div>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2032,6 +2166,27 @@ export function SeedancePlayground({
                       alt="任务尾帧"
                       className="w-full rounded-xl border bg-muted/30"
                     />
+                  </div>
+                ) : task.videoUrls.length > 0 && task.status === "succeeded" ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed px-4 py-3">
+                    <p className="text-sm text-muted-foreground">
+                      本次未返回尾帧。勾选「返回尾帧」后重新生成可启用接续，或将此视频作为参考视频续拍。
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="default"
+                      className="shrink-0 text-sm"
+                      onClick={() => {
+                        setVideoUrls((prev) => appendUrlLine(prev, task.videoUrls[0]));
+                        setImageMode("multimodal");
+                        setReturnLastFrame(true);
+                        toast.success("已添加为参考视频，并自动勾选「返回尾帧」");
+                      }}
+                    >
+                      <Video className="h-4 w-4" />
+                      加入参考视频续拍
+                    </Button>
                   </div>
                 ) : null}
 
@@ -2127,17 +2282,36 @@ export function SeedancePlayground({
               </Button>
             </div>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              视频列表来自方舟。每条下方的「当时提示词」与本条视频绑定展示；仅在本页成功提交且填写过提示词时才会保存到本机。
+              视频列表来自方舟。提示词快照在服务端保存，全站登录成员可见；本机仍会缓存一份便于离线回看。
             </p>
+            {profileMissing ? (
+              <div className="rounded-xl border border-rose-200/80 bg-rose-50 px-4 py-3 text-sm leading-relaxed text-rose-950 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-100">
+                你已登录，但账号尚未写入「用户资料表」（public.users），与中间件只校验会话不同，Seedance
+                接口需要完整用户记录。请联系管理员在数据库中补全你的用户行，或走注册/同步流程。
+              </div>
+            ) : !authenticated ? (
+              <div className="rounded-xl border border-amber-200/70 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/25 dark:text-amber-100">
+                当前未登录，无法拉取「最近生成」与全站提示词快照。请先{" "}
+                <Link href="/login" className="font-medium text-primary underline underline-offset-4">
+                  登录
+                </Link>
+                ，或点击刷新时会提示登录。
+              </div>
+            ) : null}
           </CardHeader>
           <CardContent className="max-h-[min(75vh,640px)] space-y-4 overflow-y-auto px-6 pb-6 pr-2 sm:px-8">
             {historyItems.length === 0 ? (
               <div className="rounded-xl border border-dashed px-6 py-10 text-center text-base text-muted-foreground">
-                暂无历史记录。
+                {profileMissing
+                  ? "用户资料未同步，无法拉取历史（见上方说明）。"
+                  : authenticated
+                    ? "暂无历史记录。"
+                    : "登录后可查看全站历史任务与提示词快照。"}
               </div>
             ) : (
               historyItems.map((item) => {
-                const saved = promptHistory[item.taskId];
+                const hasSnapshot = Object.prototype.hasOwnProperty.call(promptHistory, item.taskId);
+                const saved = hasSnapshot ? promptHistory[item.taskId] : undefined;
                 const expanded = historyPromptExpanded[item.taskId] ?? false;
                 const promptLongThreshold = 200;
                 const isLong = saved != null && saved.length > promptLongThreshold;
@@ -2175,10 +2349,74 @@ export function SeedancePlayground({
                       <p className="text-sm text-muted-foreground">暂无视频地址。</p>
                     )}
 
+                    {item.lastFrameUrls[0] ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-muted-foreground">视频尾帧</p>
+                          <div className="flex shrink-0 gap-2">
+                            {item.videoUrls[0] ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-sm"
+                                onClick={() => {
+                                  setVideoUrls((prev) => appendUrlLine(prev, item.videoUrls[0]));
+                                  setImageMode("multimodal");
+                                  window.scrollTo({ top: 0, behavior: "smooth" });
+                                  toast.success("已添加为参考视频，可在上方配合提示词续拍");
+                                }}
+                              >
+                                <Video className="h-3.5 w-3.5" />
+                                加入参考视频
+                              </Button>
+                            ) : null}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="text-sm"
+                              onClick={() => applyLastFrameAsFirstFrame(item.lastFrameUrls[0])}
+                            >
+                              <Play className="h-3.5 w-3.5" />
+                              以此接续生成
+                            </Button>
+                          </div>
+                        </div>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={item.lastFrameUrls[0]}
+                          alt="视频尾帧"
+                          className="w-full rounded-xl border bg-muted/30"
+                        />
+                      </div>
+                    ) : item.videoUrls[0] && item.status === "succeeded" ? (
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed px-4 py-3">
+                        <p className="text-sm text-muted-foreground">
+                          未保存尾帧。可将此视频加入参考，或在下次生成时勾选「返回尾帧」以启用接续。
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 text-sm"
+                          onClick={() => {
+                            setVideoUrls((prev) => appendUrlLine(prev, item.videoUrls[0]));
+                            setImageMode("multimodal");
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                            toast.success("已添加为参考视频，可在上方配合提示词续拍");
+                          }}
+                        >
+                          <Video className="h-3.5 w-3.5" />
+                          加入参考视频
+                        </Button>
+                      </div>
+                    ) : null}
+
                     <div className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-sm font-semibold text-foreground">当时提示词</p>
-                        {saved ? (
+                        {saved != null && saved.length > 0 ? (
                           <Button
                             type="button"
                             variant="ghost"
@@ -2190,34 +2428,40 @@ export function SeedancePlayground({
                           </Button>
                         ) : null}
                       </div>
-                      {saved ? (
-                        <>
-                          <p
-                            className={cn(
-                              "mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/95",
-                              !expanded && isLong && "line-clamp-4"
-                            )}
-                          >
-                            {saved}
-                          </p>
-                          {isLong ? (
-                            <button
-                              type="button"
-                              className="mt-2 text-sm font-medium text-primary hover:underline"
-                              onClick={() =>
-                                setHistoryPromptExpanded((prev) => ({
-                                  ...prev,
-                                  [item.taskId]: !expanded,
-                                }))
-                              }
+                      {saved != null ? (
+                        saved.length > 0 ? (
+                          <>
+                            <p
+                              className={cn(
+                                "mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/95",
+                                !expanded && isLong && "line-clamp-4"
+                              )}
                             >
-                              {expanded ? "收起" : "展开全文"}
-                            </button>
-                          ) : null}
-                        </>
+                              {saved}
+                            </p>
+                            {isLong ? (
+                              <button
+                                type="button"
+                                className="mt-2 text-sm font-medium text-primary hover:underline"
+                                onClick={() =>
+                                  setHistoryPromptExpanded((prev) => ({
+                                    ...prev,
+                                    [item.taskId]: !expanded,
+                                  }))
+                                }
+                              >
+                                {expanded ? "收起" : "展开全文"}
+                              </button>
+                            ) : null}
+                          </>
+                        ) : (
+                          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                            本次提交未包含文本提示词（例如仅参考素材）。
+                          </p>
+                        )
                       ) : (
                         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                          本机未记录该条的提示词。若任务在其他入口创建、或当时未写提示词、或已清除浏览器数据，则无法在此显示。
+                          暂无全站提示词快照（任务可能早于本功能创建，或尚未同步）。
                         </p>
                       )}
                     </div>
