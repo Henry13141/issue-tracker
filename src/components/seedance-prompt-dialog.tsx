@@ -210,14 +210,14 @@ function ReferenceMentionTextarea({
   const showMenu = focused && mention !== null;
   const highlightedSegments = useMemo(() => renderHighlightedSegments(value), [value]);
 
-  useEffect(() => {
+  const mentionSignal = mention ? `${mention.start}:${mention.query}` : "";
+  const [prevMentionSignal, setPrevMentionSignal] = useState(mentionSignal);
+  if (mentionSignal !== prevMentionSignal) {
+    setPrevMentionSignal(mentionSignal);
     setActiveIndex(0);
-  }, [mention?.query, mention?.start]);
-
-  useEffect(() => {
-    if (activeIndex < filteredOptions.length) return;
+  } else if (filteredOptions.length > 0 && activeIndex >= filteredOptions.length) {
     setActiveIndex(0);
-  }, [activeIndex, filteredOptions.length]);
+  }
 
   function syncSelection(target: HTMLTextAreaElement) {
     setSelection({
