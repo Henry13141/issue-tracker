@@ -392,12 +392,33 @@ export async function listSeedanceTasks(params?: {
   };
 }
 
+function translateArkError(message: string): string {
+  if (/video total duration.*must be less than or equal to/i.test(message)) {
+    const match = message.match(/less than or equal to ([\d.]+)/i);
+    const limit = match ? match[1] : "15.2";
+    return `参考视频总时长超出限制：所有参考视频合计不得超过 ${limit} 秒，请裁剪后重试。`;
+  }
+  if (/The parameter `content` specified in the request is not valid/i.test(message)) {
+    return `请求参数无效（content）：${message.replace(/.*is not valid:\s*/i, "")}`;
+  }
+  if (/AuthenticationError|api key/i.test(message)) {
+    return "API Key 认证失败，请联系管理员检查配置。";
+  }
+  if (/RateLimitError|rate limit/i.test(message)) {
+    return "请求频率超限，请稍后重试。";
+  }
+  if (/insufficient.*balance|quota/i.test(message)) {
+    return "账户余额不足或配额超限，请联系管理员充值。";
+  }
+  return message;
+}
+
 export function toArkErrorResponse(error: unknown) {
   if (error instanceof ArkRequestError) {
     return {
       status: error.status,
       body: {
-        error: error.message,
+        error: translateArkError(error.message),
         details: error.details,
       },
     };
@@ -406,7 +427,7 @@ export function toArkErrorResponse(error: unknown) {
   return {
     status: 500,
     body: {
-      error: error instanceof Error ? error.message : "未知错误",
+      error: error instanceof Error ? translateArkError(error.message) : "未知错误",
     },
   };
 }

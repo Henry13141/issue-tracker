@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getSessionGate } from "@/lib/auth";
+import { SEEDANCE_PROFILE_MISSING_MESSAGE } from "@/lib/seedance-auth-messages";
 import { deleteSeedanceTask, getSeedanceTask, toArkErrorResponse } from "@/lib/ark-seedance";
+import { fetchSeedanceTaskPrompt } from "@/lib/seedance-task-prompts";
 
 export const dynamic = "force-dynamic";
 
@@ -8,9 +10,18 @@ export async function GET(
   _request: Request,
   context: RouteContext<"/api/seedance/tasks/[taskId]">
 ) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "未登录，无法查询 Seedance 任务。" }, { status: 401 });
+  const gate = await getSessionGate();
+  if (gate.status === "profile_missing") {
+    return NextResponse.json(
+      { error: SEEDANCE_PROFILE_MISSING_MESSAGE, code: "profile_missing" },
+      { status: 403 }
+    );
+  }
+  if (gate.status !== "ok") {
+    return NextResponse.json(
+      { error: "未登录，无法查询 Seedance 任务。", code: "unauthenticated" },
+      { status: 401 }
+    );
   }
 
   const { taskId } = await context.params;
@@ -20,7 +31,8 @@ export async function GET(
 
   try {
     const task = await getSeedanceTask(taskId);
-    return NextResponse.json({ task });
+    const prompt = await fetchSeedanceTaskPrompt(taskId);
+    return NextResponse.json({ task, prompt: prompt ?? null });
   } catch (error) {
     const response = toArkErrorResponse(error);
     return NextResponse.json(response.body, { status: response.status });
@@ -31,9 +43,18 @@ export async function DELETE(
   _request: Request,
   context: RouteContext<"/api/seedance/tasks/[taskId]">
 ) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "未登录，无法删除或取消 Seedance 任务。" }, { status: 401 });
+  const gate = await getSessionGate();
+  if (gate.status === "profile_missing") {
+    return NextResponse.json(
+      { error: SEEDANCE_PROFILE_MISSING_MESSAGE, code: "profile_missing" },
+      { status: 403 }
+    );
+  }
+  if (gate.status !== "ok") {
+    return NextResponse.json(
+      { error: "未登录，无法删除或取消 Seedance 任务。", code: "unauthenticated" },
+      { status: 401 }
+    );
   }
 
   const { taskId } = await context.params;

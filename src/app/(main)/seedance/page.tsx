@@ -1,10 +1,12 @@
 import { SeedancePlayground } from "@/components/seedance-playground";
+import { getSessionGate } from "@/lib/auth";
 import { isSeedanceConfigured } from "@/lib/ark-seedance";
 
 export const dynamic = "force-dynamic";
 
-export default function SeedancePage() {
+export default async function SeedancePage() {
   const configured = isSeedanceConfigured();
+  const gate = await getSessionGate();
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-2 pb-16 sm:px-4">
@@ -19,7 +21,11 @@ export default function SeedancePage() {
           在同一界面里完成提示词构思、参考素材组织、任务提交和结果查看。
         </p>
       </section>
-      <SeedancePlayground configured={configured} />
+      <SeedancePlayground
+        configured={configured}
+        authenticated={gate.status === "ok"}
+        profileMissing={gate.status === "profile_missing"}
+      />
     </div>
   );
 }
