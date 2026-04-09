@@ -210,13 +210,6 @@ function getPromptReferenceMention(value: string, cursor: number): PromptReferen
   return { start: atIndex, end: cursor, query };
 }
 
-
-function imageModeLabel(mode: ImageInputMode) {
-  if (mode === "first_frame") return "首帧图生视频";
-  if (mode === "first_last_frame") return "首尾帧生视频";
-  return "多模态参考";
-}
-
 async function runWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
