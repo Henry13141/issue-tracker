@@ -1,0 +1,43 @@
+# 持续性能监控：定期对生产站点跑 Lighthouse，报告上传为 Artifact；可在 Actions 页下载查看。
+# 真实用户指标：请在 Vercel 项目开启 Web Analytics 与 Speed Insights（代码已在 layout 中接入）。
+name: Lighthouse CI
+
+on:
+  schedule:
+    # 每周一 03:00 UTC（约北京时间周一 11:00）
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "监控站点根 URL（默认生产域名）"
+        required: false
+        default: "https://tracker.megami-tech.com"
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Lighthouse CI
+        env:
+          LHCI_BASE_URL: ${{ github.event.inputs.base_url || 'https://tracker.megami-tech.com' }}
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run perf:lhci
+
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: .lighthouseci
+          if-no-files-found: ignore
