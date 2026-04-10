@@ -1,20 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { addIssueUpdate } from "@/actions/issues";
 import type { IssueWithRelations } from "@/types";
 import { StatusBadge } from "@/components/status-badge";
 import { PriorityBadge } from "@/components/priority-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { formatDateOnly } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/empty-state";
-import { toast } from "sonner";
 import { UserAvatar } from "@/components/user-avatar";
+import { QuickIssueUpdateDialog } from "@/components/quick-issue-update-dialog";
 
 export function MyTasksClient({
   needUpdate,
@@ -25,30 +20,6 @@ export function MyTasksClient({
   updatedToday: IssueWithRelations[];
   following?: IssueWithRelations[];
 }) {
-  const router = useRouter();
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function submit(issueId: string) {
-    if (!content.trim()) {
-      toast.error("写几句今天的进展，让团队了解最新状态");
-      return;
-    }
-    setLoading(true);
-    try {
-      await addIssueUpdate(issueId, content.trim());
-      setContent("");
-      setOpenId(null);
-      toast.success("进展已同步，这张单的推进轨迹又完整了一步");
-      router.refresh();
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "提交暂时没成功，内容还在，可以再试");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   if (needUpdate.length === 0 && updatedToday.length === 0 && following.length === 0) {
     return (
       <EmptyState
@@ -65,7 +36,6 @@ export function MyTasksClient({
     issue: IssueWithRelations;
     variant: "stale" | "ok";
   }) {
-    const expanded = openId === issue.id;
     return (
       <Card
         className={cn(
@@ -98,46 +68,7 @@ export function MyTasksClient({
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
-          {!expanded ? (
-            <Button
-              variant="secondary"
-              className="min-h-10 w-full sm:w-auto"
-              onClick={() => {
-                setOpenId(issue.id);
-                setContent("");
-              }}
-            >
-              快速更新进度
-            </Button>
-          ) : (
-            <div className="space-y-2">
-              <Textarea
-                value={openId === issue.id ? content : ""}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="简要说明今日进展…"
-                rows={3}
-              />
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  className="min-h-10 w-full sm:w-auto"
-                  onClick={() => submit(issue.id)}
-                  disabled={loading}
-                >
-                  {loading ? "提交中…" : "提交"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="min-h-10 w-full sm:w-auto"
-                  onClick={() => {
-                    setOpenId(null);
-                    setContent("");
-                  }}
-                >
-                  取消
-                </Button>
-              </div>
-            </div>
-          )}
+          <QuickIssueUpdateDialog issueId={issue.id} source="my_tasks" />
         </CardContent>
       </Card>
     );

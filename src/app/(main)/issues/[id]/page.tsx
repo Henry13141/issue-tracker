@@ -14,15 +14,17 @@ import { cn } from "@/lib/utils";
 
 export default async function IssueDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [issue, members, user] = await Promise.all([
-    getIssueBasic(id),
-    getMembers(),
-    getCurrentUser(),
-  ]);
-
-  if (!issue || !user) {
+  const user = await getCurrentUser();
+  if (!user) {
     notFound();
   }
+
+  const issue = await getIssueBasic(id);
+  if (!issue) {
+    notFound();
+  }
+
+  const members = await getMembers();
 
   return (
     <div>

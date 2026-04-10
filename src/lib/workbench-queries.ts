@@ -2,8 +2,21 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getChinaDayBounds } from "@/lib/dates";
 import { ACTIVE_STATUSES } from "@/lib/constants";
-import type { IssueEventType, IssuePriority, IssueWithRelations } from "@/types";
+import type { IssueEventType, IssuePriority, IssueWithRelations, User } from "@/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+function logSupabaseQueryError(scope: string, err: { message: string; cause?: unknown }) {
+  const msg = err.message || String(err);
+  const cause = err.cause instanceof Error ? err.cause.message : err.cause;
+  if (msg.includes("fetch failed")) {
+    console.warn(
+      `[${scope}] Supabase 网络请求失败（多为瞬时网络/DNS/防火墙；已降级处理）`,
+      cause != null ? String(cause) : ""
+    );
+    return;
+  }
+  console.error(`[${scope}]`, msg);
+}
 
 async function safeCreateClient(): Promise<SupabaseClient | null> {
   try {
@@ -102,19 +115,14 @@ function dedupeWorkbenchEvents(rows: WorkbenchEventRow[]): WorkbenchEventRow[] {
   return out;
 }
 
-export async function getWorkbenchStats(): Promise<WorkbenchStats | null> {
-  const user = await getCurrentUser();
-  if (!user) return null;
+const emptyStats: WorkbenchStats = {
+  assignedOpen: 0,
+  needUpdateToday: 0,
+  overdue: 0,
+  unreadReminders: 0,
+};
 
-  const supabase = await safeCreateClient();
-  if (!supabase) {
-    return {
-      assignedOpen: 0,
-      needUpdateToday: 0,
-      overdue: 0,
-      unreadReminders: 0,
-    };
-  }
+async function workbenchStatsForUser(supabase: SupabaseClient, user: User): Promise<WorkbenchStats> {
   const today = new Date().toISOString().slice(0, 10);
   const { startIso, endIso } = getChinaDayBounds();
 
@@ -126,13 +134,8 @@ export async function getWorkbenchStats(): Promise<WorkbenchStats | null> {
     .neq("status", "closed");
 
   if (issuesErr || !issues) {
-    console.error(issuesErr);
-    return {
-      assignedOpen: 0,
-      needUpdateToday: 0,
-      overdue: 0,
-      unreadReminders: 0,
-    };
+    if (issuesErr) logSupabaseQueryError("getWorkbenchStats issues", issuesErr);
+    return emptyStats;
   }
 
   const assignedOpen = issues.length;
@@ -147,22 +150,26 @@ export async function getWorkbenchStats(): Promise<WorkbenchStats | null> {
 
   let needUpdateToday = 0;
   if (activeIds.length > 0) {
-    const { data: updates } = await supabase
+    const { data: updates, error: updatesErr } = await supabase
       .from("issue_updates")
       .select("issue_id")
       .in("issue_id", activeIds)
       .gte("created_at", startIso)
       .lte("created_at", endIso);
 
+    if (updatesErr) logSupabaseQueryError("getWorkbenchStats issue_updates", updatesErr);
+
     const updated = new Set((updates ?? []).map((u) => u.issue_id as string));
     needUpdateToday = activeIds.filter((id) => !updated.has(id)).length;
   }
 
-  const { count: unreadReminders } = await supabase
+  const { count: unreadReminders, error: remindersErr } = await supabase
     .from("reminders")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
     .eq("is_read", false);
+
+  if (remindersErr) logSupabaseQueryError("getWorkbenchStats reminders", remindersErr);
 
   return {
     assignedOpen,
@@ -172,17 +179,23 @@ export async function getWorkbenchStats(): Promise<WorkbenchStats | null> {
   };
 }
 
-/** 今日待推进（优先展示）与今日已更新，排序与「我的任务」一致思路 */
-export async function getWorkbenchTaskGroups(): Promise<{
-  needUpdate: IssueWithRelations[];
-  updatedToday: IssueWithRelations[];
-} | null> {
+export async function getWorkbenchStats(): Promise<WorkbenchStats | null> {
   const user = await getCurrentUser();
   if (!user) return null;
 
   const supabase = await safeCreateClient();
-  if (!supabase) return { needUpdate: [], updatedToday: [] };
+  if (!supabase) {
+    return emptyStats;
+  }
+  return workbenchStatsForUser(supabase, user);
+}
 
+const emptyTaskGroups = { needUpdate: [] as IssueWithRelations[], updatedToday: [] as IssueWithRelations[] };
+
+async function workbenchTaskGroupsForUser(
+  supabase: SupabaseClient,
+  user: User
+): Promise<{ needUpdate: IssueWithRelations[]; updatedToday: IssueWithRelations[] }> {
   const { startIso, endIso } = getChinaDayBounds();
 
   const { data, error } = await supabase
@@ -194,8 +207,8 @@ export async function getWorkbenchTaskGroups(): Promise<{
     .order("due_date", { ascending: true, nullsFirst: false });
 
   if (error || !data) {
-    console.error(error);
-    return { needUpdate: [], updatedToday: [] };
+    if (error) logSupabaseQueryError("getWorkbenchTaskGroups issues", error);
+    return emptyTaskGroups;
   }
 
   const rows = data as IssueWithRelations[];
@@ -205,12 +218,13 @@ export async function getWorkbenchTaskGroups(): Promise<{
 
   let updatedSet = new Set<string>();
   if (activeIds.length > 0) {
-    const { data: updates } = await supabase
+    const { data: updates, error: updatesErr } = await supabase
       .from("issue_updates")
       .select("issue_id")
       .in("issue_id", activeIds)
       .gte("created_at", startIso)
       .lte("created_at", endIso);
+    if (updatesErr) logSupabaseQueryError("getWorkbenchTaskGroups issue_updates", updatesErr);
     updatedSet = new Set((updates ?? []).map((u) => u.issue_id as string));
   }
 
@@ -247,29 +261,43 @@ export async function getWorkbenchTaskGroups(): Promise<{
   };
 }
 
-export async function getWorkbenchRecentEvents(limit = 18): Promise<WorkbenchEventRow[]> {
+/** 今日待推进（优先展示）与今日已更新，排序与「我的任务」一致思路 */
+export async function getWorkbenchTaskGroups(): Promise<{
+  needUpdate: IssueWithRelations[];
+  updatedToday: IssueWithRelations[];
+} | null> {
   const user = await getCurrentUser();
-  if (!user) return [];
+  if (!user) return null;
 
   const supabase = await safeCreateClient();
-  if (!supabase) return [];
+  if (!supabase) return emptyTaskGroups;
 
-  const { data: mine } = await supabase
-    .from("issues")
-    .select("id")
-    .eq("assignee_id", user.id)
-    .neq("status", "resolved")
-    .neq("status", "closed");
+  return workbenchTaskGroupsForUser(supabase, user);
+}
 
-  const { data: participantRows, error: participantErr } = await supabase
-    .from("issue_participants")
-    .select("issue_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .eq("role", "handover_from");
-  if (participantErr) {
-    console.error("[getWorkbenchRecentEvents] issue_participants:", participantErr.message);
-  }
+async function workbenchRecentEventsForUser(
+  supabase: SupabaseClient,
+  user: User,
+  limit: number
+): Promise<WorkbenchEventRow[]> {
+  const [{ data: mine, error: mineErr }, { data: participantRows, error: participantErr }] =
+    await Promise.all([
+      supabase
+        .from("issues")
+        .select("id")
+        .eq("assignee_id", user.id)
+        .neq("status", "resolved")
+        .neq("status", "closed"),
+      supabase
+        .from("issue_participants")
+        .select("issue_id")
+        .eq("user_id", user.id)
+        .eq("active", true)
+        .eq("role", "handover_from"),
+    ]);
+
+  if (mineErr) logSupabaseQueryError("getWorkbenchRecentEvents issues", mineErr);
+  if (participantErr) logSupabaseQueryError("getWorkbenchRecentEvents issue_participants", participantErr);
 
   const idSet = new Set<string>();
   for (const r of mine ?? []) idSet.add(r.id as string);
@@ -297,7 +325,7 @@ export async function getWorkbenchRecentEvents(limit = 18): Promise<WorkbenchEve
     .limit(fetchLimit);
 
   if (error) {
-    console.error("[getWorkbenchRecentEvents]", error.message);
+    logSupabaseQueryError("getWorkbenchRecentEvents issue_events", error);
     return [];
   }
 
@@ -328,4 +356,41 @@ export async function getWorkbenchRecentEvents(limit = 18): Promise<WorkbenchEve
   const filtered = normalized.filter((e) => !NOISE_EVENT_TYPES.includes(e.event_type));
   const deduped = dedupeWorkbenchEvents(filtered);
   return deduped.slice(0, limit);
+}
+
+export async function getWorkbenchRecentEvents(limit = 18): Promise<WorkbenchEventRow[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const supabase = await safeCreateClient();
+  if (!supabase) return [];
+
+  return workbenchRecentEventsForUser(supabase, user, limit);
+}
+
+/**
+ * 首页工作台：复用同一 Supabase 客户端，避免 Promise.all 多路并行各建一套连接导致 fetch failed。
+ */
+export async function getWorkbenchHomeBundle(limit = 16): Promise<{
+  stats: WorkbenchStats;
+  tasks: { needUpdate: IssueWithRelations[]; updatedToday: IssueWithRelations[] };
+  events: WorkbenchEventRow[];
+}> {
+  const user = await getCurrentUser();
+  if (!user) {
+    return { stats: emptyStats, tasks: emptyTaskGroups, events: [] };
+  }
+
+  const supabase = await safeCreateClient();
+  if (!supabase) {
+    return { stats: emptyStats, tasks: emptyTaskGroups, events: [] };
+  }
+
+  const [stats, tasks, events] = await Promise.all([
+    workbenchStatsForUser(supabase, user),
+    workbenchTaskGroupsForUser(supabase, user),
+    workbenchRecentEventsForUser(supabase, user, limit),
+  ]);
+
+  return { stats, tasks, events };
 }

@@ -4,7 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { markAllRemindersRead, markReminderRead, markMultipleRemindersRead } from "@/actions/reminders";
-import type { ReminderWithIssue, User } from "@/types";
+import type { ReminderType, ReminderWithIssue, User } from "@/types";
+import { QuickIssueUpdateDialog } from "@/components/quick-issue-update-dialog";
 import { REMINDER_TYPE_LABELS } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,16 +25,22 @@ import { toast } from "sonner";
 
 const TYPE_ALL = "__all__";
 
+function reminderSupportsQuickUpdate(t: ReminderType) {
+  return t === "no_update_today" || t === "stale_3_days" || t === "overdue";
+}
+
 function ReminderRow({
   r,
   selected,
   onToggle,
   onRead,
+  onAfterQuickUpdate,
 }: {
   r: ReminderWithIssue;
   selected: boolean;
   onToggle: () => void;
   onRead: (id: string) => void;
+  onAfterQuickUpdate?: (id: string) => void;
 }) {
   return (
     <Card className={cn(!r.is_read ? "border-primary/40 bg-primary/5" : "")}>
@@ -72,11 +79,24 @@ function ReminderRow({
             </div>
           </div>
         </div>
-        {!r.is_read && (
-          <Button size="sm" variant="outline" onClick={() => onRead(r.id)} className="shrink-0">
-            标为已读
-          </Button>
-        )}
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+          {r.issue && reminderSupportsQuickUpdate(r.type) ? (
+            <QuickIssueUpdateDialog
+              issueId={r.issue.id}
+              source="reminders"
+              trigger={<Button size="sm">写进展</Button>}
+              afterSubmit={async () => {
+                await markReminderRead(r.id);
+                onAfterQuickUpdate?.(r.id);
+              }}
+            />
+          ) : null}
+          {!r.is_read && (
+            <Button size="sm" variant="outline" onClick={() => onRead(r.id)} className="shrink-0">
+              标为已读
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -236,6 +256,13 @@ export function RemindersClient({
               selected={selectedIds.has(r.id)}
               onToggle={() => toggleSelect(r.id)}
               onRead={onRead}
+              onAfterQuickUpdate={(id) => {
+                setSelectedIds((prev) => {
+                  const n = new Set(prev);
+                  n.delete(id);
+                  return n;
+                });
+              }}
             />
           ))}
         </div>

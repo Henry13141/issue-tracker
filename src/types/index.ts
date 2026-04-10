@@ -8,9 +8,39 @@ export type IssueStatus =
 
 export type IssuePriority = "low" | "medium" | "high" | "urgent";
 
-export type UserRole = "admin" | "member";
+export type UserRole = "admin" | "finance" | "member";
 
 export type ReminderType = "no_update_today" | "overdue" | "stale_3_days";
+
+export type FinanceTaskCadence = "weekly" | "monthly" | "quarterly" | "yearly";
+
+export type FinanceTaskArea = "finance" | "cashier" | "admin_hr" | "other";
+
+export type FinanceTaskSource = "template" | "manual";
+
+export type FinanceTaskInstanceStatus = "pending" | "in_progress" | "completed" | "skipped";
+
+export type FinanceTaskDisplayStatus = FinanceTaskInstanceStatus | "overdue";
+
+export type PettyCashExpenseProject =
+  | "admin_procurement_invoice"
+  | "office_supplies_invoice"
+  | "employee_benefits_invoice"
+  | "hospitality_replacement"
+  | "logistics_invoice"
+  | "travel_mixed"
+  | "maintenance_mixed"
+  | "other";
+
+export type PettyCashPaymentMethod = "wechat" | "alipay" | "bank_transfer" | "cash" | "other";
+
+export type PettyCashInvoiceAvailability = "with_invoice" | "without_invoice";
+
+export type PettyCashInvoiceReplacementStatus = "not_needed" | "pending";
+
+export type PettyCashInvoiceCollectedStatus = "not_received" | "received";
+
+export type PettyCashReimbursementStatus = "pending" | "in_progress" | "reimbursed" | "voided";
 
 export type IssueUpdateType =
   | "comment"
@@ -44,8 +74,85 @@ export interface User {
   role: UserRole;
   avatar_url: string | null;
   wecom_userid: string | null;
+  can_access_finance_ops: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface FinanceTaskTemplate {
+  id: string;
+  title: string;
+  description: string | null;
+  area: FinanceTaskArea;
+  cadence: FinanceTaskCadence;
+  due_weekday: number | null;
+  due_day: number;
+  due_month_in_quarter: number | null;
+  due_month: number | null;
+  owner_user_id: string | null;
+  is_active: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinanceTaskTemplateWithOwner extends FinanceTaskTemplate {
+  owner?: Pick<User, "id" | "name" | "avatar_url"> | null;
+  creator?: Pick<User, "id" | "name"> | null;
+}
+
+export interface FinanceTaskInstance {
+  id: string;
+  template_id: string | null;
+  title: string;
+  description: string | null;
+  area: FinanceTaskArea;
+  source: FinanceTaskSource;
+  period_key: string;
+  period_start: string;
+  period_end: string;
+  due_date: string;
+  owner_user_id: string | null;
+  status: FinanceTaskInstanceStatus;
+  notes: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinanceTaskInstanceWithTemplate extends FinanceTaskInstance {
+  owner?: Pick<User, "id" | "name" | "avatar_url"> | null;
+  completed_by_user?: Pick<User, "id" | "name"> | null;
+  template?: FinanceTaskTemplateWithOwner | null;
+  display_status?: FinanceTaskDisplayStatus;
+  is_overdue?: boolean;
+  period_label?: string;
+}
+
+export interface PettyCashEntry {
+  id: string;
+  occurred_on: string;
+  payer_user_id: string;
+  title: string;
+  expense_project: PettyCashExpenseProject;
+  amount_minor: number;
+  currency: "CNY";
+  payment_method: PettyCashPaymentMethod;
+  invoice_availability: PettyCashInvoiceAvailability;
+  invoice_replacement_status: PettyCashInvoiceReplacementStatus;
+  invoice_collected_status: PettyCashInvoiceCollectedStatus;
+  reimbursement_status: PettyCashReimbursementStatus;
+  reimbursed_on: string | null;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PettyCashEntryWithRelations extends PettyCashEntry {
+  payer?: Pick<User, "id" | "name" | "avatar_url"> | null;
+  creator?: Pick<User, "id" | "name"> | null;
 }
 
 export interface Issue {
@@ -70,6 +177,8 @@ export interface Issue {
   last_activity_at: string;
   created_at: string;
   updated_at: string;
+  /** 生成列：列表排序用，true 表示已解决/已关闭（见迁移 add_issues_list_terminal_sort.sql） */
+  is_list_terminal?: boolean;
 }
 
 export interface IssueUpdate {

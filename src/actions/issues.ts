@@ -82,6 +82,8 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
     .from("issues")
     .select(issueSelect, { count: "exact" })
     .is("parent_issue_id", null)
+    // is_list_terminal：迁移 add_issues_list_terminal_sort.sql；false 在前，已解决/已关闭在后
+    .order("is_list_terminal", { ascending: true })
     .order(dbSortBy, { ascending, nullsFirst: false });
 
   if (tab === "mine" && filters.assigneeId) {
@@ -163,10 +165,14 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
     }
   }
 
-  // 优先级排序（app-side）
+  // 优先级排序（app-side）：同页内仍保持「非终态在前、已解决/已关闭在后」
   if (sortBy === "priority") {
     const ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+    const terminal = (s: IssueStatus) => s === "resolved" || s === "closed";
     rows = rows.sort((a, b) => {
+      const ta = terminal(a.status) ? 1 : 0;
+      const tb = terminal(b.status) ? 1 : 0;
+      if (ta !== tb) return ta - tb;
       const diff = (ORDER[a.priority] ?? 9) - (ORDER[b.priority] ?? 9);
       return ascending ? diff : -diff;
     });
@@ -1269,6 +1275,20 @@ export async function issueHasUpdateToday(issueId: string): Promise<boolean> {
 
   if (error) return false;
   return (count ?? 0) > 0;
+}
+
+/** 在给定 issue id 集合中，返回「今日（上海日界）已有进展记录」的 id（一次查询，供我的任务等页批量分组） */
+export async function getIssueIdsWithUpdateTodayAmong(issueIds: string[]): Promise<Set<string>> {
+  if (issueIds.length === 0) return new Set();
+  const supabase = await createClient();
+  const { startIso, endIso } = getChinaDayBounds();
+  const { data: updates } = await supabase
+    .from("issue_updates")
+    .select("issue_id")
+    .in("issue_id", issueIds)
+    .gte("created_at", startIso)
+    .lte("created_at", endIso);
+  return new Set((updates ?? []).map((u) => u.issue_id as string));
 }
 
 export async function addUpdateComment(updateId: string, content: string) {

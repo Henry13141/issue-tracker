@@ -1,7 +1,11 @@
-import { getMyOpenIssues, getMyFollowingIssues, issueHasUpdateToday } from "@/actions/issues";
+import Link from "next/link";
+import { getIssueIdsWithUpdateTodayAmong, getMyOpenIssues, getMyFollowingIssues } from "@/actions/issues";
 import { getCurrentUser } from "@/lib/auth";
+import { ACTIVE_STATUSES } from "@/lib/constants";
 import { MyTasksClient } from "@/components/my-tasks-client";
 import type { IssueWithRelations } from "@/types";
+
+const ACTIVE_SET = new Set<string>(ACTIVE_STATUSES);
 
 export default async function MyTasksPage() {
   const user = await getCurrentUser();
@@ -14,14 +18,12 @@ export default async function MyTasksPage() {
   const needUpdate: IssueWithRelations[] = [];
   const updatedToday: IssueWithRelations[] = [];
 
+  const activeIds = issues.filter((i) => ACTIVE_SET.has(i.status)).map((i) => i.id);
+  const updatedIds = await getIssueIdsWithUpdateTodayAmong(activeIds);
+
   for (const issue of issues) {
-    const active =
-      issue.status === "in_progress" ||
-      issue.status === "blocked" ||
-      issue.status === "pending_review";
-    if (active) {
-      const ok = await issueHasUpdateToday(issue.id);
-      if (ok) updatedToday.push(issue);
+    if (ACTIVE_SET.has(issue.status)) {
+      if (updatedIds.has(issue.id)) updatedToday.push(issue);
       else needUpdate.push(issue);
     } else {
       updatedToday.push(issue);
@@ -33,7 +35,11 @@ export default async function MyTasksPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">我的任务</h1>
         <p className="text-sm text-muted-foreground">
-          你负责的事项都在这里，每次更新都会让协作更顺畅
+          你负责事项的完整列表与快速写进展；今日优先建议在{" "}
+          <Link href="/home" className="text-primary underline-offset-4 hover:underline">
+            工作台
+          </Link>{" "}
+          先看一眼再回来处理细节。
         </p>
       </div>
       <MyTasksClient needUpdate={needUpdate} updatedToday={updatedToday} following={following} />
