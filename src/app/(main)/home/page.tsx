@@ -6,12 +6,7 @@ import { StatCard } from "@/components/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth";
 import { getMembers } from "@/actions/members";
-import {
-  formatWorkbenchEventLabel,
-  getWorkbenchRecentEvents,
-  getWorkbenchStats,
-  getWorkbenchTaskGroups,
-} from "@/lib/workbench-queries";
+import { formatWorkbenchEventLabel, getWorkbenchHomeBundle } from "@/lib/workbench-queries";
 import { formatDateTime, formatDateOnly, getTenureDays } from "@/lib/dates";
 import { StatusBadge } from "@/components/status-badge";
 import { PriorityBadge } from "@/components/priority-badge";
@@ -24,22 +19,12 @@ export default async function HomeWorkbenchPage() {
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const [members, stats, tasks, events] = await Promise.all([
-    getMembers(),
-    getWorkbenchStats(),
-    getWorkbenchTaskGroups(),
-    getWorkbenchRecentEvents(16),
-  ]);
+  const [members, bundle] = await Promise.all([getMembers(), getWorkbenchHomeBundle(16)]);
 
-  const s = stats ?? {
-    assignedOpen: 0,
-    needUpdateToday: 0,
-    overdue: 0,
-    unreadReminders: 0,
-  };
-
-  const needUpdate = tasks?.needUpdate ?? [];
-  const updatedToday = tasks?.updatedToday ?? [];
+  const s = bundle.stats;
+  const needUpdate = bundle.tasks.needUpdate;
+  const updatedToday = bundle.tasks.updatedToday;
+  const events = bundle.events;
   const tenureDays = getTenureDays(user.created_at);
 
   return (
@@ -95,7 +80,9 @@ export default async function HomeWorkbenchPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">今日建议先处理</CardTitle>
-              <p className="text-xs text-muted-foreground">按优先级与截止日期排序，写完进展团队就能同步节奏</p>
+              <p className="text-xs text-muted-foreground">
+                按优先级与截止日期排序，写完进展团队就能同步节奏。需要看负责单子的完整列表时，请打开侧栏「我的任务」。
+              </p>
             </CardHeader>
             <CardContent className="p-0">
               {needUpdate.length === 0 ? (

@@ -1,10 +1,10 @@
 "use client";
 
-import { useTransition, useState } from "react";
+import { useMemo, useTransition, useState } from "react";
 import Link from "next/link";
-import { updateUserWecomUserId, updateUserName, removeMember } from "@/actions/members";
+import { updateUserWecomUserId, updateUserName, removeMember, updateUserRole } from "@/actions/members";
 import type { MemberWorkloadRow, NotificationCoverage } from "@/lib/dashboard-queries";
-import type { User } from "@/types";
+import type { User, UserRole } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,6 +29,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { formatDateTime } from "@/lib/dates";
+import { getUserRoleLabel } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Pencil, Trash2, Check, X } from "lucide-react";
@@ -39,6 +40,7 @@ function MemberRow({ member, currentUserId }: { member: User; currentUserId: str
   const [pending, startTransition] = useTransition();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(member.name ?? "");
+  const [roleValue, setRoleValue] = useState<UserRole>(member.role);
 
   function saveWecomId(formData: FormData) {
     const value = (formData.get("wecom_userid") as string) ?? "";
@@ -71,6 +73,23 @@ function MemberRow({ member, currentUserId }: { member: User; currentUserId: str
       const r = await removeMember(member.id);
       if (r.ok) toast.success(`成员 ${member.name} 已移除`);
       else toast.error(r.error ?? "移除没成功，可以稍后再试");
+    });
+  }
+
+  function saveRole() {
+    startTransition(async () => {
+      const r = await updateUserRole(member.id, roleValue);
+      if (r.ok) {
+        toast.success(
+          roleValue === "finance"
+            ? `${member.name} 已设为财务人员`
+            : roleValue === "admin"
+              ? `${member.name} 已设为管理员`
+              : `${member.name} 已设为普通成员`
+        );
+      } else {
+        toast.error(r.error ?? "角色更新没成功，可以稍后再试");
+      }
     });
   }
 
@@ -120,7 +139,30 @@ function MemberRow({ member, currentUserId }: { member: User; currentUserId: str
       </TableCell>
       <TableCell className="text-muted-foreground text-sm">{member.email}</TableCell>
       <TableCell className="text-muted-foreground text-sm">
-        {member.role === "admin" ? "管理员" : "成员"}
+        <div className="flex items-center gap-2">
+          <select
+            value={roleValue}
+            onChange={(e) => setRoleValue(e.target.value as UserRole)}
+            disabled={pending || isSelf}
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+          >
+            <option value="member">成员</option>
+            <option value="finance">财务人员</option>
+            <option value="admin">管理员</option>
+          </select>
+          {!isSelf && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending || roleValue === member.role}
+              onClick={saveRole}
+            >
+              保存
+            </Button>
+          )}
+          {isSelf && <span className="text-xs text-muted-foreground">{getUserRoleLabel(member.role)}</span>}
+        </div>
       </TableCell>
       {/* 企业微信 userid */}
       <TableCell>
@@ -134,6 +176,9 @@ function MemberRow({ member, currentUserId }: { member: User; currentUserId: str
           />
           <Button type="submit" size="sm" disabled={pending}>保存</Button>
         </form>
+      </TableCell>
+      <TableCell className="text-sm text-muted-foreground">
+        {member.role === "finance" ? "可见财务行政待办" : "—"}
       </TableCell>
       {/* 移除按钮 */}
       <TableCell>
@@ -261,6 +306,13 @@ export function MembersClient({
   groupWebhookConfigured: boolean;
   currentUserId: string;
 }) {
+  const [memberFilter, setMemberFilter] = useState<"all" | "finance">("all");
+  const financeMembers = useMemo(
+    () => members.filter((member) => member.role === "finance"),
+    [members]
+  );
+  const visibleMembers = memberFilter === "finance" ? financeMembers : members;
+
   return (
     <div className="space-y-6">
       <div>
@@ -271,7 +323,7 @@ export function MembersClient({
       </div>
 
       {/* ── 通知覆盖率 ── */}
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <div className="rounded-lg border bg-card p-4 text-center">
           <div className="text-2xl font-bold">{coverage.total}</div>
           <div className="mt-1 text-xs text-muted-foreground">成员总数</div>
@@ -289,6 +341,12 @@ export function MembersClient({
         <div className="rounded-lg border bg-card p-4 text-center">
           <div className="text-2xl font-bold">{coverage.coverageRate}%</div>
           <div className="mt-1 text-xs text-muted-foreground">通知覆盖率</div>
+        </div>
+        <div className={cn("rounded-lg border p-4 text-center", financeMembers.length > 0 ? "bg-blue-50" : "bg-card")}>
+          <div className={cn("text-2xl font-bold", financeMembers.length > 0 ? "text-blue-700" : "")}>
+            {financeMembers.length}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">财务人员</div>
         </div>
       </div>
 
@@ -315,6 +373,19 @@ export function MembersClient({
             </CardHeader>
             <CardContent className="space-y-4">
               <SendGroupInviteButton webhookConfigured={groupWebhookConfigured} />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-muted-foreground">
+                  {memberFilter === "finance"
+                    ? `当前仅显示财务人员，共 ${financeMembers.length} 人，可直接维护财务行政待办访问名单。`
+                    : `当前显示全部成员，共 ${members.length} 人。`}
+                </div>
+                <Tabs value={memberFilter} onValueChange={(value) => setMemberFilter(value as "all" | "finance")} className="w-auto">
+                  <TabsList>
+                    <TabsTrigger value="all">全部成员</TabsTrigger>
+                    <TabsTrigger value="finance">财务人员</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -322,13 +393,17 @@ export function MembersClient({
                     <TableHead>邮箱</TableHead>
                     <TableHead>角色</TableHead>
                     <TableHead>企业微信 userid</TableHead>
+                    <TableHead>财务行政待办可见性</TableHead>
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {members.map((m) => <MemberRow key={m.id} member={m} currentUserId={currentUserId} />)}
+                  {visibleMembers.map((m) => <MemberRow key={m.id} member={m} currentUserId={currentUserId} />)}
                 </TableBody>
               </Table>
+              {memberFilter === "finance" && financeMembers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">当前还没有任何财务人员。</p>
+              ) : null}
             </CardContent>
           </Card>
         </TabsContent>

@@ -11,6 +11,7 @@ import {
   getNotificationHealth,
 } from "@/lib/dashboard-queries";
 import { StatCard } from "@/components/stat-card";
+import { TrackedLink } from "@/components/tracked-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
@@ -85,6 +86,12 @@ export default async function DashboardPage() {
   const maxClosed = Math.max(1, ...trend.map((d: TrendDay) => d.closedIssues));
   const maxRemind = Math.max(1, ...trend.map((d: TrendDay) => d.reminders));
   const maxNotif  = Math.max(1, ...trend.map((d: TrendDay) => d.notifFailed));
+
+  const mustIntervene = riskIssues.filter(
+    (i) =>
+      i.riskTags.includes("overdue") ||
+      (i.riskTags.includes("blocked") && i.priority === "urgent")
+  ).slice(0, 8);
 
   return (
     <div className="space-y-8">
@@ -186,6 +193,75 @@ export default async function DashboardPage() {
             />
           </Link>
         </div>
+      </section>
+
+      {/* ── 二点五、今日建议优先干预 ── */}
+      <section>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">今日建议优先干预</CardTitle>
+            <p className="text-xs font-normal text-muted-foreground">
+              优先处理逾期或「阻塞 + 紧急」项；下方链接会记录一次导航事件便于分析。
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {mustIntervene.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                当前队列暂无此类项，可继续查看下方完整风险列表与统计入口。
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {mustIntervene.map((issue: HighRiskIssue) => (
+                  <li key={issue.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <TrackedLink
+                      href={`/issues/${issue.id}`}
+                      trackTarget={`intervention_issue:${issue.id}`}
+                      className="line-clamp-1 min-w-0 flex-1 font-medium text-primary hover:underline"
+                    >
+                      {issue.title}
+                    </TrackedLink>
+                    <span className="flex shrink-0 flex-wrap gap-1">
+                      {issue.riskTags.map((tag) => (
+                        <span
+                          key={tag}
+                          className={cn(
+                            "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                            RISK_COLORS[tag]
+                          )}
+                        >
+                          {RISK_LABELS[tag]}
+                        </span>
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-xs">
+              <TrackedLink
+                trackTarget="intervention_nav_overdue"
+                href="/issues?risk=overdue"
+                className="text-muted-foreground hover:text-foreground hover:underline"
+              >
+                全部逾期 →
+              </TrackedLink>
+              <TrackedLink
+                trackTarget="intervention_nav_blocked"
+                href="/issues?status=blocked"
+                className="text-muted-foreground hover:text-foreground hover:underline"
+              >
+                全部阻塞 →
+              </TrackedLink>
+              <TrackedLink
+                trackTarget="intervention_nav_notif_failed"
+                href="/dashboard/notifications?status=failed"
+                className="text-muted-foreground hover:text-foreground hover:underline"
+              >
+                通知异常 →
+              </TrackedLink>
+            </div>
+          </CardContent>
+        </Card>
       </section>
 
       {/* ── 三、需关注事项详情 + 通知送达 ── */}

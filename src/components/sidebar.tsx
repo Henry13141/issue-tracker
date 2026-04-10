@@ -4,16 +4,19 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { canAccessFinanceOps, getUserRoleLabel } from "@/lib/permissions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
-import { Home, LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send, Sparkles } from "lucide-react";
+import { Home, LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send, Sparkles, Activity, Landmark } from "lucide-react";
 
 const nav = [
   { href: "/home",                    label: "工作台",     icon: Home },
-  { href: "/dashboard",               label: "看板总览",   icon: LayoutDashboard, adminOnly: true },
-  { href: "/members",                 label: "成员与钉钉", icon: Users,            adminOnly: true },
+  { href: "/dashboard",               label: "管理驾驶舱", icon: LayoutDashboard, adminOnly: true },
+  { href: "/finance-ops",             label: "财务行政待办", icon: Landmark, financeOpsOnly: true },
+  { href: "/members",                 label: "成员与企业微信", icon: Users,            adminOnly: true },
+  { href: "/dashboard/wecom-health",  label: "企微接入健康", icon: Activity,         adminOnly: true },
   { href: "/dashboard/notifications", label: "通知日志",   icon: Send,             adminOnly: true },
   { href: "/issues",                  label: "问题列表",   icon: ListTodo },
   { href: "/my-tasks",                label: "我的任务",   icon: ClipboardList },
@@ -56,9 +59,16 @@ export function SidebarPanel({
       </div>
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
         {nav
-          .filter((item) => !item.adminOnly || user.role === "admin")
+          .filter((item) => {
+            if (item.adminOnly && user.role !== "admin") return false;
+            if (item.financeOpsOnly && !canAccessFinanceOps(user)) return false;
+            return true;
+          })
           .map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active =
+              item.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
               <Link
@@ -88,7 +98,7 @@ export function SidebarPanel({
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{user.name}</p>
-          <p className="truncate text-xs text-sidebar-foreground/60">{user.role === "admin" ? "管理员" : "成员"}</p>
+          <p className="truncate text-xs text-sidebar-foreground/60">{getUserRoleLabel(user.role)}</p>
         </div>
         <Button
           variant="ghost"

@@ -33,6 +33,7 @@ import { formatDateTime } from "@/lib/dates";
 import { ISSUE_STATUS_LABELS } from "@/lib/constants";
 import { MessageSquare, Send } from "lucide-react";
 import { toast } from "sonner";
+import { QuickIssueUpdateDialog } from "@/components/quick-issue-update-dialog";
 
 export function IssueUpdatesClient({
   issue,
@@ -136,7 +137,18 @@ export function IssueUpdatesClient({
   return (
     <Card className="flex flex-col">
       <CardHeader>
-        <CardTitle>进度时间线</CardTitle>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle>进度时间线</CardTitle>
+          <QuickIssueUpdateDialog
+            issueId={issue.id}
+            source="issue_detail"
+            trigger={
+              <Button type="button" variant="outline" size="sm" className="w-full shrink-0 sm:w-auto">
+                弹窗快速写一句
+              </Button>
+            }
+          />
+        </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4">
         <div className="space-y-4">

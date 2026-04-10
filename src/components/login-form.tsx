@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { getUserRoleLabel } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
@@ -17,7 +18,7 @@ type DebugUser = {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "member";
+  role: "admin" | "finance" | "member";
 };
 
 export function LoginForm({
@@ -152,7 +153,7 @@ export function LoginForm({
                 >
                   {debugUsers.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} {u.role === "admin" ? "（管理员）" : ""}
+                      {u.name} {u.role !== "member" ? `（${getUserRoleLabel(u.role)}）` : ""}
                     </option>
                   ))}
                 </select>

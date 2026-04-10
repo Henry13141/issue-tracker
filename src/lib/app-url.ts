@@ -1,5 +1,5 @@
 /**
- * 用于钉钉 Markdown 链接等场景。优先配置 NEXT_PUBLIC_APP_URL（生产域名，勿尾斜杠）。
+ * 用于应用内/推送消息中的绝对链接（如企业微信 Markdown）。优先配置 NEXT_PUBLIC_APP_URL（生产域名，勿尾斜杠）。
  * 未配置时在 Vercel 上可用 VERCEL_URL。
  */
 export function getPublicAppUrl(): string {

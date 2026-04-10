@@ -8,7 +8,7 @@ export default async function LoginPage() {
   const showWecomLogin =
     isWecomScanLoginConfigured() && Boolean(getPublicAppUrl());
   const showDevLogin = process.env.NODE_ENV !== "production";
-  let devUsers: { id: string; name: string; email: string; role: "admin" | "member" }[] = [];
+  let devUsers: { id: string; name: string; email: string; role: "admin" | "finance" | "member" }[] = [];
 
   if (showDevLogin) {
     const admin = createAdminClient();
@@ -21,7 +21,7 @@ export default async function LoginPage() {
       id: m.id as string,
       name: m.name as string,
       email: m.email as string,
-      role: (m.role as "admin" | "member") ?? "member",
+      role: (m.role as "admin" | "finance" | "member") ?? "member",
     }));
   }
 

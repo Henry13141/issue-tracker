@@ -13,7 +13,7 @@ CREATE TABLE public.users (
   id UUID PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
   email TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'finance', 'member')),
   avatar_url TEXT,
   dingtalk_userid TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
