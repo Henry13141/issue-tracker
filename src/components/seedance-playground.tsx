@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
   ExternalLink,
@@ -67,6 +67,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { SEEDANCE_PROFILE_MISSING_MESSAGE } from "@/lib/seedance-auth-messages";
+import { trackSeedancePromptLayoutDiagnostic } from "@/lib/product-analytics";
 
 type LocalAssetKind = "image" | "video" | "audio";
 type ImageInputMode = "multimodal" | "first_frame" | "first_last_frame";
@@ -102,6 +103,24 @@ type SignedUploadItem = {
   signedUrl: string;
   filename: string;
   storagePath?: string;
+};
+type PromptLayoutDiagnosticTrigger = "auto_scrollbar_overlap" | "manual_report";
+type PromptLayoutDiagnosticMentionKind = "image" | "video" | "audio" | null;
+type PromptLayoutSnapshot = {
+  promptLength: number;
+  selectionStart: number;
+  selectionEnd: number;
+  mentionCountBeforeCursor: number;
+  latestMentionKind: PromptLayoutDiagnosticMentionKind;
+  hasVerticalScrollbar: boolean;
+  textareaScrollbarWidth: number;
+  textareaClientWidth: number;
+  textareaScrollWidth: number;
+  overlayContainerClientWidth: number;
+  overlayContentClientWidth: number;
+  widthMismatch: number;
+  textRendering: string;
+  overlayTextRendering: string;
 };
 
 type ApiResult = {
@@ -208,6 +227,78 @@ function getPromptReferenceMention(value: string, cursor: number): PromptReferen
   }
 
   return { start: atIndex, end: cursor, query };
+}
+
+function bucketPromptLength(length: number) {
+  if (length <= 0) return "0" as const;
+  if (length <= 80) return "1_80" as const;
+  if (length <= 160) return "81_160" as const;
+  if (length <= 320) return "161_320" as const;
+  return "321_plus" as const;
+}
+
+function bucketMentionCount(count: number) {
+  if (count <= 0) return "0" as const;
+  if (count === 1) return "1" as const;
+  if (count <= 3) return "2_3" as const;
+  return "4_plus" as const;
+}
+
+function bucketScrollbarWidth(width: number) {
+  if (width <= 0) return "0" as const;
+  if (width <= 12) return "1_12" as const;
+  if (width <= 20) return "13_20" as const;
+  return "21_plus" as const;
+}
+
+function bucketWidthMismatch(width: number) {
+  if (width <= 0) return "0" as const;
+  if (width <= 8) return "1_8" as const;
+  if (width <= 20) return "9_20" as const;
+  return "21_plus" as const;
+}
+
+function getPromptLatestMentionKind(value: string, cursor: number): PromptLayoutDiagnosticMentionKind {
+  const prefix = value.slice(0, cursor);
+  const matches = Array.from(prefix.matchAll(/@(图片|视频|音频)\d+/g));
+  const latest = matches.at(-1)?.[1];
+  if (latest === "图片") return "image";
+  if (latest === "视频") return "video";
+  if (latest === "音频") return "audio";
+  return null;
+}
+
+function reportPromptLayoutDiagnostic(
+  trigger: PromptLayoutDiagnosticTrigger,
+  clientSessionId: string,
+  snapshot: PromptLayoutSnapshot
+) {
+  try {
+    trackSeedancePromptLayoutDiagnostic({
+      trigger,
+      promptLengthBucket: bucketPromptLength(snapshot.promptLength),
+      mentionCountBucket: bucketMentionCount(snapshot.mentionCountBeforeCursor),
+      hasVerticalScrollbar: snapshot.hasVerticalScrollbar ? "yes" : "no",
+      scrollbarWidthBucket: bucketScrollbarWidth(snapshot.textareaScrollbarWidth),
+      widthMismatchBucket: bucketWidthMismatch(snapshot.widthMismatch),
+    });
+  } catch {
+    /* ignore analytics failures */
+  }
+
+  return fetch("/api/seedance/prompt-layout-diagnostics", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      trigger,
+      page: "seedance",
+      clientSessionId,
+      snapshot,
+    }),
+    keepalive: true,
+  });
 }
 
 async function runWithConcurrency<T, R>(
@@ -669,12 +760,19 @@ export function SeedancePlayground({
   const [promptInputFocused, setPromptInputFocused] = useState(false);
   const [promptReferenceActiveIndex, setPromptReferenceActiveIndex] = useState(0);
   const [promptScrollTop, setPromptScrollTop] = useState(0);
+  const [reportingPromptDiagnostic, setReportingPromptDiagnostic] = useState(false);
   const notifiedRef = useRef<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const promptHighlightLayerRef = useRef<HTMLDivElement>(null);
+  const promptOverlayContainerRef = useRef<HTMLDivElement>(null);
   const promptSelectionRef = useRef<PromptSelectionRange>({ start: 0, end: 0 });
+  const promptDiagnosticSessionIdRef = useRef(
+    `seedance-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  );
+  const promptAutoDiagnosticSignatureRef = useRef("");
 
   const parsedDuration = useMemo(() => Number(duration), [duration]);
   const shouldAutoPoll = Boolean(task?.taskId && !isTerminal(task.status));
@@ -1376,6 +1474,81 @@ export function SeedancePlayground({
     setPromptReferenceActiveIndex(0);
   }, [filteredPromptReferenceOptions.length, promptReferenceActiveIndex]);
 
+  const collectPromptLayoutSnapshot = useCallback((): PromptLayoutSnapshot | null => {
+    const textarea = promptTextareaRef.current;
+    const highlightLayer = promptHighlightLayerRef.current;
+    const overlayContainer = promptOverlayContainerRef.current;
+    if (!textarea || !highlightLayer || !overlayContainer) return null;
+    const cursor = textarea.selectionStart ?? promptSelectionRef.current.start;
+    const prefix = prompt.slice(0, cursor);
+    const mentionMatches = Array.from(prefix.matchAll(/@(图片|视频|音频)\d+/g));
+    const textareaStyle = window.getComputedStyle(textarea);
+    const highlightStyle = window.getComputedStyle(highlightLayer);
+    const textareaScrollbarWidth = textarea.offsetWidth - textarea.clientWidth;
+    const textareaHasVerticalScrollbar = textarea.scrollHeight > textarea.clientHeight + 1;
+    return {
+      promptLength: prompt.length,
+      mentionCountBeforeCursor: mentionMatches.length,
+      latestMentionKind: getPromptLatestMentionKind(prompt, cursor),
+      selectionStart: cursor,
+      selectionEnd: textarea.selectionEnd ?? promptSelectionRef.current.end,
+      hasVerticalScrollbar: textareaHasVerticalScrollbar,
+      textareaScrollbarWidth,
+      textareaClientWidth: textarea.clientWidth,
+      textareaScrollWidth: textarea.scrollWidth,
+      overlayContainerClientWidth: overlayContainer.clientWidth,
+      overlayContentClientWidth: highlightLayer.clientWidth,
+      widthMismatch: Math.max(0, overlayContainer.clientWidth - textarea.clientWidth),
+      textRendering: textareaStyle.textRendering,
+      overlayTextRendering: highlightStyle.textRendering,
+    };
+  }, [prompt]);
+
+  const handleManualPromptDiagnosticReport = useCallback(async () => {
+    const snapshot = collectPromptLayoutSnapshot();
+    if (!snapshot) {
+      toast.error("当前输入框还没准备好，稍后再试");
+      return;
+    }
+    setReportingPromptDiagnostic(true);
+    try {
+      await reportPromptLayoutDiagnostic(
+        "manual_report",
+        promptDiagnosticSessionIdRef.current,
+        snapshot
+      );
+      toast.success("已上报当前布局诊断，可稍后按时间查线上日志");
+    } catch {
+      toast.error("上报失败，请稍后重试");
+    } finally {
+      setReportingPromptDiagnostic(false);
+    }
+  }, [collectPromptLayoutSnapshot]);
+
+  useEffect(() => {
+    if (!promptInputFocused) return;
+    const snapshot = collectPromptLayoutSnapshot();
+    if (!snapshot) return;
+    const shouldAutoReport = snapshot.hasVerticalScrollbar && snapshot.widthMismatch > 0;
+    if (!shouldAutoReport) return;
+    const signature = [
+      snapshot.promptLength,
+      snapshot.selectionStart,
+      snapshot.selectionEnd,
+      snapshot.textareaScrollbarWidth,
+      snapshot.overlayContainerClientWidth,
+      snapshot.textareaClientWidth,
+      snapshot.widthMismatch,
+    ].join(":");
+    if (signature === promptAutoDiagnosticSignatureRef.current) return;
+    promptAutoDiagnosticSignatureRef.current = signature;
+    void reportPromptLayoutDiagnostic(
+      "auto_scrollbar_overlap",
+      promptDiagnosticSessionIdRef.current,
+      snapshot
+    ).catch(() => {});
+  }, [collectPromptLayoutSnapshot, promptInputFocused, promptSelection.start, promptSelection.end, promptScrollTop]);
+
   useEffect(() => {
     if (!webSearchAvailable && enableWebSearch) {
       setEnableWebSearch(false);
@@ -1512,9 +1685,11 @@ export function SeedancePlayground({
                 {/* 高亮叠层：让 @图片1 / @视频1 / @音频1 显示蓝色下划线 */}
                 <div
                   aria-hidden
+                  ref={promptOverlayContainerRef}
                   className="pointer-events-none absolute inset-0 overflow-hidden text-lg"
                 >
                   <div
+                    ref={promptHighlightLayerRef}
                     className="whitespace-pre-wrap break-words px-0 py-0 text-lg leading-8"
                     style={{ transform: `translateY(${-promptScrollTop}px)` }}
                   >
@@ -1617,9 +1792,22 @@ export function SeedancePlayground({
                   </div>
                 ) : null}
               </div>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                输入 @ 可插入素材引用；素材区卡片上的「引用」按钮会插入到当前光标处。历史任务的提示词在下方「最近生成」里与视频一起展示。
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  输入 @ 可插入素材引用；素材区卡片上的「引用」按钮会插入到当前光标处。历史任务的提示词在下方「最近生成」里与视频一起展示。
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-xs text-muted-foreground"
+                  onClick={() => void handleManualPromptDiagnosticReport()}
+                  disabled={reportingPromptDiagnostic}
+                >
+                  {reportingPromptDiagnostic ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  上报布局诊断
+                </Button>
+              </div>
             </div>
 
             <div className="space-y-5 px-6 py-6 sm:px-8">

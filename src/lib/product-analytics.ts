@@ -13,3 +13,18 @@ export function trackQuickIssueUpdateSubmit(source: string) {
 export function trackDashboardInterventionClick(target: string) {
   track("dashboard_intervention_click", { target });
 }
+
+type SeedancePromptLayoutDiagnosticEvent = {
+  trigger: "auto_scrollbar_overlap" | "manual_report";
+  promptLengthBucket: "0" | "1_80" | "81_160" | "161_320" | "321_plus";
+  mentionCountBucket: "0" | "1" | "2_3" | "4_plus";
+  hasVerticalScrollbar: "yes" | "no";
+  scrollbarWidthBucket: "0" | "1_12" | "13_20" | "21_plus";
+  widthMismatchBucket: "0" | "1_8" | "9_20" | "21_plus";
+};
+
+export function trackSeedancePromptLayoutDiagnostic(
+  event: SeedancePromptLayoutDiagnosticEvent
+) {
+  track("seedance_prompt_layout_diagnostic", event);
+}

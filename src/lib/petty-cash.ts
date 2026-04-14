@@ -36,13 +36,14 @@ export const PETTY_CASH_INVOICE_AVAILABILITY_LABELS: Record<PettyCashInvoiceAvai
 export const PETTY_CASH_INVOICE_REPLACEMENT_LABELS: Record<PettyCashInvoiceReplacementStatus, string> = {
   not_needed: "无需替票",
   pending: "待替票",
+  matched: "已占用替票",
 };
 
 /** 兼容历史数据中的替票状态（库升级前可能存在 in_progress / completed） */
 export function normalizePettyCashReplacementStatus(raw: string): PettyCashInvoiceReplacementStatus {
   if (raw === "pending" || raw === "not_needed") return raw;
   if (raw === "in_progress") return "pending";
-  if (raw === "completed") return "not_needed";
+  if (raw === "completed" || raw === "matched") return "matched";
   return "not_needed";
 }
 
@@ -110,8 +111,28 @@ export function expectsInvoiceCollection(
 ) {
   return (
     entry.invoice_availability === "with_invoice" ||
-    entry.invoice_replacement_status !== "not_needed"
+    entry.invoice_replacement_status === "pending"
   );
+}
+
+export function isReplacementExpenseProject(project: PettyCashExpenseProject) {
+  return project === "hospitality_replacement";
+}
+
+export function usesReplacementQuota(
+  entry:
+    | Pick<PettyCashEntry, "expense_project" | "reimbursement_status">
+    | Pick<PettyCashEntryWithRelations, "expense_project" | "reimbursement_status">
+) {
+  return isReplacementExpenseProject(entry.expense_project) && entry.reimbursement_status !== "voided";
+}
+
+export function getReplacementQuotaUsageAmount(
+  entry:
+    | Pick<PettyCashEntry, "amount_minor" | "expense_project" | "reimbursement_status">
+    | Pick<PettyCashEntryWithRelations, "amount_minor" | "expense_project" | "reimbursement_status">
+) {
+  return usesReplacementQuota(entry) ? entry.amount_minor : 0;
 }
 
 export function sortPettyCashEntries(entries: PettyCashEntryWithRelations[]) {

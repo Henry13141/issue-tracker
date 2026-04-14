@@ -22,6 +22,10 @@ export type FinanceTaskInstanceStatus = "pending" | "in_progress" | "completed" 
 
 export type FinanceTaskDisplayStatus = FinanceTaskInstanceStatus | "overdue";
 
+export type FinanceWeekPlanItemSource = "weekly_plan" | "ad_hoc";
+
+export type FinanceWeekPlanItemStatus = FinanceTaskInstanceStatus;
+
 export type PettyCashExpenseProject =
   | "admin_procurement_invoice"
   | "office_supplies_invoice"
@@ -36,7 +40,7 @@ export type PettyCashPaymentMethod = "wechat" | "alipay" | "bank_transfer" | "ca
 
 export type PettyCashInvoiceAvailability = "with_invoice" | "without_invoice";
 
-export type PettyCashInvoiceReplacementStatus = "not_needed" | "pending";
+export type PettyCashInvoiceReplacementStatus = "not_needed" | "pending" | "matched";
 
 export type PettyCashInvoiceCollectedStatus = "not_received" | "received";
 
@@ -130,6 +134,81 @@ export interface FinanceTaskInstanceWithTemplate extends FinanceTaskInstance {
   period_label?: string;
 }
 
+export interface FinanceTaskWeekSchedule {
+  id: string;
+  task_instance_id: string;
+  week_key: string;
+  start_date: string;
+  end_date: string;
+  planned_hours: number | null;
+  actual_hours: number | null;
+  arrangement_notes: string | null;
+  lane: number;
+  is_hidden: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinanceTaskWeekScheduleWithTask extends FinanceTaskWeekSchedule {
+  task?: FinanceTaskInstanceWithTemplate | null;
+  creator?: Pick<User, "id" | "name"> | null;
+}
+
+export interface FinanceWeekPlanItem {
+  id: string;
+  week_key: string;
+  title: string;
+  description: string | null;
+  area: FinanceTaskArea;
+  source: FinanceWeekPlanItemSource;
+  start_date: string;
+  end_date: string;
+  owner_user_id: string | null;
+  status: FinanceWeekPlanItemStatus;
+  notes: string | null;
+  sort_order: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinanceWeekPlanItemWithOwner extends FinanceWeekPlanItem {
+  owner?: Pick<User, "id" | "name" | "avatar_url"> | null;
+  creator?: Pick<User, "id" | "name"> | null;
+}
+
+export type FinanceWeekViewRowKind = "task" | "plan";
+
+export type FinanceWeekViewRowSource = "task" | FinanceWeekPlanItemSource;
+
+export interface FinanceWeekViewRow {
+  id: string;
+  kind: FinanceWeekViewRowKind;
+  source: FinanceWeekViewRowSource;
+  title: string;
+  description: string | null;
+  area: FinanceTaskArea;
+  start_date: string;
+  end_date: string;
+  owner_user_id: string | null;
+  status: FinanceTaskInstanceStatus;
+  notes: string | null;
+  planned_hours: number | null;
+  actual_hours: number | null;
+  lane: number;
+  is_hidden: boolean;
+  sort_order: number;
+  owner?: Pick<User, "id" | "name" | "avatar_url"> | null;
+  creator?: Pick<User, "id" | "name"> | null;
+  task_instance_id?: string | null;
+  task?: FinanceTaskInstanceWithTemplate | null;
+  schedule?: FinanceTaskWeekScheduleWithTask | null;
+  plan_item?: FinanceWeekPlanItemWithOwner | null;
+  due_date?: string | null;
+  is_auto_generated: boolean;
+}
+
 export interface PettyCashEntry {
   id: string;
   occurred_on: string;
@@ -152,6 +231,21 @@ export interface PettyCashEntry {
 
 export interface PettyCashEntryWithRelations extends PettyCashEntry {
   payer?: Pick<User, "id" | "name" | "avatar_url"> | null;
+  creator?: Pick<User, "id" | "name"> | null;
+}
+
+export interface PettyCashReplacementInvoice {
+  id: string;
+  received_on: string;
+  title: string;
+  amount_minor: number;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PettyCashReplacementInvoiceWithRelations extends PettyCashReplacementInvoice {
   creator?: Pick<User, "id" | "name"> | null;
 }
 
