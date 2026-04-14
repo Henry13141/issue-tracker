@@ -5,6 +5,10 @@ import type {
   FinanceTaskInstanceStatus,
   FinanceTaskInstanceWithTemplate,
   FinanceTaskTemplate,
+  FinanceWeekPlanItem,
+  FinanceWeekViewRow,
+  FinanceWeekPlanItemSource,
+  FinanceWeekPlanItemStatus,
 } from "@/types";
 
 export type FinanceOpsView = "month" | "quarter" | "year" | "overdue" | "all";
@@ -37,6 +41,24 @@ export const FINANCE_TASK_STATUS_LABELS: Record<FinanceTaskDisplayStatus, string
   completed: "已完成",
   skipped: "已跳过",
   overdue: "已逾期",
+};
+
+export const FINANCE_WEEK_PLAN_SOURCE_LABELS: Record<FinanceWeekPlanItemSource, string> = {
+  weekly_plan: "周计划",
+  ad_hoc: "临时事项",
+};
+
+export const FINANCE_WEEK_VIEW_SOURCE_LABELS: Record<FinanceWeekViewRow["source"], string> = {
+  task: "待办同步",
+  weekly_plan: "周计划",
+  ad_hoc: "临时事项",
+};
+
+export const FINANCE_WEEK_PLAN_STATUS_LABELS: Record<FinanceWeekPlanItemStatus, string> = {
+  pending: "待处理",
+  in_progress: "进行中",
+  completed: "已完成",
+  skipped: "已跳过",
 };
 
 const CLOSED_STATUSES = new Set<FinanceTaskInstanceStatus>(["completed", "skipped"]);
@@ -93,6 +115,154 @@ function getWeekInfo(date: Date) {
   const diffMs = weekStart.getTime() - firstWeekStart.getTime();
   const week = Math.floor(diffMs / 604_800_000) + 1;
   return { isoYear, week, weekStart };
+}
+
+export function getFinanceWeekInfo(anchorDate: Date = new Date()) {
+  const { isoYear, week, weekStart } = getWeekInfo(anchorDate);
+  const weekEnd = endOfWeek(anchorDate);
+
+  return {
+    isoYear,
+    week,
+    weekKey: `${isoYear}-W${pad(week)}`,
+    weekStart: toDateOnly(weekStart),
+    weekEnd: toDateOnly(weekEnd),
+  };
+}
+
+export function buildFinanceWeekKey(anchorDate: Date = new Date()) {
+  return getFinanceWeekInfo(anchorDate).weekKey;
+}
+
+export function getFinanceWeekRange(anchorDate: Date = new Date()) {
+  const { weekStart, weekEnd } = getFinanceWeekInfo(anchorDate);
+  return { weekStart, weekEnd };
+}
+
+export function shiftDateOnly(dateOnly: string, days: number) {
+  const next = parseDateOnly(dateOnly);
+  next.setDate(next.getDate() + days);
+  return toDateOnly(next);
+}
+
+export function getDateDiffInDays(startDate: string, endDate: string) {
+  const start = parseDateOnly(startDate).getTime();
+  const end = parseDateOnly(endDate).getTime();
+  return Math.round((end - start) / 86_400_000);
+}
+
+export function getFinanceWeekDays(anchorDate: Date = new Date()) {
+  const { weekStart } = getFinanceWeekInfo(anchorDate);
+  return Array.from({ length: 7 }).map((_, index) => {
+    const date = shiftDateOnly(weekStart, index);
+    return {
+      date,
+      weekday: WEEKDAY_LABELS[index],
+    };
+  });
+}
+
+export function getFinanceWeekTitle(anchorDate: Date = new Date()) {
+  const { isoYear, week, weekStart, weekEnd } = getFinanceWeekInfo(anchorDate);
+  const start = parseDateOnly(weekStart);
+  const end = parseDateOnly(weekEnd);
+  const startLabel = `${start.getMonth() + 1}月${start.getDate()}日`;
+  const endLabel = `${end.getMonth() + 1}月${end.getDate()}日`;
+  return `${isoYear}年第${week}周 · ${startLabel} - ${endLabel}`;
+}
+
+export function formatFinanceDateShort(dateOnly: string) {
+  const date = parseDateOnly(dateOnly);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+export function clampFinanceWeekPlanItemToWeek(
+  item: Pick<FinanceWeekPlanItem, "start_date" | "end_date">,
+  weekStart: string,
+  weekEnd: string
+) {
+  const startDate = item.start_date < weekStart ? weekStart : item.start_date;
+  const endDate = item.end_date > weekEnd ? weekEnd : item.end_date;
+
+  return {
+    startDate,
+    endDate,
+  };
+}
+
+export function getFinanceWeekPlanSpan(
+  item: Pick<FinanceWeekPlanItem, "start_date" | "end_date">,
+  weekStart: string,
+  weekEnd: string
+) {
+  const { startDate, endDate } = clampFinanceWeekPlanItemToWeek(item, weekStart, weekEnd);
+  const startColumn = getDateDiffInDays(weekStart, startDate) + 1;
+  const endColumn = getDateDiffInDays(weekStart, endDate) + 1;
+
+  return {
+    startColumn,
+    endColumn,
+    spanDays: endColumn - startColumn + 1,
+  };
+}
+
+export function getRangeIntersection(
+  startDate: string,
+  endDate: string,
+  rangeStart: string,
+  rangeEnd: string
+) {
+  if (endDate < rangeStart || startDate > rangeEnd) return null;
+  return {
+    startDate: startDate < rangeStart ? rangeStart : startDate,
+    endDate: endDate > rangeEnd ? rangeEnd : endDate,
+  };
+}
+
+export function getFinanceWeekStartsBetween(startDate: string, endDate: string) {
+  const weeks: string[] = [];
+  let cursor = getFinanceWeekInfo(parseDateOnly(startDate)).weekStart;
+  const lastWeekStart = getFinanceWeekInfo(parseDateOnly(endDate)).weekStart;
+
+  while (cursor <= lastWeekStart) {
+    weeks.push(cursor);
+    cursor = shiftDateOnly(cursor, 7);
+  }
+
+  return weeks;
+}
+
+export function formatHours(value: number | null | undefined) {
+  if (value == null || Number.isNaN(value)) return "—";
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded}h` : `${rounded.toFixed(1)}h`;
+}
+
+export function assignFinanceWeekLanes<
+  T extends Pick<FinanceWeekViewRow, "id" | "start_date" | "end_date">
+>(
+  rows: T[]
+) {
+  const laneMap = new Map<string, number>();
+  const sorted = [...rows].sort((a, b) => {
+    if (a.start_date !== b.start_date) return a.start_date.localeCompare(b.start_date);
+    if (a.end_date !== b.end_date) return a.end_date.localeCompare(b.end_date);
+    return 0;
+  });
+  const laneEnds: string[] = [];
+
+  for (const row of sorted) {
+    let lane = laneEnds.findIndex((endDate) => endDate < row.start_date);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(row.end_date);
+    } else {
+      laneEnds[lane] = row.end_date;
+    }
+    laneMap.set(row.id, lane);
+  }
+
+  return laneMap;
 }
 
 function getDaysInMonth(year: number, monthIndex: number) {

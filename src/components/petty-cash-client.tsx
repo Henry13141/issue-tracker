@@ -2,7 +2,12 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createPettyCashEntry, updatePettyCashEntry } from "@/actions/petty-cash";
+import {
+  createPettyCashEntry,
+  createPettyCashReplacementInvoice,
+  updatePettyCashEntry,
+  updatePettyCashReplacementInvoice,
+} from "@/actions/petty-cash";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,6 +42,7 @@ import { formatDateOnly } from "@/lib/dates";
 import {
   expectsInvoiceCollection,
   formatPettyCashAmount,
+  isReplacementExpenseProject,
   PETTY_CASH_EXPENSE_PROJECT_LABELS,
   PETTY_CASH_INVOICE_AVAILABILITY_LABELS,
   PETTY_CASH_INVOICE_AVAILABILITY_OPTIONS,
@@ -59,6 +65,7 @@ import type {
   PettyCashInvoiceCollectedStatus,
   PettyCashInvoiceReplacementStatus,
   PettyCashPaymentMethod,
+  PettyCashReplacementInvoiceWithRelations,
   PettyCashReimbursementStatus,
   User,
 } from "@/types";
@@ -78,12 +85,21 @@ function statusBadgeClass(status: PettyCashReimbursementStatus) {
   return "border-amber-200 bg-amber-50 text-amber-700";
 }
 
+function parseDisplayAmountToMinor(value: string) {
+  const normalized = value.trim();
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const [wholePart, decimalPart = ""] = normalized.split(".");
+  return Number(wholePart) * 100 + Number(decimalPart.padEnd(2, "0"));
+}
+
 function PettyCashEntryDialog({
   members,
+  replacementAvailableAmountMinor,
   entry,
   trigger,
 }: {
   members: User[];
+  replacementAvailableAmountMinor: number;
   entry?: PettyCashEntryWithRelations;
   trigger?: React.ReactNode;
 }) {
@@ -110,6 +126,10 @@ function PettyCashEntryDialog({
   );
   const [reimbursedOn, setReimbursedOn] = useState(entry?.reimbursed_on ?? "");
   const [notes, setNotes] = useState(entry?.notes ?? "");
+  const isReplacementProject = isReplacementExpenseProject(expenseProject);
+  const currentAmountMinor = parseDisplayAmountToMinor(amount);
+  const replacementBalanceAfterSave =
+    currentAmountMinor == null || !isReplacementProject ? null : replacementAvailableAmountMinor - currentAmountMinor;
 
   function openDialog() {
     setOccurredOn(entry?.occurred_on ?? "");
@@ -128,12 +148,30 @@ function PettyCashEntryDialog({
   }
 
   function onInvoiceAvailabilityChange(value: string | null) {
+    if (isReplacementProject) return;
     const nextValue = (value ?? "with_invoice") as PettyCashInvoiceAvailability;
     setInvoiceAvailability(nextValue);
     if (nextValue === "with_invoice") {
       setInvoiceReplacementStatus("not_needed");
     } else if (invoiceReplacementStatus === "not_needed") {
       setInvoiceReplacementStatus("pending");
+    }
+  }
+
+  function onExpenseProjectChange(value: string | null) {
+    const nextProject = (value ?? "office_supplies_invoice") as PettyCashExpenseProject;
+    const nextIsReplacement = isReplacementExpenseProject(nextProject);
+    setExpenseProject(nextProject);
+    if (nextIsReplacement) {
+      setInvoiceAvailability("without_invoice");
+      setInvoiceReplacementStatus("matched");
+      setInvoiceCollectedStatus("received");
+      return;
+    }
+
+    if (invoiceReplacementStatus === "matched") {
+      setInvoiceReplacementStatus(invoiceAvailability === "with_invoice" ? "not_needed" : "pending");
+      setInvoiceCollectedStatus("not_received");
     }
   }
 
@@ -243,7 +281,7 @@ function PettyCashEntryDialog({
                 <Label>支出项目</Label>
                 <Select
                   value={expenseProject}
-                  onValueChange={(value) => setExpenseProject((value ?? "office_supplies_invoice") as PettyCashExpenseProject)}
+                  onValueChange={onExpenseProjectChange}
                 >
                   <SelectTrigger>
                     <SelectValue>{PETTY_CASH_EXPENSE_PROJECT_LABELS[expenseProject]}</SelectValue>
@@ -294,7 +332,7 @@ function PettyCashEntryDialog({
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <Label>有票无票</Label>
-                <Select value={invoiceAvailability} onValueChange={onInvoiceAvailabilityChange}>
+                <Select value={invoiceAvailability} onValueChange={onInvoiceAvailabilityChange} disabled={isReplacementProject}>
                   <SelectTrigger>
                     <SelectValue>{PETTY_CASH_INVOICE_AVAILABILITY_LABELS[invoiceAvailability]}</SelectValue>
                   </SelectTrigger>
@@ -314,6 +352,7 @@ function PettyCashEntryDialog({
                   onValueChange={(value) =>
                     setInvoiceReplacementStatus((value ?? "not_needed") as PettyCashInvoiceReplacementStatus)
                   }
+                  disabled={isReplacementProject}
                 >
                   <SelectTrigger>
                     <SelectValue>{PETTY_CASH_INVOICE_REPLACEMENT_LABELS[invoiceReplacementStatus]}</SelectValue>
@@ -338,6 +377,7 @@ function PettyCashEntryDialog({
                   onValueChange={(value) =>
                     setInvoiceCollectedStatus((value ?? "not_received") as PettyCashInvoiceCollectedStatus)
                   }
+                  disabled={isReplacementProject}
                 >
                   <SelectTrigger>
                     <SelectValue>{PETTY_CASH_INVOICE_COLLECTED_LABELS[invoiceCollectedStatus]}</SelectValue>
@@ -352,6 +392,15 @@ function PettyCashEntryDialog({
                 </Select>
               </div>
             </div>
+            {isReplacementProject ? (
+              <div className="rounded-md border border-blue-200 bg-blue-50/70 px-3 py-2 text-sm text-blue-800">
+                <p>当前项目会自动占用替票额度，保存时将从可用额度中扣减本笔金额。</p>
+                <p className="mt-1">
+                  当前可用：{formatPettyCashAmount(replacementAvailableAmountMinor)}
+                  {replacementBalanceAfterSave != null ? `，保存后剩余：${formatPettyCashAmount(replacementBalanceAfterSave)}` : ""}
+                </p>
+              </div>
+            ) : null}
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
@@ -399,6 +448,129 @@ function PettyCashEntryDialog({
               </Button>
               <Button type="submit" disabled={pending}>
                 {pending ? "保存中…" : entry ? "保存修改" : "创建登记"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function PettyCashReplacementInvoiceDialog({
+  invoice,
+  trigger,
+}: {
+  invoice?: PettyCashReplacementInvoiceWithRelations;
+  trigger?: React.ReactNode;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [receivedOn, setReceivedOn] = useState(invoice?.received_on ?? "");
+  const [title, setTitle] = useState(invoice?.title ?? "");
+  const [amount, setAmount] = useState(invoice ? toDisplayAmount(invoice.amount_minor) : "");
+  const [notes, setNotes] = useState(invoice?.notes ?? "");
+
+  function openDialog() {
+    setReceivedOn(invoice?.received_on ?? "");
+    setTitle(invoice?.title ?? "");
+    setAmount(invoice ? toDisplayAmount(invoice.amount_minor) : "");
+    setNotes(invoice?.notes ?? "");
+    setOpen(true);
+  }
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    startTransition(async () => {
+      try {
+        const payload = {
+          received_on: receivedOn,
+          title,
+          amount,
+          notes,
+        };
+
+        if (invoice) {
+          await updatePettyCashReplacementInvoice(invoice.id, payload);
+          toast.success("替票登记已更新");
+        } else {
+          await createPettyCashReplacementInvoice(payload);
+          toast.success("已新增替票登记");
+        }
+        setOpen(false);
+        router.refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "保存失败，请稍后再试");
+      }
+    });
+  }
+
+  return (
+    <>
+      {trigger ? (
+        <div onClick={openDialog}>{trigger}</div>
+      ) : (
+        <Button type="button" variant="secondary" onClick={openDialog}>
+          <Plus className="mr-1 h-4 w-4" />
+          登记替票
+        </Button>
+      )}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{invoice ? "编辑替票登记" : "新增替票登记"}</DialogTitle>
+            <DialogDescription>财务收到替票后在这里登记，系统会自动累计替票额度并供替票项目占用。</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={onSubmit}>
+            <div className="space-y-2">
+              <Label htmlFor="petty-cash-replacement-received-on">收票日期</Label>
+              <Input
+                id="petty-cash-replacement-received-on"
+                type="date"
+                value={receivedOn}
+                onChange={(e) => setReceivedOn(e.target.value)}
+                disabled={pending}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="petty-cash-replacement-title">替票来源</Label>
+              <Input
+                id="petty-cash-replacement-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="例如：餐饮发票 / 茶歇替票 / 招待票"
+                disabled={pending}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="petty-cash-replacement-amount">替票额度</Label>
+              <Input
+                id="petty-cash-replacement-amount"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="例如 300.00"
+                disabled={pending}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="petty-cash-replacement-notes">备注</Label>
+              <Textarea
+                id="petty-cash-replacement-notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                placeholder="可记录票据来源、适用范围或补充说明"
+                disabled={pending}
+              />
+            </div>
+            <DialogFooter className="px-0 pb-0">
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={pending}>
+                取消
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? "保存中…" : invoice ? "保存修改" : "创建替票登记"}
               </Button>
             </DialogFooter>
           </form>
@@ -468,6 +640,13 @@ export function PettyCashClient({
     setKeyword("");
   }
 
+  function getReplacementAvailableAmountForEntry(entry?: PettyCashEntryWithRelations) {
+    if (!entry) return bundle.summary.replacementAvailableAmountMinor;
+    return isReplacementExpenseProject(entry.expense_project) && entry.reimbursement_status !== "voided"
+      ? bundle.summary.replacementAvailableAmountMinor + entry.amount_minor
+      : bundle.summary.replacementAvailableAmountMinor;
+  }
+
   return (
     <div className="space-y-8">
       <section>
@@ -478,9 +657,15 @@ export function PettyCashClient({
               聚焦个人垫付、发票状态和报销进度，先把金额和票据台账记清楚。
             </p>
           </div>
-          <PettyCashEntryDialog members={members} />
+          <div className="flex flex-wrap gap-2">
+            <PettyCashReplacementInvoiceDialog />
+            <PettyCashEntryDialog
+              members={members}
+              replacementAvailableAmountMinor={getReplacementAvailableAmountForEntry()}
+            />
+          </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
           <StatCard title="当前未报销笔数" value={bundle.summary.unreimbursedCount} description="待报销与报销中的合计" />
           <StatCard
             title="当前未报销金额"
@@ -499,7 +684,77 @@ export function PettyCashClient({
           />
           <StatCard title="待替票笔数" value={bundle.summary.pendingReplacementCount} description="仍为待替票状态的记录" />
           <StatCard title="发票未收回笔数" value={bundle.summary.invoiceNotReceivedCount} description="已应收票但财务尚未拿到" />
+          <StatCard
+            title="替票总额度"
+            value={formatPettyCashAmount(bundle.summary.replacementTotalAmountMinor)}
+            description={`共登记 ${bundle.summary.replacementInvoiceCount} 笔替票`}
+          />
+          <StatCard
+            title="可用替票额度"
+            value={formatPettyCashAmount(bundle.summary.replacementAvailableAmountMinor)}
+            description={`已占用 ${formatPettyCashAmount(bundle.summary.replacementUsedAmountMinor)}`}
+            className={
+              bundle.summary.replacementAvailableAmountMinor < 0 ? "border-red-200 bg-red-50/60" : undefined
+            }
+          />
         </div>
+      </section>
+
+      <section>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold tracking-wide text-muted-foreground">替票额度池</h2>
+            <p className="text-sm text-muted-foreground">财务收到替票后统一登记，替票项目保存时会自动占用这里的可用额度。</p>
+          </div>
+          <PettyCashReplacementInvoiceDialog />
+        </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">替票登记表</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {bundle.replacementInvoices.length === 0 ? (
+              <div className="py-8 text-sm text-muted-foreground">当前还没有替票登记，新增后即可开始累计可用替票额度。</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>收票日期</TableHead>
+                    <TableHead>替票来源</TableHead>
+                    <TableHead>替票额度</TableHead>
+                    <TableHead className="min-w-56 whitespace-normal">备注</TableHead>
+                    <TableHead>登记人</TableHead>
+                    <TableHead>操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {bundle.replacementInvoices.map((invoice) => (
+                    <TableRow key={invoice.id}>
+                      <TableCell>{formatDateOnly(invoice.received_on)}</TableCell>
+                      <TableCell className="max-w-64 whitespace-normal">{invoice.title}</TableCell>
+                      <TableCell>{formatPettyCashAmount(invoice.amount_minor)}</TableCell>
+                      <TableCell className="max-w-80 whitespace-normal text-sm text-muted-foreground">
+                        {invoice.notes || "—"}
+                      </TableCell>
+                      <TableCell>{invoice.creator?.name ?? "未知成员"}</TableCell>
+                      <TableCell>
+                        <PettyCashReplacementInvoiceDialog
+                          invoice={invoice}
+                          trigger={
+                            <Button type="button" size="sm" variant="outline">
+                              <Pencil className="mr-1 h-4 w-4" />
+                              编辑
+                            </Button>
+                          }
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       </section>
 
       <section>
@@ -718,7 +973,9 @@ export function PettyCashClient({
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">
-                          {expectsInvoiceCollection(entry)
+                          {entry.invoice_replacement_status === "matched"
+                            ? "已占用替票"
+                            : expectsInvoiceCollection(entry)
                             ? PETTY_CASH_INVOICE_COLLECTED_LABELS[entry.invoice_collected_status]
                             : "无需收票"}
                         </Badge>
@@ -735,6 +992,7 @@ export function PettyCashClient({
                       <TableCell>
                         <PettyCashEntryDialog
                           members={members}
+                          replacementAvailableAmountMinor={getReplacementAvailableAmountForEntry(entry)}
                           entry={entry}
                           trigger={
                             <Button type="button" size="sm" variant="outline">

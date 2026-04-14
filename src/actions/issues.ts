@@ -65,6 +65,7 @@ export type IssuesResult = {
 
 export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResult> {
   const supabase = await createClient();
+  await normalizeTopLevelInProgressIssues(supabase);
   const sortBy = filters.sortBy ?? "last_activity_at";
   const sortDir = filters.sortDir ?? "desc";
   const page = Math.max(1, Math.floor(filters.page ?? 1));
@@ -666,6 +667,7 @@ export async function updateIssue(
   const user = await getCurrentUser();
   if (!user) return { error: "未登录" };
   const supabase = await createClient();
+  await normalizeTopLevelInProgressIssues(supabase);
 
   const { data: beforeRow } = await supabase
     .from("issues")
@@ -674,6 +676,8 @@ export async function updateIssue(
     .single();
 
   if (!beforeRow) return { error: "问题不存在" };
+
+  const isTopLevelIssue = beforeRow.parent_issue_id === null;
 
   // 非管理员不得修改优先级 / 负责人 / 审核人（与详情页权限一致，防绕过前端）
   if (user.role !== "admin") {
@@ -696,6 +700,31 @@ export async function updateIssue(
 
   const prevStatus = beforeRow.status as IssueStatus;
   const newStatus  = patch.status;
+
+  if (
+    isTopLevelIssue &&
+    (
+      newStatus === "in_progress" ||
+      (patch.assignee_id !== undefined && prevStatus === "in_progress")
+    )
+  ) {
+    const effectiveAssigneeId = patch.assignee_id !== undefined
+      ? patch.assignee_id
+      : (beforeRow.assignee_id as string | null);
+
+    if (effectiveAssigneeId) {
+      const conflictIssue = await findOtherTopLevelInProgressIssue(
+        supabase,
+        effectiveAssigneeId,
+        id
+      );
+      if (conflictIssue) {
+        return {
+          error: `该负责人当前已有一个“处理中”问题：${conflictIssue.title}。请先把它改成其他状态，再将这条设为“处理中”。`,
+        };
+      }
+    }
+  }
 
   // ---------- 状态机校验（服务端权威） ----------
   if (newStatus && newStatus !== prevStatus) {
@@ -1573,6 +1602,74 @@ async function markHandoversCompleted(
     .update({ status: "completed" })
     .eq("issue_id", issueId)
     .eq("status", "active");
+}
+
+async function normalizeTopLevelInProgressIssues(
+  supabase: Awaited<ReturnType<typeof createClient>>
+) {
+  const { data, error } = await supabase
+    .from("issues")
+    .select("id, assignee_id")
+    .is("parent_issue_id", null)
+    .eq("status", "in_progress")
+    .not("assignee_id", "is", null)
+    .order("assignee_id", { ascending: true })
+    .order("last_activity_at", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false, nullsFirst: false });
+
+  if (error || !data?.length) {
+    if (error) console.error("[normalizeTopLevelInProgressIssues] error:", error.message);
+    return;
+  }
+
+  const seenAssigneeIds = new Set<string>();
+  const demotedIds: string[] = [];
+
+  for (const row of data) {
+    const assigneeId = row.assignee_id as string | null;
+    if (!assigneeId) continue;
+    if (seenAssigneeIds.has(assigneeId)) {
+      demotedIds.push(row.id as string);
+      continue;
+    }
+    seenAssigneeIds.add(assigneeId);
+  }
+
+  if (demotedIds.length === 0) return;
+
+  const { error: updateError } = await supabase
+    .from("issues")
+    .update({ status: "todo" })
+    .in("id", demotedIds);
+
+  if (updateError) {
+    console.error("[normalizeTopLevelInProgressIssues] demote error:", updateError.message);
+  }
+}
+
+async function findOtherTopLevelInProgressIssue(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  assigneeId: string,
+  currentIssueId: string
+) {
+  const { data, error } = await supabase
+    .from("issues")
+    .select("id, title")
+    .is("parent_issue_id", null)
+    .eq("assignee_id", assigneeId)
+    .eq("status", "in_progress")
+    .neq("id", currentIssueId)
+    .order("last_activity_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[findOtherTopLevelInProgressIssue] error:", error.message);
+    return null;
+  }
+
+  return data as { id: string; title: string } | null;
 }
 
 async function syncChildAssignees(

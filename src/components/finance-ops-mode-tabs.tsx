@@ -3,7 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export type FinanceOpsMode = "tasks" | "petty-cash";
+export type FinanceOpsMode = "tasks" | "weekly-plan" | "petty-cash";
 
 export function FinanceOpsModeTabs({ currentMode }: { currentMode: FinanceOpsMode }) {
   const router = useRouter();
@@ -26,6 +26,7 @@ export function FinanceOpsModeTabs({ currentMode }: { currentMode: FinanceOpsMod
     <Tabs value={currentMode} onValueChange={switchMode} className="w-auto">
       <TabsList>
         <TabsTrigger value="tasks">待办管理</TabsTrigger>
+        <TabsTrigger value="weekly-plan">周工作计划</TabsTrigger>
         <TabsTrigger value="petty-cash">备用金登记</TabsTrigger>
       </TabsList>
     </Tabs>

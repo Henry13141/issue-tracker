@@ -39,6 +39,8 @@ import {
   FINANCE_TASK_CADENCE_LABELS,
   FINANCE_TASK_STATUS_LABELS,
   formatFinanceCadenceRule,
+  getFinanceWeekInfo,
+  parseDateOnly,
   type FinanceOpsView,
 } from "@/lib/finance-ops";
 import type { FinanceOpsBundle } from "@/lib/finance-ops-queries";
@@ -51,10 +53,22 @@ import type {
   FinanceTaskTemplateWithOwner,
   User,
 } from "@/types";
-import { Plus, Pencil, PlayCircle, CheckCircle2, Ban, RotateCcw } from "lucide-react";
+import { Plus, Pencil, PlayCircle, CheckCircle2, Ban, RotateCcw, CalendarRange } from "lucide-react";
 import { toast } from "sonner";
 
 const NO_OWNER = "__none__";
+
+const FINANCE_WEEKDAY_TRIGGER_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"] as const;
+
+const QUARTER_MONTH_TRIGGER_LABELS: Record<string, string> = {
+  "1": "季度首月",
+  "2": "季度次月",
+  "3": "季度末月",
+};
+
+function memberNameById(members: User[], userId: string) {
+  return members.find((m) => m.id === userId)?.name ?? "未知成员";
+}
 
 function FinanceTemplateDialog({
   members,
@@ -170,7 +184,7 @@ function FinanceTemplateDialog({
                 <Label>归类</Label>
                 <Select value={area} onValueChange={(value) => setArea((value ?? "finance") as FinanceTaskArea)}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>{FINANCE_TASK_AREA_LABELS[area]}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="finance">财务</SelectItem>
@@ -185,7 +199,7 @@ function FinanceTemplateDialog({
                 <Label>周期</Label>
                 <Select value={cadence} onValueChange={(value) => setCadence((value ?? "monthly") as FinanceTaskCadence)}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>{FINANCE_TASK_CADENCE_LABELS[cadence]}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="weekly">每周</SelectItem>
@@ -202,7 +216,9 @@ function FinanceTemplateDialog({
                 <Label htmlFor="finance-template-owner">负责人</Label>
                 <Select value={ownerUserId} onValueChange={(value) => setOwnerUserId(value ?? NO_OWNER)}>
                   <SelectTrigger id="finance-template-owner">
-                    <SelectValue />
+                    <SelectValue placeholder="暂不指定">
+                      {ownerUserId === NO_OWNER ? null : memberNameById(members, ownerUserId)}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NO_OWNER}>暂不指定</SelectItem>
@@ -222,7 +238,9 @@ function FinanceTemplateDialog({
                   <Label>星期</Label>
                   <Select value={dueWeekday} onValueChange={(value) => setDueWeekday(value ?? "1")}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue>
+                        {FINANCE_WEEKDAY_TRIGGER_LABELS[Number(dueWeekday) - 1] ?? dueWeekday}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="1">周一</SelectItem>
@@ -255,7 +273,7 @@ function FinanceTemplateDialog({
                   <Label>季度内月份</Label>
                   <Select value={dueMonthInQuarter} onValueChange={(value) => setDueMonthInQuarter(value ?? "1")}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue>{QUARTER_MONTH_TRIGGER_LABELS[dueMonthInQuarter] ?? dueMonthInQuarter}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="1">季度首月</SelectItem>
@@ -271,7 +289,7 @@ function FinanceTemplateDialog({
                   <Label>年度月份</Label>
                   <Select value={dueMonth} onValueChange={(value) => setDueMonth(value ?? "1")}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue>{`${dueMonth} 月`}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {Array.from({ length: 12 }).map((_, index) => (
@@ -373,7 +391,7 @@ function FinanceAdHocDialog({ members }: { members: User[] }) {
                 <Label>归类</Label>
                 <Select value={area} onValueChange={(value) => setArea((value ?? "admin_hr") as FinanceTaskArea)}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>{FINANCE_TASK_AREA_LABELS[area]}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="finance">财务</SelectItem>
@@ -400,7 +418,9 @@ function FinanceAdHocDialog({ members }: { members: User[] }) {
               <Label htmlFor="finance-ad-hoc-owner">负责人</Label>
               <Select value={ownerUserId} onValueChange={(value) => setOwnerUserId(value ?? NO_OWNER)}>
                 <SelectTrigger id="finance-ad-hoc-owner">
-                  <SelectValue />
+                  <SelectValue placeholder="暂不指定">
+                    {ownerUserId === NO_OWNER ? null : memberNameById(members, ownerUserId)}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NO_OWNER}>暂不指定</SelectItem>
@@ -497,7 +517,7 @@ function FinanceInstanceDialog({ instance }: { instance: FinanceTaskInstanceWith
               <Label>状态</Label>
               <Select value={status} onValueChange={(value) => setStatus((value ?? "pending") as FinanceTaskInstanceStatus)}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>{FINANCE_TASK_STATUS_LABELS[status]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pending">待处理</SelectItem>
@@ -538,6 +558,11 @@ function FinanceInstanceDialog({ instance }: { instance: FinanceTaskInstanceWith
 function FinanceTaskRow({ instance }: { instance: FinanceTaskInstanceWithTemplate }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const weekStart = getFinanceWeekInfo(parseDateOnly(instance.due_date)).weekStart;
+
+  function jumpToWeekPlan() {
+    router.push(`/finance-ops?mode=weekly-plan&week=${weekStart}`);
+  }
 
   function quickUpdate(status: FinanceTaskInstanceStatus) {
     startTransition(async () => {
@@ -644,6 +669,10 @@ function FinanceTaskRow({ instance }: { instance: FinanceTaskInstanceWithTemplat
                 恢复待处理
               </Button>
             ) : null}
+            <Button type="button" size="sm" variant="outline" onClick={jumpToWeekPlan}>
+              <CalendarRange className="mr-1 h-4 w-4" />
+              安排本周过程
+            </Button>
             <FinanceInstanceDialog instance={instance} />
           </div>
         </div>
