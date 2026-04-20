@@ -8,6 +8,7 @@ import {
   toArkErrorResponse,
   type SeedanceContentItem,
   type SeedanceCreateTaskInput,
+  type SeedanceListFilter,
   type SeedanceTool,
 } from "@/lib/ark-seedance";
 import {
@@ -15,7 +16,9 @@ import {
   isAllowedSeedanceModelId,
   isAllowedSeedanceRatio,
   isAllowedSeedanceResolution,
+  isResolutionAllowedForModel,
   isValidSeedance20DurationValue,
+  isValidSeedanceSeed,
   validateSeedanceReferenceCounts,
 } from "@/lib/seedance-params";
 import {
@@ -141,6 +144,9 @@ function parsePayload(body: unknown): SeedanceCreateTaskInput | null {
   if (rawResolution && !resolution) {
     return null;
   }
+  if (resolution && !isResolutionAllowedForModel(resolution, model)) {
+    return null;
+  }
   if (!Number.isFinite(duration) || !isValidSeedance20DurationValue(duration)) {
     return null;
   }
@@ -160,6 +166,11 @@ function parsePayload(body: unknown): SeedanceCreateTaskInput | null {
     return null;
   }
 
+  const rawSeed = value.seed !== undefined ? Number(value.seed) : undefined;
+  if (rawSeed !== undefined && !isValidSeedanceSeed(rawSeed)) {
+    return null;
+  }
+
   return {
     model,
     ratio,
@@ -175,6 +186,7 @@ function parsePayload(body: unknown): SeedanceCreateTaskInput | null {
       ? { safety_identifier: value.safety_identifier.trim().slice(0, 64) }
       : {}),
     ...(tools.length > 0 ? { tools } : {}),
+    ...(rawSeed !== undefined ? { seed: rawSeed } : {}),
   };
 }
 
@@ -207,7 +219,10 @@ function describePayloadError(body: unknown): string {
     return "ratio 不在允许列表（16:9 / 9:16 / 1:1 / 3:4 / 4:3 / 21:9 / adaptive）。";
   }
   if (rawResolution && !resolution) {
-    return "resolution 仅支持 480p / 720p。";
+    return "resolution 仅支持 480p / 720p / 1080p。";
+  }
+  if (resolution && !isResolutionAllowedForModel(resolution, model)) {
+    return "seedance 2.0 fast 不支持 1080p，请切换为标准版或选择 480p / 720p。";
   }
   if (!Number.isFinite(duration)) {
     return "duration 必须是整数秒，或 -1（智能时长）。";
@@ -229,6 +244,10 @@ function describePayloadError(body: unknown): string {
   }
   if (tools.length > 0 && !canUseSeedanceWebSearch(referenceCounts)) {
     return "联网搜索仅适用于纯文本输入；启用时不能同时传图片、视频或音频参考。";
+  }
+  const rawSeed = value.seed !== undefined ? Number(value.seed) : undefined;
+  if (rawSeed !== undefined && !isValidSeedanceSeed(rawSeed)) {
+    return "seed 需为 -1（随机）或 [0, 4294967295] 范围内的整数。";
   }
   return "请求参数不完整或格式不正确。";
 }
@@ -298,10 +317,31 @@ export async function GET(request: Request) {
   const pageNum = Number(searchParams.get("pageNum") ?? "1");
   const pageSize = Number(searchParams.get("pageSize") ?? "12");
 
+  // filter 参数（可选）
+  const filterStatus = searchParams.get("filter.status");
+  const filterModel = searchParams.get("filter.model");
+  const filterServiceTier = searchParams.get("filter.service_tier");
+  const filterTaskIds = searchParams.getAll("filter.task_ids").filter(Boolean);
+
+  const VALID_STATUSES = ["queued", "running", "cancelled", "succeeded", "failed", "expired"] as const;
+  type ValidStatus = (typeof VALID_STATUSES)[number];
+  const validatedStatus = VALID_STATUSES.includes(filterStatus as ValidStatus)
+    ? (filterStatus as ValidStatus)
+    : undefined;
+
+  const filter: SeedanceListFilter = {
+    ...(validatedStatus ? { status: validatedStatus } : {}),
+    ...(filterModel ? { model: filterModel } : {}),
+    ...(filterServiceTier === "flex" ? { serviceTier: "flex" as const } : {}),
+    ...(filterTaskIds.length > 0 ? { taskIds: filterTaskIds } : {}),
+  };
+  const hasFilter = Object.keys(filter).length > 0;
+
   try {
     const result = await listSeedanceTasks({
       pageNum: Number.isFinite(pageNum) && pageNum >= 1 ? pageNum : 1,
-      pageSize: Number.isFinite(pageSize) && pageSize >= 1 && pageSize <= 100 ? pageSize : 12,
+      pageSize: Number.isFinite(pageSize) && pageSize >= 1 && pageSize <= 500 ? pageSize : 12,
+      ...(hasFilter ? { filter } : {}),
     });
     const taskIds = result.items.map((item) => item.taskId).filter(Boolean);
     const prompts = await fetchSeedanceTaskPromptsByTaskIds(taskIds);
