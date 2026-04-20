@@ -29,9 +29,22 @@ export const SEEDANCE_RATIO_OPTIONS = [
 
 export type SeedanceRatio = (typeof SEEDANCE_RATIO_OPTIONS)[number];
 
-export const SEEDANCE_RESOLUTION_OPTIONS = ["480p", "720p"] as const;
+export const SEEDANCE_RESOLUTION_OPTIONS = ["480p", "720p", "1080p"] as const;
 
 export type SeedanceResolution = (typeof SEEDANCE_RESOLUTION_OPTIONS)[number];
+
+/**
+ * seedance 2.0 fast 不支持 1080p（文档明确注明）。
+ */
+export function isResolutionAllowedForModel(
+  resolution: string,
+  modelId: string
+): boolean {
+  if (resolution === "1080p" && modelId === "doubao-seedance-2-0-fast-260128") {
+    return false;
+  }
+  return (SEEDANCE_RESOLUTION_OPTIONS as readonly string[]).includes(resolution);
+}
 
 /**
  * Seedance 2.0 官方教程列出的输出时长范围为 4–15 秒，最终仍以接口返回为准。
@@ -74,6 +87,19 @@ export function isAllowedSeedanceResolution(
   resolution: string
 ): resolution is SeedanceResolution {
   return (SEEDANCE_RESOLUTION_OPTIONS as readonly string[]).includes(resolution);
+}
+
+/**
+ * seed 取值范围：[-1, 2^32 - 1]，其中 -1 表示随机。
+ */
+export const SEEDANCE_SEED = {
+  auto: -1,
+  min: -1,
+  max: 4_294_967_295, // 2^32 - 1
+} as const;
+
+export function isValidSeedanceSeed(seed: number): boolean {
+  return Number.isInteger(seed) && seed >= SEEDANCE_SEED.min && seed <= SEEDANCE_SEED.max;
 }
 
 export function isValidSeedance20DurationSeconds(duration: number): boolean {

@@ -24,12 +24,15 @@ import type {
 import {
   canUseSeedanceWebSearch,
   DEFAULT_SEEDANCE_MODEL,
+  isResolutionAllowedForModel,
+  isValidSeedanceSeed,
   nextPollDelayMs,
   SEEDANCE_REFERENCE_LIMITS,
   SEEDANCE_MODEL_IDS,
   SEEDANCE_POLL_429_BACKOFF_MAX_MS,
   SEEDANCE_POLL_INTERVAL_MS,
   SEEDANCE_POLL_JITTER_MS,
+  SEEDANCE_SEED,
   SEEDANCE_20_DURATION,
   SEEDANCE_RATIO_OPTIONS,
   SEEDANCE_RESOLUTION_OPTIONS,
@@ -379,13 +382,15 @@ function statusLabel(status: string) {
       return "失败";
     case "cancelled":
       return "已取消";
+    case "expired":
+      return "已超时";
     default:
       return status || "未知";
   }
 }
 
 function isTerminal(status: string | null | undefined) {
-  return Boolean(status && ["succeeded", "failed", "cancelled"].includes(status));
+  return Boolean(status && ["succeeded", "failed", "cancelled", "expired"].includes(status));
 }
 
 function formatDateTime(value: string | null) {
@@ -721,6 +726,7 @@ export function SeedancePlayground({
   const [returnLastFrame, setReturnLastFrame] = useState(false);
   const [watermark, setWatermark] = useState(false);
   const [enableWebSearch, setEnableWebSearch] = useState(false);
+  const [seedInput, setSeedInput] = useState("");
   const [task, setTask] = useState<SeedanceTaskSummary | null>(null);
   const [taskIdInput, setTaskIdInput] = useState("");
   const [submittedParams, setSubmittedParams] = useState<{
@@ -775,6 +781,11 @@ export function SeedancePlayground({
   const promptAutoDiagnosticSignatureRef = useRef("");
 
   const parsedDuration = useMemo(() => Number(duration), [duration]);
+  const parsedSeed = useMemo(() => {
+    if (!seedInput.trim()) return undefined;
+    const n = Number(seedInput.trim());
+    return Number.isInteger(n) && isValidSeedanceSeed(n) ? n : undefined;
+  }, [seedInput]);
   const shouldAutoPoll = Boolean(task?.taskId && !isTerminal(task.status));
   const referenceAssetCounts: ReferenceAssetCounts = useMemo(
     () => ({
@@ -805,8 +816,8 @@ export function SeedancePlayground({
   const webSearchAvailable = canUseSeedanceWebSearch(referenceAssetCounts);
   const hasVideoReferenceInput = referenceAssetCounts.videos > 0;
   const currentUnitPrice = useMemo(
-    () => getSeedanceUnitPriceYuanPerMillionTokens(modelId, hasVideoReferenceInput),
-    [hasVideoReferenceInput, modelId]
+    () => getSeedanceUnitPriceYuanPerMillionTokens(modelId, hasVideoReferenceInput, resolution),
+    [hasVideoReferenceInput, modelId, resolution]
   );
   const currentPricingEstimate = useMemo(() => {
     if (currentUnitPrice == null) return null;
@@ -856,7 +867,7 @@ export function SeedancePlayground({
   }, [currentUnitPrice, hasVideoReferenceInput, modelId, parsedDuration, ratio, resolution]);
   const selectedTaskPricing = useMemo(() => {
     if (!task?.model) return null;
-    return estimateSeedance20TaskCostFromUsage(task.model, task.raw);
+    return estimateSeedance20TaskCostFromUsage(task.model, task.raw, task.resolution ?? undefined);
   }, [task]);
 
   async function parseTaskResponse(response: Response) {
@@ -1274,6 +1285,7 @@ export function SeedancePlayground({
       watermark,
       content,
       ...(enableWebSearch ? { tools: [{ type: "web_search" as const }] } : {}),
+      ...(parsedSeed !== undefined ? { seed: parsedSeed } : {}),
     };
 
     setSubmitting(true);
@@ -1335,6 +1347,7 @@ export function SeedancePlayground({
     setReturnLastFrame(false);
     setWatermark(false);
     setEnableWebSearch(false);
+    setSeedInput("");
   }
 
   function syncPromptSelection(target: HTMLTextAreaElement | null) {
@@ -1554,6 +1567,12 @@ export function SeedancePlayground({
       setEnableWebSearch(false);
     }
   }, [enableWebSearch, webSearchAvailable]);
+
+  useEffect(() => {
+    if (!isResolutionAllowedForModel(resolution, modelId)) {
+      setResolution("720p");
+    }
+  }, [modelId, resolution]);
 
   useEffect(() => {
     const taskId = task?.taskId;
@@ -2030,21 +2049,28 @@ export function SeedancePlayground({
                 <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:gap-6">
                   <span className="w-20 shrink-0 pt-1 text-sm font-medium text-muted-foreground">清晰度</span>
                   <div className="flex flex-wrap gap-2">
-                    {SEEDANCE_RESOLUTION_OPTIONS.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => setResolution(option)}
-                        className={cn(
-                          "rounded-full border px-4 py-2 text-sm font-medium transition",
-                          resolution === option
-                            ? "border-primary bg-primary/8 text-primary"
-                            : "border-border bg-muted/40 text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {option}
-                      </button>
-                    ))}
+                    {SEEDANCE_RESOLUTION_OPTIONS.map((option) => {
+                      const disabled = !isResolutionAllowedForModel(option, modelId);
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setResolution(option)}
+                          title={disabled ? "当前模型不支持 1080p（仅标准版支持）" : undefined}
+                          className={cn(
+                            "rounded-full border px-4 py-2 text-sm font-medium transition",
+                            disabled
+                              ? "cursor-not-allowed border-border bg-muted/20 text-muted-foreground/40"
+                              : resolution === option
+                                ? "border-primary bg-primary/8 text-primary"
+                                : "border-border bg-muted/40 text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {option}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:gap-6">
@@ -2126,6 +2152,31 @@ export function SeedancePlayground({
                       保留水印
                     </label>
                   </div>
+                </div>
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-6">
+                  <span className="w-20 shrink-0 text-sm font-medium text-muted-foreground">随机种子</span>
+                  <span className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground">
+                    <Input
+                      type="number"
+                      min={SEEDANCE_SEED.min}
+                      max={SEEDANCE_SEED.max}
+                      step={1}
+                      placeholder="-1（随机）"
+                      value={seedInput}
+                      onChange={(e) => setSeedInput(e.target.value)}
+                      onBlur={() => {
+                        if (!seedInput.trim()) return;
+                        const n = Math.round(Number(seedInput.trim()));
+                        if (!isValidSeedanceSeed(n)) {
+                          setSeedInput("");
+                        } else {
+                          setSeedInput(String(n));
+                        }
+                      }}
+                      className="h-8 w-36 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0"
+                    />
+                  </span>
+                  <span className="text-xs text-muted-foreground/70">留空或填 -1 均表示随机；相同 seed 可复现相似结果</span>
                 </div>
               </div>
               <p className="text-sm leading-relaxed text-muted-foreground">
@@ -2268,34 +2319,46 @@ export function SeedancePlayground({
                 </div>
 
                 <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border text-sm sm:grid-cols-3">
-                  {[
-                    ["模型", task.model ?? submittedParams?.modelId ?? "—"],
+                  {(
                     [
-                      "分辨率",
-                      `${task.resolution ?? submittedParams?.resolution ?? "—"} / ${task.ratio ?? submittedParams?.ratio ?? "—"}`,
-                    ],
-                    [
-                      "时长",
-                      task.durationSeconds != null
-                        ? `${task.durationSeconds} 秒`
-                        : submittedParams?.duration != null
-                          ? `${submittedParams.duration} 秒`
-                          : "—",
-                    ],
-                    ["FPS", String(task.framesPerSecond ?? "—")],
-                    ["创建", formatDateTime(task.createdAt)],
-                    ["更新", formatDateTime(task.updatedAt)],
-                    ["服务", task.serviceTier ?? "—"],
-                    [
-                      "usage / seed",
-                      `${task.usageTokens ?? "—"} / ${task.seed ?? "—"}`,
-                    ],
-                  ].map(([k, v]) => (
-                    <div key={k} className="bg-card px-3 py-2.5">
-                      <p className="text-xs text-muted-foreground">{k}</p>
-                      <p className="mt-1 line-clamp-2 break-all font-medium leading-snug">{v}</p>
-                    </div>
-                  ))}
+                      ["模型", task.model ?? submittedParams?.modelId ?? "—"],
+                      [
+                        "分辨率",
+                        `${task.resolution ?? submittedParams?.resolution ?? "—"} / ${task.ratio ?? submittedParams?.ratio ?? "—"}`,
+                      ],
+                      [
+                        task.frames != null ? "帧数" : "时长",
+                        task.frames != null
+                          ? `${task.frames} 帧`
+                          : task.durationSeconds != null
+                            ? `${task.durationSeconds} 秒`
+                            : submittedParams?.duration != null
+                              ? `${submittedParams.duration} 秒`
+                              : "—",
+                      ],
+                      ["FPS", String(task.framesPerSecond ?? "—")],
+                      ["创建", formatDateTime(task.createdAt)],
+                      ["更新", formatDateTime(task.updatedAt)],
+                      ["服务", task.serviceTier ?? "—"],
+                      [
+                        "usage / seed",
+                        `${task.usageTokens ?? "—"} / ${task.seed ?? "—"}`,
+                      ],
+                      task.generateAudio != null
+                        ? ["音频", task.generateAudio ? "有声" : "无声"]
+                        : null,
+                      task.toolUsageWebSearch != null
+                        ? ["联网搜索", `${task.toolUsageWebSearch} 次`]
+                        : null,
+                    ] as ([string, string] | null)[]
+                  )
+                    .filter((row): row is [string, string] => row !== null)
+                    .map(([k, v]) => (
+                      <div key={k} className="bg-card px-3 py-2.5">
+                        <p className="text-xs text-muted-foreground">{k}</p>
+                        <p className="mt-1 line-clamp-2 break-all font-medium leading-snug">{v}</p>
+                      </div>
+                    ))}
                 </div>
 
                 {task.message ? (

@@ -34,11 +34,13 @@ export type SeedanceCreateTaskInput = {
   generate_audio: boolean;
   ratio: string;
   duration: number;
-  resolution?: "480p" | "720p";
+  resolution?: "480p" | "720p" | "1080p";
   watermark: boolean;
   return_last_frame?: boolean;
   safety_identifier?: string;
   tools?: SeedanceTool[];
+  /** 种子值 [-1, 2^32-1]；-1 表示随机。 */
+  seed?: number;
 };
 
 export type SeedanceTaskSummary = {
@@ -53,7 +55,13 @@ export type SeedanceTaskSummary = {
   resolution: string | null;
   ratio: string | null;
   durationSeconds: number | null;
+  /** 创建时指定了 frames 时返回；与 durationSeconds 互斥（接口只会返回其中一个）。 */
+  frames: number | null;
   framesPerSecond: number | null;
+  /** 是否含音频，仅 seedance 2.0 / 2.0 fast / 1.5 pro 返回。 */
+  generateAudio: boolean | null;
+  /** 实际调用联网搜索次数；0 表示未搜索，null 表示未启用。 */
+  toolUsageWebSearch: number | null;
   serviceTier: string | null;
   executionExpiresAfter: number | null;
   usageTokens: number | null;
@@ -126,6 +134,15 @@ function readNumber(record: Record<string, unknown> | null, keys: string[]): num
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
     }
+  }
+  return null;
+}
+
+function readBoolean(record: Record<string, unknown> | null, keys: string[]): boolean | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "boolean") return value;
   }
   return null;
 }
@@ -256,6 +273,7 @@ function normalizeTaskSummary(payload: unknown): SeedanceTaskSummary {
     readDateString(primary, ["updated_at", "updatedAt"]) ??
     readDateString(root, ["updated_at", "updatedAt"]);
   const usage = readNestedRecord(primary, ["usage"]) ?? readNestedRecord(root, ["usage"]);
+  const toolUsage = readNestedRecord(usage, ["tool_usage"]);
   const message =
     extractErrorMessage(payload) ??
     readString(primary, ["reason", "failure_reason", "fail_reason", "message"]);
@@ -278,9 +296,17 @@ function normalizeTaskSummary(payload: unknown): SeedanceTaskSummary {
     durationSeconds:
       readNumber(primary, ["duration"]) ??
       readNumber(root, ["duration"]),
+    frames:
+      readNumber(primary, ["frames"]) ??
+      readNumber(root, ["frames"]),
     framesPerSecond:
       readNumber(primary, ["framespersecond", "frames_per_second", "fps"]) ??
       readNumber(root, ["framespersecond", "frames_per_second", "fps"]),
+    generateAudio:
+      readBoolean(primary, ["generate_audio", "generateAudio"]) ??
+      readBoolean(root, ["generate_audio", "generateAudio"]),
+    toolUsageWebSearch:
+      readNumber(toolUsage, ["web_search"]) ?? null,
     serviceTier:
       readString(primary, ["service_tier", "serviceTier"]) ??
       readString(root, ["service_tier", "serviceTier"]),
@@ -299,7 +325,7 @@ function normalizeTaskSummary(payload: unknown): SeedanceTaskSummary {
 }
 
 export function isSeedanceTerminalStatus(status: string | null | undefined) {
-  return Boolean(status && ["succeeded", "failed", "cancelled"].includes(status));
+  return Boolean(status && ["succeeded", "failed", "cancelled", "expired"].includes(status));
 }
 
 export async function createSeedanceTask(input: SeedanceCreateTaskInput): Promise<SeedanceTaskSummary> {
@@ -356,9 +382,21 @@ export async function deleteSeedanceTask(taskId: string): Promise<void> {
   }
 }
 
+export type SeedanceListFilter = {
+  /** 按任务状态过滤。 */
+  status?: "queued" | "running" | "cancelled" | "succeeded" | "failed" | "expired";
+  /** 按任务 ID 精确查询，支持多个。 */
+  taskIds?: string[];
+  /** 按推理接入点 ID（非模型名）精确查询。 */
+  model?: string;
+  /** 按服务等级过滤。 */
+  serviceTier?: "default" | "flex";
+};
+
 export async function listSeedanceTasks(params?: {
   pageNum?: number;
   pageSize?: number;
+  filter?: SeedanceListFilter;
 }): Promise<SeedanceTaskListResult> {
   const pageNum = params?.pageNum ?? 1;
   const pageSize = params?.pageSize ?? 12;
@@ -366,6 +404,17 @@ export async function listSeedanceTasks(params?: {
     page_num: String(pageNum),
     page_size: String(pageSize),
   });
+
+  const filter = params?.filter;
+  if (filter?.status) search.set("filter.status", filter.status);
+  if (filter?.model) search.set("filter.model", filter.model);
+  if (filter?.serviceTier) search.set("filter.service_tier", filter.serviceTier);
+  // filter.task_ids uses repeated keys: &filter.task_ids=id1&filter.task_ids=id2
+  if (filter?.taskIds?.length) {
+    for (const id of filter.taskIds) {
+      search.append("filter.task_ids", id);
+    }
+  }
 
   const response = await fetch(`${ARK_BASE_URL}/contents/generations/tasks?${search.toString()}`, {
     method: "GET",
