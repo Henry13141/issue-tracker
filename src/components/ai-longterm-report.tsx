@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Sparkles, RefreshCw, AlertCircle, ChevronDown, ChevronUp, Database } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { generateLongTermReport } from "@/actions/ai";
 import type { LongTermReport } from "@/actions/ai";
 import { formatDateTime } from "@/lib/dates";

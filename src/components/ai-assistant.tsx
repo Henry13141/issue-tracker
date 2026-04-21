@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useTransition } from "react";
-import { Bot, X, Send, Loader2, ChevronDown, Sparkles, BrainCircuit } from "lucide-react";
+import { Bot, Send, Loader2, ChevronDown, Sparkles, BrainCircuit } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { chatWithAssistant } from "@/actions/ai";
 import type { AssistantMessage } from "@/actions/ai";

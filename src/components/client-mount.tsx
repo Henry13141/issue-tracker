@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, startTransition, type ReactNode } from "react";
 
 /**
  * Defers rendering `children` until after React hydration completes.
@@ -19,7 +19,7 @@ export function ClientMount({
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    startTransition(() => setMounted(true));
   }, []);
 
   if (!mounted) {
