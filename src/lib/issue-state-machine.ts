@@ -8,7 +8,8 @@ export const STATUS_TRANSITIONS: Record<IssueStatus, IssueStatus[]> = {
   todo:           ["in_progress", "blocked", "closed"],
   in_progress:    ["blocked", "pending_review", "closed"],
   blocked:        ["in_progress", "closed"],
-  pending_review: ["in_progress", "resolved", "closed"],
+  pending_review: ["pending_rework", "resolved", "closed"],
+  pending_rework: ["in_progress", "blocked", "pending_review", "closed"],
   resolved:       ["closed", "in_progress"],
   closed:         ["in_progress"], // reopen
 };
@@ -143,12 +144,13 @@ export function validateTransitionActor(opts: {
 
 function statusLabel(s: IssueStatus): string {
   const labels: Record<IssueStatus, string> = {
-    todo:           "待处理",
-    in_progress:    "处理中",
-    blocked:        "已阻塞",
-    pending_review: "待验证",
-    resolved:       "已解决",
-    closed:         "已关闭",
+    todo:            "待处理",
+    in_progress:     "处理中",
+    blocked:         "已阻塞",
+    pending_review:  "待验证",
+    pending_rework:  "待返修",
+    resolved:        "已解决",
+    closed:          "已关闭",
   };
   return labels[s] ?? s;
 }

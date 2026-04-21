@@ -234,7 +234,9 @@ export function IssueUpdatesClient({
               <span className="text-xs text-muted-foreground">
                 {issue.status === "pending_review"
                   ? "当前处于待验证，仅审核人或管理员可变更状态"
-                  : "仅负责人或管理员可变更状态"}
+                  : issue.status === "pending_rework"
+                    ? "当前为待返修，仅负责人或管理员可通过此处变更状态"
+                    : "仅负责人或管理员可变更状态"}
               </span>
             )}
             {allowedUpdateStatuses.length > 0 && hasIncompleteSubtasks && (

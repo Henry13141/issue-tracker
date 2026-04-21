@@ -25,7 +25,7 @@ CREATE TABLE public.issues (
   title TEXT NOT NULL,
   description TEXT,
   status TEXT NOT NULL DEFAULT 'todo'
-    CHECK (status IN ('todo', 'in_progress', 'blocked', 'pending_review', 'resolved', 'closed')),
+    CHECK (status IN ('todo', 'in_progress', 'blocked', 'pending_review', 'pending_rework', 'resolved', 'closed')),
   priority TEXT NOT NULL DEFAULT 'medium'
     CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
   assignee_id UUID REFERENCES public.users (id) ON DELETE SET NULL,
@@ -315,3 +315,32 @@ CREATE POLICY "update_comments_delete_own_or_admin"
   ON public.issue_update_comments FOR DELETE
   TO authenticated
   USING (user_id = auth.uid() OR public.is_admin());
+
+-- ---------------------------------------------------------------------------
+-- AI 组织记忆系统（见 migrations/add_ai_memory.sql）
+-- ---------------------------------------------------------------------------
+CREATE TABLE public.ai_memory (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category      TEXT NOT NULL CHECK (category IN (
+    'member_profile', 'module_health', 'org_insight', 'process_pattern'
+  )),
+  subject_key   TEXT,
+  subject_label TEXT,
+  content       TEXT NOT NULL,
+  raw_metrics   JSONB DEFAULT '{}',
+  period_start  DATE,
+  period_end    DATE,
+  version       INT NOT NULL DEFAULT 1,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.ai_interaction_events (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  event_type  TEXT NOT NULL,
+  target_type TEXT,
+  target_id   TEXT,
+  metadata    JSONB DEFAULT '{}',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

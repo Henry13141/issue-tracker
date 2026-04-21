@@ -17,6 +17,9 @@ const STATUS_VARIANT: Record<
   pending_review: {
     className: "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-100",
   },
+  pending_rework: {
+    className: "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-100",
+  },
   resolved: {
     className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100",
   },

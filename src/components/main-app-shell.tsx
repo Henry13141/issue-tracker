@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Menu } from "lucide-react";
 import { Sidebar, SidebarPanel } from "@/components/sidebar";
 import { Button } from "@/components/ui/button";
+import { AIAssistant } from "@/components/ai-assistant";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@/types";
 
@@ -65,6 +66,9 @@ export function MainAppShell({ user, children }: { user: User; children: React.R
           </div>
         </>
       ) : null}
+
+      {/* AI 管理助理悬浮面板（仅管理员可见） */}
+      {user.role === "admin" && <AIAssistant />}
     </div>
   );
 }

@@ -147,12 +147,13 @@ function getEventBucket(changes: NotifiableChange[]): string {
 }
 
 const STATUS_LABELS: Record<IssueStatus, string> = {
-  todo:           "待处理",
-  in_progress:    "处理中",
-  blocked:        "阻塞",
-  pending_review: "待验证",
-  resolved:       "已解决",
-  closed:         "已关闭",
+  todo:            "待处理",
+  in_progress:     "处理中",
+  blocked:         "阻塞",
+  pending_review:  "待验证",
+  pending_rework:  "待返修",
+  resolved:        "已解决",
+  closed:          "已关闭",
 };
 
 const PRIORITY_LABELS: Record<IssuePriority, string> = {
@@ -214,6 +215,10 @@ async function _dispatch(ctx: EventNotificationContext): Promise<void> {
           // 待验证：评审人需采取行动，抄送负责人
           if (ctx.reviewerId) recipientIds.add(ctx.reviewerId);
           if (ctx.assigneeId) recipientIds.add(ctx.assigneeId);
+        } else if (to === "pending_rework") {
+          // 待返修：负责人需修改，评审人知晓结论
+          if (ctx.assigneeId) recipientIds.add(ctx.assigneeId);
+          if (ctx.reviewerId) recipientIds.add(ctx.reviewerId);
         } else if (to === "resolved" || to === "closed") {
           // 已解决/已关闭：通知负责人、评审人、创建者、管理员
           if (ctx.assigneeId) recipientIds.add(ctx.assigneeId);
@@ -426,6 +431,9 @@ function _buildActionHint(changes: NotifiableChange[]): string {
   if (statusChanges.some((c) => c.to === "pending_review")) {
     return "负责人已把这件事推进到待验证阶段，下一步需要你来确认结果。";
   }
+  if (statusChanges.some((c) => c.to === "pending_rework")) {
+    return "验证未通过已标记为待返修，请负责人按反馈修改；准备好后可再提交待验证。";
+  }
   if (statusChanges.some((c) => c.to === "resolved" || c.to === "closed")) {
     return "这件事做到位了！确认关键结论已记录完整，方便后续回溯。";
   }
@@ -456,6 +464,7 @@ function changeSemanticTitle(change: NotifiableChange): string {
       if (change.to === "closed")                              return "已关闭";
       if (change.to === "blocked")                             return "遇到阻塞，需要协助";
       if (change.to === "pending_review")                      return "待验证";
+      if (change.to === "pending_rework")                      return "验证未通过，待返修";
       if (change.to === "in_progress" && change.from === "closed") return "重新打开了";
       return "状态有更新";
     case "priority_urgent":   return "优先级提升为紧急";
@@ -493,6 +502,8 @@ function formatChangeLine(
         return `- **状态变更：${STATUS_LABELS[change.from] ?? change.from} → 阻塞**`;
       if (change.to === "pending_review")
         return `- **状态变更：${STATUS_LABELS[change.from] ?? change.from} → 待验证**`;
+      if (change.to === "pending_rework")
+        return `- **验证结论：需返修**（${STATUS_LABELS[change.from] ?? change.from} → 待返修）`;
       return `- 状态变更：${STATUS_LABELS[change.from] ?? change.from} → **${STATUS_LABELS[change.to] ?? change.to}**`;
     case "priority_urgent":
       return `- 优先级提升至：**紧急**（原：${PRIORITY_LABELS[change.from] ?? change.from}）`;

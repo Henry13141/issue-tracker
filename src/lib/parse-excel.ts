@@ -22,6 +22,7 @@ const STATUS_ALIAS: Record<string, IssueStatus> = {
   处理中: "in_progress", in_progress: "in_progress",
   卡住: "blocked", blocked: "blocked",
   待验证: "pending_review", pending_review: "pending_review",
+  待返修: "pending_rework", pending_rework: "pending_rework", 验证未通过: "pending_rework",
   已解决: "resolved", resolved: "resolved",
   已关闭: "closed", closed: "closed",
   解决: "resolved", 完成: "resolved",
