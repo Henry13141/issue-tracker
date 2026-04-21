@@ -149,7 +149,7 @@ export async function GET(request: Request) {
       if (!assignee) continue;
 
       // no_update_today：只统计人工更新（is_system_generated=false），与 dashboard 定义一致
-      if (["in_progress", "blocked", "pending_review"].includes(issue.status)) {
+      if (["in_progress", "blocked", "pending_review", "pending_rework"].includes(issue.status)) {
         const { data: updatesToday } = await supabase
           .from("issue_updates")
           .select("id")
@@ -220,7 +220,7 @@ export async function GET(request: Request) {
 
       // stale_3_days：使用 last_activity_at（P0 触发器维护，只含人工活动），
       // 与 dashboard 和 issues 页的 stale 定义保持口径一致，同时消除了逐条查询 issue_updates 的 N+1 问题。
-      if (["in_progress", "blocked", "pending_review"].includes(issue.status)) {
+      if (["in_progress", "blocked", "pending_review", "pending_rework"].includes(issue.status)) {
         const lastTs = issue.last_activity_at ?? issue.created_at;
         if (new Date(lastTs).getTime() < new Date(windowStart).getTime()) {
           const dup = await hasReminderToday(supabase, issue.id, assignee, "stale_3_days", startIso, endIso);

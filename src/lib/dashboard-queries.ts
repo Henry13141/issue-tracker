@@ -38,7 +38,7 @@ function getLast7Days(): { dateStr: string; startIso: string; endIso: string }[]
   return days;
 }
 
-const ACTIVE_STATUSES: IssueStatus[]         = ["in_progress", "blocked", "pending_review"];
+const ACTIVE_STATUSES: IssueStatus[]         = ["in_progress", "blocked", "pending_review", "pending_rework"];
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
 // ─── 返回类型 ──────────────────────────────────────────────────────────────

@@ -70,7 +70,7 @@ function getRiskTags(issue: IssueWithRelations): RiskTag[] {
   if (issue.status === "blocked") tags.push("blocked");
   if (issue.priority === "urgent") tags.push("urgent");
 
-  const activeForStale = ["in_progress", "blocked", "pending_review"].includes(issue.status);
+  const activeForStale = ["in_progress", "blocked", "pending_review", "pending_rework"].includes(issue.status);
   const lastActivity = issue.last_activity_at ? new Date(issue.last_activity_at).getTime() : Number.NaN;
   if (activeForStale && Number.isFinite(lastActivity) && lastActivity < Date.now() - 3 * 86_400_000) {
     tags.push("stale");

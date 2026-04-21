@@ -3,6 +3,7 @@ export type IssueStatus =
   | "in_progress"
   | "blocked"
   | "pending_review"
+  | "pending_rework"
   | "resolved"
   | "closed";
 

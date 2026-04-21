@@ -461,7 +461,7 @@ async function importExcel(
   }
 
   const VALID_P: IssuePriority[] = ["low", "medium", "high", "urgent"];
-  const VALID_S: IssueStatus[] = ["todo", "in_progress", "blocked", "pending_review", "resolved", "closed"];
+  const VALID_S: IssueStatus[] = ["todo", "in_progress", "blocked", "pending_review", "pending_rework", "resolved", "closed"];
 
   const inserts = rows.map((r) => ({
     title: r.title.trim(),

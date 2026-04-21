@@ -12,6 +12,8 @@ import {
 } from "@/lib/dashboard-queries";
 import { StatCard } from "@/components/stat-card";
 import { TrackedLink } from "@/components/tracked-link";
+import { AIInsightCard } from "@/components/ai-insight-card";
+import { ClientMount } from "@/components/client-mount";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
@@ -37,6 +39,7 @@ const STATUS_COLORS: Record<string, string> = {
   in_progress:    "bg-blue-100 text-blue-700",
   blocked:        "bg-purple-100 text-purple-700",
   pending_review: "bg-amber-100 text-amber-700",
+  pending_rework: "bg-rose-100 text-rose-800",
   resolved:       "bg-green-100 text-green-700",
   closed:         "bg-gray-100 text-gray-500",
 };
@@ -93,12 +96,65 @@ export default async function DashboardPage() {
       (i.riskTags.includes("blocked") && i.priority === "urgent")
   ).slice(0, 8);
 
+  const skeleton = (
+    <div className="space-y-8 animate-pulse">
+      <div>
+        <div className="h-7 w-32 rounded bg-muted" />
+        <div className="mt-1.5 h-4 w-48 rounded bg-muted/60" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="h-28 rounded-xl bg-muted/50" />
+        <div className="h-28 rounded-xl bg-muted/50" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="h-20 rounded-xl bg-muted/50" />
+        ))}
+      </div>
+      <div className="h-64 rounded-xl bg-muted/50" />
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2 h-80 rounded-xl bg-muted/50" />
+        <div className="h-80 rounded-xl bg-muted/50" />
+      </div>
+    </div>
+  );
+
   return (
+    <ClientMount fallback={skeleton}>
     <div className="space-y-8">
       {/* ── 标题 ── */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">管理驾驶舱</h1>
         <p className="text-sm text-muted-foreground">团队推进成果与待关注事项一览</p>
+      </div>
+
+      {/* ── AI 工作情况分析 ── */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <AIInsightCard />
+        <Link
+          href="/dashboard/ai-report"
+          className="flex flex-col justify-between rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/30 p-5 transition-colors hover:border-blue-300 hover:bg-blue-50/60"
+        >
+          <div className="flex items-center gap-2 text-base font-semibold text-blue-800">
+            <span>✦</span> AI 30天深度分析
+          </div>
+          <p className="mt-2 text-sm text-blue-700/70 leading-relaxed">
+            基于30天纵向数据——工单生命周期、成员效能对比、状态流转图谱、交接行为、模块健康度，生成深度报告与可执行建议。
+          </p>
+          <span className="mt-3 text-xs font-medium text-blue-600">进入深度报告 →</span>
+        </Link>
+        <Link
+          href="/dashboard/ai-memory"
+          className="flex flex-col justify-between rounded-xl border-2 border-dashed border-violet-200 bg-violet-50/30 p-5 transition-colors hover:border-violet-300 hover:bg-violet-50/60"
+        >
+          <div className="flex items-center gap-2 text-base font-semibold text-violet-800">
+            <span>◈</span> AI 组织记忆
+          </div>
+          <p className="mt-2 text-sm text-violet-700/70 leading-relaxed">
+            AI 助理持续学习团队画像、模块健康度、协作规律——数据越积越多，越来越懂这家公司。
+          </p>
+          <span className="mt-3 text-xs font-medium text-violet-600">查看 AI 记忆 →</span>
+        </Link>
       </div>
 
       {/* ── 一、团队推进成果 ── */}
@@ -516,6 +572,7 @@ export default async function DashboardPage() {
         </Card>
       </section>
     </div>
+    </ClientMount>
   );
 }
 

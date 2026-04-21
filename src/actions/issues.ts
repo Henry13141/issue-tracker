@@ -98,7 +98,7 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
         "status.eq.blocked",
         "and(priority.eq.urgent,status.not.in.(resolved,closed))",
         `and(due_date.lt.${today},status.not.in.(resolved,closed))`,
-        `and(last_activity_at.lt."${staleThreshold}",status.in.(in_progress,blocked,pending_review))`,
+        `and(last_activity_at.lt."${staleThreshold}",status.in.(in_progress,blocked,pending_review,pending_rework))`,
       ].join(",")
     );
   }
@@ -131,7 +131,7 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
         query = query.eq("priority", "urgent").not("status", "in", '("resolved","closed")');
         break;
       case "stale":
-        query = query.lt("last_activity_at", staleThreshold).in("status", ["in_progress", "blocked", "pending_review"]);
+        query = query.lt("last_activity_at", staleThreshold).in("status", ["in_progress", "blocked", "pending_review", "pending_rework"]);
         break;
     }
   }
@@ -1179,7 +1179,7 @@ export async function bulkCreateIssues(
       title:       r.title.trim(),
       description: r.description?.trim() || null,
       priority:    (["low", "medium", "high", "urgent"].includes(r.priority) ? r.priority : "medium") as IssuePriority,
-      status:      (["todo", "in_progress", "blocked", "pending_review", "resolved", "closed"].includes(r.status ?? "")
+      status:      (["todo", "in_progress", "blocked", "pending_review", "pending_rework", "resolved", "closed"].includes(r.status ?? "")
         ? r.status : "todo") as IssueStatus,
       assignee_id: (r.assignee_name && memberMap?.get(r.assignee_name.trim())) || null,
       reviewer_id: defaultReviewerId,

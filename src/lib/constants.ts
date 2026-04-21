@@ -5,6 +5,7 @@ export const ISSUE_STATUS_LABELS: Record<IssueStatus, string> = {
   in_progress: "处理中",
   blocked: "卡住",
   pending_review: "待验证",
+  pending_rework: "待返修",
   resolved: "已解决",
   closed: "已关闭",
 };
@@ -77,6 +78,7 @@ export const ACTIVE_STATUSES: IssueStatus[] = [
   "in_progress",
   "blocked",
   "pending_review",
+  "pending_rework",
 ];
 
 export const TERMINAL_STATUSES: IssueStatus[] = ["resolved", "closed"];
@@ -87,6 +89,7 @@ export const INCOMPLETE_ISSUE_STATUSES: IssueStatus[] = [
   "in_progress",
   "blocked",
   "pending_review",
+  "pending_rework",
 ];
 
 export const ISSUE_CATEGORIES = [

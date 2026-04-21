@@ -391,6 +391,11 @@ export function IssueDetailClient({
                   当前处于待验证，需由审核人或管理员在进度区提交审核结果。
                 </p>
               )}
+              {initial.status === "pending_rework" && (
+                <p className="text-xs text-muted-foreground">
+                  当前为待返修（验证未通过）。负责人可先改为「处理中」再修改，或改完后直接再次提交「待验证」。
+                </p>
+              )}
               {initial.status !== "pending_review" && hasIncompleteSubtasks && (
                 <p className="text-xs text-muted-foreground">
                   需先完成全部子任务，才可提交待验证。

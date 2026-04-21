@@ -1,7 +1,7 @@
 import { getChinaDayBounds } from "@/lib/dates";
 import type { IssueStatus } from "@/types";
 
-const ACTIVE: IssueStatus[] = ["in_progress", "blocked", "pending_review"];
+const ACTIVE: IssueStatus[] = ["in_progress", "blocked", "pending_review", "pending_rework"];
 
 /** YYYY-MM-DD in Asia/Shanghai for a given instant */
 export function formatChinaDate(d: Date): string {
