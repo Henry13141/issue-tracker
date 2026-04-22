@@ -6,11 +6,8 @@ import { canAccessFinanceOps } from "@/lib/permissions";
 import {
   PETTY_CASH_INVOICE_AVAILABILITY_OPTIONS,
   PETTY_CASH_INVOICE_COLLECTED_OPTIONS,
-  PETTY_CASH_INVOICE_REPLACEMENT_OPTIONS,
   PETTY_CASH_PAYMENT_OPTIONS,
   PETTY_CASH_PROJECT_OPTIONS,
-  PETTY_CASH_REIMBURSEMENT_STATUS_OPTIONS,
-  isReplacementExpenseProject,
   toMinorAmount,
 } from "@/lib/petty-cash";
 import { getPettyCashSchemaHint, isPettyCashSchemaMissingError } from "@/lib/petty-cash-schema";
@@ -19,7 +16,6 @@ import type {
   PettyCashExpenseProject,
   PettyCashInvoiceAvailability,
   PettyCashInvoiceCollectedStatus,
-  PettyCashInvoiceReplacementStatus,
   PettyCashPaymentMethod,
   PettyCashReimbursementStatus,
 } from "@/types";
@@ -29,10 +25,10 @@ type PettyCashEntryInput = {
   payer_user_id: string;
   title: string;
   expense_project: PettyCashExpenseProject;
+  custom_project_label?: string | null;
   amount: string;
   payment_method: PettyCashPaymentMethod;
   invoice_availability: PettyCashInvoiceAvailability;
-  invoice_replacement_status: PettyCashInvoiceReplacementStatus;
   invoice_collected_status: PettyCashInvoiceCollectedStatus;
   reimbursement_status: PettyCashReimbursementStatus;
   reimbursed_on?: string | null;
@@ -88,44 +84,31 @@ function normalizeEntryInput(input: PettyCashEntryInput) {
     throw new Error("请填写事项名称");
   }
 
-  const expenseProject = requireOneOf(input.expense_project, PETTY_CASH_PROJECT_OPTIONS, "支出项目");
+  const allProjectOptions = [...PETTY_CASH_PROJECT_OPTIONS, "custom" as PettyCashExpenseProject];
+  const expenseProject = requireOneOf(input.expense_project, allProjectOptions, "支出项目");
+
+  const customProjectLabel =
+    expenseProject === "custom" ? (input.custom_project_label?.trim() || null) : null;
+  if (expenseProject === "custom" && !customProjectLabel) {
+    throw new Error("请填写自定义项目名称");
+  }
+
   const paymentMethod = requireOneOf(input.payment_method, PETTY_CASH_PAYMENT_OPTIONS, "支付方式");
   const invoiceAvailability = requireOneOf(
     input.invoice_availability,
     PETTY_CASH_INVOICE_AVAILABILITY_OPTIONS,
     "有票无票状态"
   );
-  const rawInvoiceCollectedStatus = requireOneOf(
-    input.invoice_collected_status,
-    PETTY_CASH_INVOICE_COLLECTED_OPTIONS,
-    "收票状态"
-  );
   const reimbursementStatus = requireOneOf(
     input.reimbursement_status,
-    PETTY_CASH_REIMBURSEMENT_STATUS_OPTIONS,
+    PETTY_CASH_REIMBURSEMENT_STATUS_OPTIONS_ALL,
     "报销状态"
   );
-  const usesReplacementProject = isReplacementExpenseProject(expenseProject);
 
-  let invoiceReplacementStatus: PettyCashInvoiceReplacementStatus;
-  let invoiceCollectedStatus: PettyCashInvoiceCollectedStatus;
-  if (usesReplacementProject) {
-    invoiceReplacementStatus = "matched";
-    invoiceCollectedStatus = "received";
-  } else if (invoiceAvailability === "with_invoice") {
-    invoiceReplacementStatus = "not_needed";
-    invoiceCollectedStatus = rawInvoiceCollectedStatus;
-  } else {
-    invoiceReplacementStatus = requireOneOf(
-      input.invoice_replacement_status,
-      PETTY_CASH_INVOICE_REPLACEMENT_OPTIONS,
-      "替票状态"
-    );
-    if (invoiceReplacementStatus === "matched") {
-      throw new Error("请使用替票项目自动占用替票额度");
-    }
-    invoiceCollectedStatus = rawInvoiceCollectedStatus;
-  }
+  const invoiceCollectedStatus =
+    invoiceAvailability === "with_invoice"
+      ? requireOneOf(input.invoice_collected_status, PETTY_CASH_INVOICE_COLLECTED_OPTIONS, "收票状态")
+      : ("not_received" as const);
 
   const reimbursedOn =
     reimbursementStatus === "reimbursed"
@@ -141,17 +124,25 @@ function normalizeEntryInput(input: PettyCashEntryInput) {
     payer_user_id: payerUserId,
     title,
     expense_project: expenseProject,
+    custom_project_label: customProjectLabel,
     amount_minor: toMinorAmount(input.amount),
     currency: "CNY" as const,
     payment_method: paymentMethod,
-    invoice_availability: usesReplacementProject ? ("without_invoice" as const) : invoiceAvailability,
-    invoice_replacement_status: invoiceReplacementStatus,
+    invoice_availability: invoiceAvailability,
+    invoice_replacement_status: "not_needed" as const,
     invoice_collected_status: invoiceCollectedStatus,
     reimbursement_status: reimbursementStatus,
     reimbursed_on: reimbursedOn,
     notes: input.notes?.trim() || null,
   };
 }
+
+const PETTY_CASH_REIMBURSEMENT_STATUS_OPTIONS_ALL: PettyCashReimbursementStatus[] = [
+  "pending",
+  "in_progress",
+  "reimbursed",
+  "voided",
+];
 
 function normalizeReplacementInvoiceInput(input: PettyCashReplacementInvoiceInput) {
   const receivedOn = input.received_on?.trim();
@@ -172,84 +163,10 @@ function normalizeReplacementInvoiceInput(input: PettyCashReplacementInvoiceInpu
   };
 }
 
-async function getReplacementQuotaSnapshot(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  options?: {
-    excludeEntryId?: string;
-    excludeInvoiceId?: string;
-    nextInvoiceAmountMinor?: number;
-  }
-) {
-  const invoiceQuery = supabase
-    .from("petty_cash_replacement_invoices")
-    .select("id, amount_minor");
-  const entryQuery = supabase
-    .from("petty_cash_entries")
-    .select("id, amount_minor")
-    .eq("expense_project", "hospitality_replacement")
-    .neq("reimbursement_status", "voided");
-
-  const [{ data: invoiceRows, error: invoiceError }, { data: entryRows, error: entryError }] = await Promise.all([
-    invoiceQuery,
-    entryQuery,
-  ]);
-
-  if (invoiceError) {
-    rethrowPettyCashError(invoiceError);
-  }
-  if (entryError) {
-    rethrowPettyCashError(entryError);
-  }
-
-  const totalAmountMinor =
-    ((invoiceRows ?? []) as Array<{ id: string; amount_minor: number }>)
-      .filter((row) => row.id !== options?.excludeInvoiceId)
-      .reduce((sum, row) => sum + row.amount_minor, 0) + (options?.nextInvoiceAmountMinor ?? 0);
-  const usedAmountMinor = ((entryRows ?? []) as Array<{ id: string; amount_minor: number }>)
-    .filter((row) => row.id !== options?.excludeEntryId)
-    .reduce((sum, row) => sum + row.amount_minor, 0);
-
-  return {
-    totalAmountMinor,
-    usedAmountMinor,
-    availableAmountMinor: totalAmountMinor - usedAmountMinor,
-  };
-}
-
-async function ensureReplacementQuotaAvailable(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  payload: ReturnType<typeof normalizeEntryInput>,
-  excludeEntryId?: string
-) {
-  if (!isReplacementExpenseProject(payload.expense_project) || payload.reimbursement_status === "voided") {
-    return;
-  }
-
-  const snapshot = await getReplacementQuotaSnapshot(supabase, { excludeEntryId });
-  if (snapshot.availableAmountMinor < payload.amount_minor) {
-    throw new Error("当前替票剩余额度不足，请先登记替票再保存该项目");
-  }
-}
-
-async function ensureReplacementInvoiceCoverage(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  payload: ReturnType<typeof normalizeReplacementInvoiceInput>,
-  excludeInvoiceId?: string
-) {
-  const snapshot = await getReplacementQuotaSnapshot(supabase, {
-    excludeInvoiceId,
-    nextInvoiceAmountMinor: payload.amount_minor,
-  });
-  if (snapshot.availableAmountMinor < 0) {
-    throw new Error("更新后替票总额度小于已占用额度，请先调整替票项目或补登记替票");
-  }
-}
-
 export async function createPettyCashEntry(input: PettyCashEntryInput) {
   const user = await requireFinanceOpsUser();
   const payload = normalizeEntryInput(input);
   const supabase = await createClient();
-  await ensureReplacementQuotaAvailable(supabase, payload);
 
   const { error } = await supabase.from("petty_cash_entries").insert({
     ...payload,
@@ -267,7 +184,6 @@ export async function updatePettyCashEntry(id: string, input: PettyCashEntryInpu
   await requireFinanceOpsUser();
   const payload = normalizeEntryInput(input);
   const supabase = await createClient();
-  await ensureReplacementQuotaAvailable(supabase, payload, id);
 
   const { error } = await supabase.from("petty_cash_entries").update(payload).eq("id", id);
 
@@ -282,7 +198,6 @@ export async function createPettyCashReplacementInvoice(input: PettyCashReplacem
   const user = await requireFinanceOpsUser();
   const payload = normalizeReplacementInvoiceInput(input);
   const supabase = await createClient();
-  await ensureReplacementInvoiceCoverage(supabase, payload);
 
   const { error } = await supabase.from("petty_cash_replacement_invoices").insert({
     ...payload,
@@ -300,9 +215,34 @@ export async function updatePettyCashReplacementInvoice(id: string, input: Petty
   await requireFinanceOpsUser();
   const payload = normalizeReplacementInvoiceInput(input);
   const supabase = await createClient();
-  await ensureReplacementInvoiceCoverage(supabase, payload, id);
 
   const { error } = await supabase.from("petty_cash_replacement_invoices").update(payload).eq("id", id);
+
+  if (error) {
+    rethrowPettyCashError(error);
+  }
+
+  revalidatePath("/finance-ops");
+}
+
+export async function deletePettyCashEntry(id: string) {
+  await requireFinanceOpsUser();
+  const supabase = await createClient();
+
+  const { error } = await supabase.from("petty_cash_entries").delete().eq("id", id);
+
+  if (error) {
+    rethrowPettyCashError(error);
+  }
+
+  revalidatePath("/finance-ops");
+}
+
+export async function deletePettyCashReplacementInvoice(id: string) {
+  await requireFinanceOpsUser();
+  const supabase = await createClient();
+
+  const { error } = await supabase.from("petty_cash_replacement_invoices").delete().eq("id", id);
 
   if (error) {
     rethrowPettyCashError(error);
