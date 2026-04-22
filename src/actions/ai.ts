@@ -17,6 +17,8 @@ import {
 import { collectLongTermData } from "@/lib/longterm-queries";
 import type { LongTermData } from "@/lib/longterm-queries";
 import { buildMemoryContext, logInteractionEvent } from "@/lib/ai-memory";
+import { saveChatTurn, loadRecentMessages, clearChatHistory } from "@/lib/ai-chat-history";
+import type { ChatMessageRow } from "@/lib/ai-chat-history";
 
 const VALID_PRIORITIES: IssuePriority[] = ["low", "medium", "high", "urgent"];
 function isIssuePriority(v: unknown): v is IssuePriority {
@@ -689,5 +691,47 @@ export async function chatWithAssistant(
     return { reply: "", error: "AI 暂时无法响应，请稍后再试" };
   }
 
+  // ── 7. 异步持久化本轮对话（不阻塞响应）────────────────────────────
+  saveChatTurn(user.id, message, reply).catch((e) =>
+    console.error("[chatWithAssistant] saveChatTurn failed:", e),
+  );
+
   return { reply };
+}
+
+// ---------------------------------------------------------------------------
+// 对话历史读取（供前端在打开助手时恢复上下文）
+// ---------------------------------------------------------------------------
+
+export type ChatHistoryMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+};
+
+/**
+ * 加载当前登录用户最近的对话记录（最多 40 条）。
+ * 用于在刷新页面后恢复对话连续性。
+ */
+export async function getChatHistory(): Promise<ChatHistoryMessage[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const rows: ChatMessageRow[] = await loadRecentMessages(user.id);
+  return rows.map((r) => ({
+    id:         r.id,
+    role:       r.role,
+    content:    r.content,
+    created_at: r.created_at,
+  }));
+}
+
+/**
+ * 清空当前用户的全部对话历史（用户主动操作）
+ */
+export async function clearMyChatHistory(): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) return;
+  await clearChatHistory(user.id);
 }

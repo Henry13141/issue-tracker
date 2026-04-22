@@ -43,7 +43,7 @@ export async function chatCompletionFromMessages(
 
   try {
     const res = await client.chat.completions.create({
-      model: "kimi-k2.5",
+      model: "kimi-k2.6",
       messages,
       max_tokens: opts?.maxTokens ?? 1024,
       ...(opts?.disableThinking ? { thinking: { type: "disabled" as const } } : {}),

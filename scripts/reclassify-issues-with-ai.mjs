@@ -76,7 +76,7 @@ const SYSTEM_PROMPT = [
 async function askAI(userContent) {
   try {
     const res = await openai.chat.completions.create({
-      model: "kimi-k2.5",
+      model: "kimi-k2.6",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userContent },

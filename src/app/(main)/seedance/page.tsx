@@ -2,8 +2,6 @@ import { SeedancePlayground } from "@/components/seedance-playground";
 import { getSessionGate } from "@/lib/auth";
 import { isSeedanceConfigured } from "@/lib/ark-seedance";
 
-export const dynamic = "force-dynamic";
-
 export default async function SeedancePage() {
   const configured = isSeedanceConfigured();
   const gate = await getSessionGate();

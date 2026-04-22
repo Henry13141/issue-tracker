@@ -4,8 +4,6 @@ import { getNotificationDeliveries } from "@/actions/notifications";
 import { getMembers } from "@/actions/members";
 import { NotificationsClient } from "@/components/notifications-client";
 
-export const dynamic = "force-dynamic";
-
 export default async function NotificationsPage({
   searchParams,
 }: {

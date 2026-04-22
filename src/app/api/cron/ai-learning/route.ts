@@ -46,10 +46,11 @@ export async function GET(request: Request) {
       ok:      true,
       elapsed: `${elapsed}ms`,
       learned: {
-        org_insight:     result.org_insight,
-        process_pattern: result.process_pattern,
-        module_health:   result.module_health,
-        member_profiles: result.member_profiles,
+        org_insight:           result.org_insight,
+        process_pattern:       result.process_pattern,
+        module_health:         result.module_health,
+        member_profiles:       result.member_profiles,
+        conversation_insights: result.conversation_insights,
       },
       errors: result.errors.length > 0 ? result.errors : undefined,
     });

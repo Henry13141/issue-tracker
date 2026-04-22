@@ -1,4 +1,5 @@
 {
+  "regions": ["sin1"],
   "crons": [
     {
       "path": "/api/cron/morning-assignee-digest",
@@ -22,7 +23,7 @@
     },
     {
       "path": "/api/cron/ai-learning",
-      "schedule": "0 18 * * *"
+      "schedule": "30 10 * * *"
     }
   ]
 }

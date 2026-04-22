@@ -9,8 +9,6 @@ import { StatCard } from "@/components/stat-card";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/lib/button-variants";
 
-export const dynamic = "force-dynamic";
-
 export default async function WecomHealthPage() {
   const user = await getCurrentUser();
   if (!user) return null;

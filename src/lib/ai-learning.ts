@@ -13,6 +13,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { chatCompletion, isAIConfigured } from "@/lib/ai";
 import { upsertMemory } from "@/lib/ai-memory";
 import { collectLongTermData } from "@/lib/longterm-queries";
+import { loadConversationsForLearning, pruneOldMessages } from "@/lib/ai-chat-history";
 
 // ---------------------------------------------------------------------------
 // 辅助工具
@@ -385,15 +386,85 @@ async function learnProcessPattern(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// 从对话中提炼洞察
+// ---------------------------------------------------------------------------
+
+/**
+ * 分析近 7 天内每个用户与 AI 的对话，提炼出：
+ *   - 管理者反复关注的话题（说明优先级）
+ *   - 对话中主动提及的团队成员信号（补充成员画像之外的软性信息）
+ *   - 表达出的决策或行动意图
+ * 结果写入 ai_memory.conversation_insight，subject_key = user_id。
+ */
+async function learnFromConversations(
+  userMap: Map<string, string>,  // userId → userName
+): Promise<number> {
+  const conversationsByUser = await loadConversationsForLearning();
+  if (conversationsByUser.size === 0) return 0;
+
+  const today = chinaToday();
+  let count = 0;
+
+  for (const [userId, turns] of conversationsByUser) {
+    if (turns.length < 2) continue; // 太少的对话不值得分析
+
+    const userName = userMap.get(userId) ?? "（未知用户）";
+
+    const turnText = turns
+      .slice(-20) // 最多分析最近 20 轮，避免 token 超限
+      .map((t, i) => `[第${i + 1}轮]\n用户: ${t.user}\nAI: ${t.assistant}`)
+      .join("\n\n");
+
+    const systemPrompt = [
+      "你是一名组织行为分析师，正在分析一位管理者与 AI 助手的对话记录。",
+      "",
+      "任务：从对话中提炼出对团队认知有价值的洞察，包括：",
+      "1. 管理者反复关注或反复询问的话题（揭示其优先级和担忧）",
+      "2. 对话中提及的团队成员的软性信号（如情绪、状态、评价等）",
+      "3. 管理者表达的决策、方向或行动意图",
+      "4. 管理者对 AI 助理的偏好（喜欢什么样的回答风格、关注什么维度）",
+      "",
+      "要求：",
+      "- 4-6 句话，纯文本，不要 Markdown 格式",
+      "- 每句聚焦一个具体洞察，要有具体信息，不要泛泛而谈",
+      "- 如果没有有价值的洞察，输出「本周对话未发现显著规律」",
+      "- 直接输出洞察段落",
+    ].join("\n");
+
+    const content = await chatCompletion(systemPrompt, turnText, {
+      maxTokens: 600,
+      disableThinking: true,
+    });
+
+    if (!content || content.includes("未发现显著规律")) continue;
+
+    await upsertMemory({
+      category:      "conversation_insight",
+      subject_key:   userId,
+      subject_label: `${userName} 的对话洞察`,
+      content,
+      raw_metrics:   { turnCount: turns.length },
+      period_start:  daysAgo(7),
+      period_end:    today,
+    });
+
+    count++;
+  }
+
+  return count;
+}
+
+// ---------------------------------------------------------------------------
 // 主入口
 // ---------------------------------------------------------------------------
 
 export type LearningResult = {
-  org_insight:     boolean;
-  process_pattern: boolean;
-  module_health:   number;   // 更新的模块数
-  member_profiles: number;   // 更新的成员数
-  errors:          string[];
+  org_insight:          boolean;
+  process_pattern:      boolean;
+  module_health:        number;   // 更新的模块数
+  member_profiles:      number;   // 更新的成员数
+  conversation_insights: number;  // 从对话中提炼的洞察数
+  errors:               string[];
 };
 
 /**
@@ -402,11 +473,12 @@ export type LearningResult = {
  */
 export async function runOrganizationLearning(): Promise<LearningResult> {
   const result: LearningResult = {
-    org_insight:     false,
-    process_pattern: false,
-    module_health:   0,
-    member_profiles: 0,
-    errors:          [],
+    org_insight:           false,
+    process_pattern:       false,
+    module_health:         0,
+    member_profiles:       0,
+    conversation_insights: 0,
+    errors:                [],
   };
 
   if (!isAIConfigured()) {
@@ -455,13 +527,29 @@ export async function runOrganizationLearning(): Promise<LearningResult> {
     .select("id, name")
     .neq("role", "finance");  // 跳过纯财务成员
 
+  const userMap = new Map<string, string>();
   for (const user of users ?? []) {
+    userMap.set(user.id as string, user.name as string);
     try {
       await learnMemberProfile(user.id as string, user.name as string);
       result.member_profiles++;
     } catch (e) {
       result.errors.push(`member(${user.name}): ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  // ── 5. 从对话中提炼洞察 ──────────────────────────────────────────────
+  try {
+    result.conversation_insights = await learnFromConversations(userMap);
+  } catch (e) {
+    result.errors.push(`conversation_insights: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // ── 6. 清理 90 天前的旧消息 ──────────────────────────────────────────
+  try {
+    await pruneOldMessages();
+  } catch (e) {
+    result.errors.push(`pruneOldMessages: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   return result;

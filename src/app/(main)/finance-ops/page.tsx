@@ -13,8 +13,6 @@ import { getPettyCashBundle } from "@/lib/petty-cash-queries";
 import { canAccessFinanceOps } from "@/lib/permissions";
 import type { FinanceOpsView } from "@/lib/finance-ops";
 
-export const dynamic = "force-dynamic";
-
 function parseView(value: string | string[] | undefined): FinanceOpsView {
   if (typeof value !== "string") return "month";
   if (value === "quarter" || value === "year" || value === "overdue" || value === "all") return value;

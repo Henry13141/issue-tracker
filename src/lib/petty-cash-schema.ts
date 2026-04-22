@@ -1,5 +1,5 @@
 const PETTY_CASH_SCHEMA_HINT =
-  "备用金登记所需数据表尚未完成初始化，请先执行最新的 petty cash migrations（`supabase/migrations/add_petty_cash_entries.sql` 与 `supabase/migrations/add_petty_cash_replacement_invoices.sql`）后再刷新页面。";
+  "备用金登记所需数据表尚未完成初始化，请先执行最新的 petty cash migrations（`supabase/migrations/add_petty_cash_entries.sql`、`supabase/migrations/add_petty_cash_replacement_invoices.sql` 与 `supabase/migrations/add_petty_cash_custom_project.sql`）后再刷新页面。";
 
 export function isPettyCashSchemaMissingError(error: unknown) {
   const message =
@@ -16,7 +16,9 @@ export function isPettyCashSchemaMissingError(error: unknown) {
     message.includes("column petty_cash_entries.invoice_replacement_status does not exist") ||
     message.includes("column petty_cash_entries.invoice_collected_status does not exist") ||
     message.includes("column petty_cash_entries.reimbursement_status does not exist") ||
-    message.includes("new row for relation \"petty_cash_entries\" violates check constraint \"petty_cash_entries_invoice_replacement_status_check\"")
+    message.includes("column petty_cash_entries.custom_project_label does not exist") ||
+    message.includes("new row for relation \"petty_cash_entries\" violates check constraint \"petty_cash_entries_invoice_replacement_status_check\"") ||
+    message.includes("new row for relation \"petty_cash_entries\" violates check constraint \"petty_cash_entries_expense_project_check\"")
   );
 }
 
