@@ -35,7 +35,8 @@ export type PettyCashExpenseProject =
   | "logistics_invoice"
   | "travel_mixed"
   | "maintenance_mixed"
-  | "other";
+  | "other"
+  | "custom";
 
 export type PettyCashPaymentMethod = "wechat" | "alipay" | "bank_transfer" | "cash" | "other";
 
@@ -216,6 +217,7 @@ export interface PettyCashEntry {
   payer_user_id: string;
   title: string;
   expense_project: PettyCashExpenseProject;
+  custom_project_label: string | null;
   amount_minor: number;
   currency: "CNY";
   payment_method: PettyCashPaymentMethod;
@@ -235,11 +237,14 @@ export interface PettyCashEntryWithRelations extends PettyCashEntry {
   creator?: Pick<User, "id" | "name"> | null;
 }
 
+export type PettyCashReplacementInvoiceStatus = "available" | "used";
+
 export interface PettyCashReplacementInvoice {
   id: string;
   received_on: string;
   title: string;
   amount_minor: number;
+  status: PettyCashReplacementInvoiceStatus;
   notes: string | null;
   created_by: string;
   created_at: string;
