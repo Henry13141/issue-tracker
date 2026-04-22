@@ -13,7 +13,6 @@ import { PriorityBadge } from "@/components/priority-badge";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 
-export const dynamic = "force-dynamic";
 
 export default async function HomeWorkbenchPage() {
   const user = await getCurrentUser();

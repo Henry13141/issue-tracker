@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useTransition } from "react";
-import { Bot, Send, Loader2, ChevronDown, Sparkles, BrainCircuit } from "lucide-react";
+import { Bot, Send, Loader2, ChevronDown, Sparkles, BrainCircuit, History } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { chatWithAssistant } from "@/actions/ai";
+import { chatWithAssistant, getChatHistory, clearMyChatHistory } from "@/actions/ai";
 import type { AssistantMessage } from "@/actions/ai";
 
 // ---------------------------------------------------------------------------
@@ -74,12 +74,28 @@ const SUGGESTED_QUESTIONS = [
 // ---------------------------------------------------------------------------
 
 export function AIAssistant() {
-  const [open, setOpen]           = useState(false);
-  const [messages, setMessages]   = useState<Message[]>([]);
-  const [input, setInput]         = useState("");
-  const [isPending, startTransition] = useTransition();
+  const [open, setOpen]                     = useState(false);
+  const [messages, setMessages]             = useState<Message[]>([]);
+  const [input, setInput]                   = useState("");
+  const [isPending, startTransition]        = useTransition();
+  const [historyLoaded, setHistoryLoaded]   = useState(false);
+  const [restoredCount, setRestoredCount]   = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLTextAreaElement>(null);
+
+  // 首次打开时，从服务器加载历史对话
+  useEffect(() => {
+    if (!open || historyLoaded) return;
+    setHistoryLoaded(true);
+
+    getChatHistory().then((rows) => {
+      if (rows.length > 0 && messages.length === 0) {
+        setMessages(rows.map((r) => ({ id: r.id, role: r.role, content: r.content })));
+        setRestoredCount(rows.length);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // 滚动到底部
   useEffect(() => {
@@ -161,7 +177,11 @@ export function AIAssistant() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-white leading-none">AI 管理助理</p>
             <p className="mt-0.5 text-[11px] text-white/70 truncate">
-              {messages.length === 0 ? "了解你的团队，随时为你解答" : `${messages.length} 条对话`}
+              {messages.length === 0
+                ? "了解你的团队，随时为你解答"
+                : restoredCount > 0
+                  ? `已恢复历史 · ${messages.length} 条对话`
+                  : `${messages.length} 条对话`}
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -231,11 +251,21 @@ export function AIAssistant() {
 
         {/* 清空按钮（有对话时显示） */}
         {messages.length > 0 && (
-          <div className="flex justify-end px-4 pt-1 pb-0">
+          <div className="flex items-center justify-between px-4 pt-1 pb-0">
+            {restoredCount > 0 && (
+              <span className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
+                <History className="h-3 w-3" />
+                已恢复 {restoredCount} 条历史
+              </span>
+            )}
             <button
               type="button"
-              onClick={() => setMessages([])}
-              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => {
+                setMessages([]);
+                setRestoredCount(0);
+                clearMyChatHistory().catch(console.error);
+              }}
+              className="ml-auto text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             >
               清空对话
             </button>

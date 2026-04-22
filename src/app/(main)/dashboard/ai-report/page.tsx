@@ -4,8 +4,6 @@ import { getCurrentUser } from "@/lib/auth";
 import { AILongTermReport } from "@/components/ai-longterm-report";
 import { ChevronLeft } from "lucide-react";
 
-export const dynamic = "force-dynamic";
-
 export default async function AIReportPage() {
   const user = await getCurrentUser();
   if (!user) return null;
