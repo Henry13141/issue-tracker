@@ -234,6 +234,66 @@ export async function updatePettyCashReplacementInvoice(id: string, input: Petty
   revalidatePath("/finance-ops");
 }
 
+export async function quickUpdateEntryReimbursementStatus(
+  id: string,
+  status: PettyCashReimbursementStatus
+) {
+  await requireFinanceOpsUser();
+  const supabase = await createClient();
+
+  const reimbursedOn =
+    status === "reimbursed" ? new Date().toISOString().slice(0, 10) : null;
+
+  const { error } = await supabase
+    .from("petty_cash_entries")
+    .update({ reimbursement_status: status, reimbursed_on: reimbursedOn })
+    .eq("id", id);
+
+  if (error) {
+    rethrowPettyCashError(error);
+  }
+
+  revalidatePath("/finance-ops");
+}
+
+export async function quickUpdateEntryInvoiceCollectedStatus(
+  id: string,
+  status: PettyCashInvoiceCollectedStatus
+) {
+  await requireFinanceOpsUser();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("petty_cash_entries")
+    .update({ invoice_collected_status: status })
+    .eq("id", id);
+
+  if (error) {
+    rethrowPettyCashError(error);
+  }
+
+  revalidatePath("/finance-ops");
+}
+
+export async function quickUpdateReplacementInvoiceStatus(
+  id: string,
+  status: PettyCashReplacementInvoiceStatus
+) {
+  await requireFinanceOpsUser();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("petty_cash_replacement_invoices")
+    .update({ status })
+    .eq("id", id);
+
+  if (error) {
+    rethrowPettyCashError(error);
+  }
+
+  revalidatePath("/finance-ops");
+}
+
 export async function deletePettyCashEntry(id: string) {
   await requireFinanceOpsUser();
   const supabase = await createClient();

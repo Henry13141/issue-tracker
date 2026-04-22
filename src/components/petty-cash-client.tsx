@@ -7,6 +7,9 @@ import {
   createPettyCashReplacementInvoice,
   deletePettyCashEntry,
   deletePettyCashReplacementInvoice,
+  quickUpdateEntryInvoiceCollectedStatus,
+  quickUpdateEntryReimbursementStatus,
+  quickUpdateReplacementInvoiceStatus,
   updatePettyCashEntry,
   updatePettyCashReplacementInvoice,
 } from "@/actions/petty-cash";
@@ -66,9 +69,9 @@ import type {
   PettyCashInvoiceAvailability,
   PettyCashInvoiceCollectedStatus,
   PettyCashPaymentMethod,
+  PettyCashReimbursementStatus,
   PettyCashReplacementInvoiceStatus,
   PettyCashReplacementInvoiceWithRelations,
-  PettyCashReimbursementStatus,
   User,
 } from "@/types";
 import { Plus, Pencil, Trash2 } from "lucide-react";
@@ -80,11 +83,126 @@ function memberNameById(members: User[], userId: string) {
   return members.find((m) => m.id === userId)?.name ?? "未知成员";
 }
 
-function statusBadgeClass(status: PettyCashReimbursementStatus) {
-  if (status === "reimbursed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "in_progress") return "border-blue-200 bg-blue-50 text-blue-700";
-  if (status === "voided") return "border-slate-200 bg-slate-50 text-slate-600";
-  return "border-amber-200 bg-amber-50 text-amber-700";
+function reimbursementStatusClass(status: PettyCashReimbursementStatus) {
+  if (status === "reimbursed") return "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100";
+  if (status === "in_progress") return "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100";
+  if (status === "voided") return "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100";
+  return "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100";
+}
+
+function InlineReimbursementSelect({ entry }: { entry: PettyCashEntryWithRelations }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  return (
+    <Select
+      value={entry.reimbursement_status}
+      onValueChange={(value) => {
+        if (!value) return;
+        startTransition(async () => {
+          try {
+            await quickUpdateEntryReimbursementStatus(entry.id, value as PettyCashReimbursementStatus);
+            router.refresh();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "更新失败");
+          }
+        });
+      }}
+      disabled={pending}
+    >
+      <SelectTrigger
+        className={`h-auto w-auto gap-1 border px-2 py-0.5 text-xs font-medium ${reimbursementStatusClass(entry.reimbursement_status)}`}
+      >
+        <SelectValue>{PETTY_CASH_REIMBURSEMENT_STATUS_LABELS[entry.reimbursement_status]}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {PETTY_CASH_REIMBURSEMENT_STATUS_OPTIONS.map((opt) => (
+          <SelectItem key={opt} value={opt} className="text-xs">
+            {PETTY_CASH_REIMBURSEMENT_STATUS_LABELS[opt]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function InlineInvoiceCollectedSelect({ entry }: { entry: PettyCashEntryWithRelations }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const isReceived = entry.invoice_collected_status === "received";
+  return (
+    <Select
+      value={entry.invoice_collected_status}
+      onValueChange={(value) => {
+        if (!value) return;
+        startTransition(async () => {
+          try {
+            await quickUpdateEntryInvoiceCollectedStatus(entry.id, value as PettyCashInvoiceCollectedStatus);
+            router.refresh();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "更新失败");
+          }
+        });
+      }}
+      disabled={pending}
+    >
+      <SelectTrigger
+        className={`h-auto w-auto gap-1 border px-2 py-0.5 text-xs font-medium ${
+          isReceived
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+            : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+        }`}
+      >
+        <SelectValue>{PETTY_CASH_INVOICE_COLLECTED_LABELS[entry.invoice_collected_status]}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {PETTY_CASH_INVOICE_COLLECTED_OPTIONS.map((opt) => (
+          <SelectItem key={opt} value={opt} className="text-xs">
+            {PETTY_CASH_INVOICE_COLLECTED_LABELS[opt]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function InlineReplacementInvoiceStatusSelect({ invoice }: { invoice: PettyCashReplacementInvoiceWithRelations }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const isUsed = invoice.status === "used";
+  return (
+    <Select
+      value={invoice.status}
+      onValueChange={(value) => {
+        if (!value) return;
+        startTransition(async () => {
+          try {
+            await quickUpdateReplacementInvoiceStatus(invoice.id, value as PettyCashReplacementInvoiceStatus);
+            router.refresh();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "更新失败");
+          }
+        });
+      }}
+      disabled={pending}
+    >
+      <SelectTrigger
+        className={`h-auto w-auto gap-1 border px-2 py-0.5 text-xs font-medium ${
+          isUsed
+            ? "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
+            : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+        }`}
+      >
+        <SelectValue>{PETTY_CASH_REPLACEMENT_INVOICE_STATUS_LABELS[invoice.status]}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {PETTY_CASH_REPLACEMENT_INVOICE_STATUS_OPTIONS.map((opt) => (
+          <SelectItem key={opt} value={opt} className="text-xs">
+            {PETTY_CASH_REPLACEMENT_INVOICE_STATUS_LABELS[opt]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 function PettyCashEntryDialog({
@@ -780,16 +898,7 @@ export function PettyCashClient({
                       <TableCell className="max-w-64 whitespace-normal">{invoice.title}</TableCell>
                       <TableCell>{formatPettyCashAmount(invoice.amount_minor)}</TableCell>
                       <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={
-                            invoice.status === "used"
-                              ? "border-slate-200 bg-slate-50 text-slate-500"
-                              : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          }
-                        >
-                          {PETTY_CASH_REPLACEMENT_INVOICE_STATUS_LABELS[invoice.status]}
-                        </Badge>
+                        <InlineReplacementInvoiceStatusSelect invoice={invoice} />
                       </TableCell>
                       <TableCell className="max-w-80 whitespace-normal text-sm text-muted-foreground">
                         {invoice.notes || "—"}
@@ -1005,17 +1114,13 @@ export function PettyCashClient({
                       </TableCell>
                       <TableCell>
                         {entry.invoice_availability === "with_invoice" ? (
-                          <Badge variant="outline">
-                            {PETTY_CASH_INVOICE_COLLECTED_LABELS[entry.invoice_collected_status]}
-                          </Badge>
+                          <InlineInvoiceCollectedSelect entry={entry} />
                         ) : (
                           <span className="text-sm text-muted-foreground">—</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge className={statusBadgeClass(entry.reimbursement_status)}>
-                          {PETTY_CASH_REIMBURSEMENT_STATUS_LABELS[entry.reimbursement_status]}
-                        </Badge>
+                        <InlineReimbursementSelect entry={entry} />
                       </TableCell>
                       <TableCell>{entry.reimbursed_on ? formatDateOnly(entry.reimbursed_on) : "—"}</TableCell>
                       <TableCell className="max-w-80 whitespace-normal text-sm text-muted-foreground">
