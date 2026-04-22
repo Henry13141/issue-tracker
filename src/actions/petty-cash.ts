@@ -86,12 +86,14 @@ function normalizeEntryInput(input: PettyCashEntryInput) {
     throw new Error("请填写事项名称");
   }
 
-  const allProjectOptions = [...PETTY_CASH_PROJECT_OPTIONS, "custom" as PettyCashExpenseProject];
-  const expenseProject = requireOneOf(input.expense_project, allProjectOptions, "支出项目");
+  const isCustomProject = input.expense_project === "custom";
+  if (!isCustomProject) {
+    requireOneOf(input.expense_project, PETTY_CASH_PROJECT_OPTIONS, "支出项目");
+  }
+  const expenseProject = input.expense_project;
 
-  const customProjectLabel =
-    expenseProject === "custom" ? (input.custom_project_label?.trim() || null) : null;
-  if (expenseProject === "custom" && !customProjectLabel) {
+  const customProjectLabel = isCustomProject ? (input.custom_project_label?.trim() || null) : null;
+  if (isCustomProject && !customProjectLabel) {
     throw new Error("请填写自定义项目名称");
   }
 
