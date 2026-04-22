@@ -65,7 +65,6 @@ export type IssuesResult = {
 
 export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResult> {
   const supabase = await createClient();
-  await normalizeTopLevelInProgressIssues(supabase);
   const sortBy = filters.sortBy ?? "last_activity_at";
   const sortDir = filters.sortDir ?? "desc";
   const page = Math.max(1, Math.floor(filters.page ?? 1));
@@ -1234,6 +1233,91 @@ export async function getMyOpenIssues(): Promise<IssueWithRelations[]> {
     return [];
   }
   return (data ?? []) as IssueWithRelations[];
+}
+
+/**
+ * 我的任务页面数据聚合：一次性并行获取所有数据，消除串行瀑布。
+ *
+ * 原模式（串行）：open issues → updates today（+100-200ms 延迟）
+ * 优化后（两轮并行）：
+ *   第1轮：open issues + following issues（并行）
+ *   第2轮：今日 updates + 跟进 issues 详情（并行，与第1轮部分重叠）
+ */
+export async function getMyTasksBundle(): Promise<{
+  needUpdate: IssueWithRelations[];
+  updatedToday: IssueWithRelations[];
+  following: IssueWithRelations[];
+}> {
+  const user = await getCurrentUser();
+  if (!user) return { needUpdate: [], updatedToday: [], following: [] };
+
+  const supabase = await createClient();
+  const { startIso, endIso } = getChinaDayBounds();
+
+  // ── 第1轮：open issues + following participants 并行 ─────────────────────
+  const [openRes, participantRes] = await Promise.all([
+    supabase
+      .from("issues")
+      .select(issueSelect)
+      .eq("assignee_id", user.id)
+      .neq("status", "resolved")
+      .neq("status", "closed")
+      .order("due_date", { ascending: true, nullsFirst: false }),
+    supabase
+      .from("issue_participants")
+      .select("issue_id")
+      .eq("user_id", user.id)
+      .eq("active", true)
+      .in("role", ["handover_from"]),
+  ]);
+
+  const openIssues = (openRes.data ?? []) as IssueWithRelations[];
+  const participantIssueIds = [
+    ...new Set((participantRes.data ?? []).map((r) => r.issue_id as string)),
+  ];
+
+  const activeIds = openIssues
+    .filter((i) => ACTIVE_STATUSES.includes(i.status))
+    .map((i) => i.id);
+
+  // ── 第2轮：today's updates + following issues 详情 并行 ──────────────────
+  const [updatesRes, followingRes] = await Promise.all([
+    activeIds.length > 0
+      ? supabase
+          .from("issue_updates")
+          .select("issue_id")
+          .in("issue_id", activeIds)
+          .gte("created_at", startIso)
+          .lte("created_at", endIso)
+      : Promise.resolve({ data: [] as { issue_id: string }[] }),
+    participantIssueIds.length > 0
+      ? supabase
+          .from("issues")
+          .select(issueSelect)
+          .in("id", participantIssueIds)
+          .neq("assignee_id", user.id)
+          .neq("status", "resolved")
+          .neq("status", "closed")
+          .order("last_activity_at", { ascending: false })
+      : Promise.resolve({ data: [] as IssueWithRelations[] }),
+  ]);
+
+  const updatedSet = new Set((updatesRes.data ?? []).map((u) => (u as { issue_id: string }).issue_id));
+  const following = (followingRes.data ?? []) as IssueWithRelations[];
+
+  const needUpdate: IssueWithRelations[] = [];
+  const updatedToday: IssueWithRelations[] = [];
+
+  for (const issue of openIssues) {
+    if (ACTIVE_STATUSES.includes(issue.status)) {
+      if (updatedSet.has(issue.id)) updatedToday.push(issue);
+      else needUpdate.push(issue);
+    } else {
+      updatedToday.push(issue);
+    }
+  }
+
+  return { needUpdate, updatedToday, following };
 }
 
 /** 我跟进的：我曾经参与交接但不再是当前负责人的未关闭问题 */

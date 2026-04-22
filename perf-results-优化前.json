@@ -1,0 +1,94 @@
+{
+  "label": "优化前",
+  "timestamp": "2026-04-22T15:25:31.043Z",
+  "results": [
+    {
+      "name": "工作台首页 [当前] — issues 查询",
+      "avg": 368,
+      "min": 161,
+      "times": [
+        490,
+        454,
+        161
+      ],
+      "error": null
+    },
+    {
+      "name": "工作台首页 [当前] — updates今日 (瀑布第2步)",
+      "avg": 0,
+      "min": 0,
+      "times": [
+        0,
+        0,
+        0
+      ],
+      "error": null
+    },
+    {
+      "name": "工作台首页 [当前] — reminders 统计",
+      "avg": 209,
+      "min": 149,
+      "times": [
+        153,
+        149,
+        325
+      ],
+      "error": null
+    },
+    {
+      "name": "工作台首页 [当前] — 重复 issues 完整查询（stats+tasks共2次）",
+      "avg": 336,
+      "min": 209,
+      "times": [
+        424,
+        375,
+        209
+      ],
+      "error": null
+    },
+    {
+      "name": "我的任务 [当前] — 串行总耗时（issues→updates）",
+      "avg": 175,
+      "min": 118,
+      "times": [
+        283,
+        125,
+        118
+      ],
+      "error": null
+    },
+    {
+      "name": "问题列表 [当前] — normalizeInProgress（读路径写操作）",
+      "avg": 112,
+      "min": 108,
+      "times": [
+        114,
+        108,
+        115
+      ],
+      "error": null
+    },
+    {
+      "name": "问题列表 [当前] — 主查询 + 附件数量查询",
+      "avg": 339,
+      "min": 243,
+      "times": [
+        243,
+        436,
+        338
+      ],
+      "error": null
+    },
+    {
+      "name": "成员列表 [当前] — getMembers（每次导航重新查询）",
+      "avg": 110,
+      "min": 104,
+      "times": [
+        112,
+        114,
+        104
+      ],
+      "error": null
+    }
+  ]
+}
