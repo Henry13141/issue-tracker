@@ -757,6 +757,7 @@ export function FinanceOpsClient({
   const { templates, openInstances, completedInstances, summary } = bundle;
   const unreadyTemplates = useMemo(() => templates.filter((template) => !template.is_active), [templates]);
   const [templateSectionOpen, setTemplateSectionOpen] = useState(false);
+  const [completedSectionOpen, setCompletedSectionOpen] = useState(false);
 
   function switchView(nextView: FinanceOpsView) {
     const params = new URLSearchParams(searchParams.toString());
@@ -825,20 +826,43 @@ export function FinanceOpsClient({
       </section>
 
       <section>
-        <div className="mb-4">
-          <h2 className="text-base font-semibold tracking-wide text-muted-foreground">已完成 / 已跳过</h2>
-          <p className="text-sm text-muted-foreground">保留本期执行记录，便于回看某个节点是否已经处理过。</p>
-        </div>
-        {completedInstances.length === 0 ? (
-          <Card>
-            <CardContent className="py-6 text-sm text-muted-foreground">当前视图下还没有已完成或已跳过的事项。</CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {completedInstances.map((instance) => (
-              <FinanceTaskRow key={instance.id} instance={instance} />
-            ))}
+        <button
+          type="button"
+          className="mb-4 flex w-full items-center gap-2 text-left"
+          onClick={() => setCompletedSectionOpen((v) => !v)}
+        >
+          {completedSectionOpen ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+          <div>
+            <h2 className="text-base font-semibold tracking-wide text-muted-foreground">
+              已完成 / 已跳过
+              {completedInstances.length > 0 && (
+                <span className="ml-2 text-sm font-normal">（{completedInstances.length} 条）</span>
+              )}
+            </h2>
+            {!completedSectionOpen && (
+              <p className="text-sm text-muted-foreground">点击展开查看本期已处理记录</p>
+            )}
           </div>
+        </button>
+        {completedSectionOpen && (
+          <>
+            <p className="mb-4 text-sm text-muted-foreground">保留本期执行记录，便于回看某个节点是否已经处理过。</p>
+            {completedInstances.length === 0 ? (
+              <Card>
+                <CardContent className="py-6 text-sm text-muted-foreground">当前视图下还没有已完成或已跳过的事项。</CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {completedInstances.map((instance) => (
+                  <FinanceTaskRow key={instance.id} instance={instance} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </section>
 
