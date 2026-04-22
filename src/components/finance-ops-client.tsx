@@ -53,7 +53,7 @@ import type {
   FinanceTaskTemplateWithOwner,
   User,
 } from "@/types";
-import { Plus, Pencil, PlayCircle, CheckCircle2, Ban, RotateCcw, CalendarRange } from "lucide-react";
+import { Plus, Pencil, PlayCircle, CheckCircle2, Ban, RotateCcw, CalendarRange, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 const NO_OWNER = "__none__";
@@ -756,6 +756,7 @@ export function FinanceOpsClient({
 
   const { templates, openInstances, completedInstances, summary } = bundle;
   const unreadyTemplates = useMemo(() => templates.filter((template) => !template.is_active), [templates]);
+  const [templateSectionOpen, setTemplateSectionOpen] = useState(false);
 
   function switchView(nextView: FinanceOpsView) {
     const params = new URLSearchParams(searchParams.toString());
@@ -842,30 +843,53 @@ export function FinanceOpsClient({
       </section>
 
       <section>
-        <div className="mb-4">
-          <h2 className="text-base font-semibold tracking-wide text-muted-foreground">模板管理</h2>
-          <p className="text-sm text-muted-foreground">
-            每条模板代表一类固定节奏事项，系统会按周期自动生成当前实例。
-          </p>
-        </div>
-        {templates.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-sm text-muted-foreground">
-              还没有任何周期模板。先新增一条每月、每季度或每年的固定事项，系统就会开始生成当前周期任务。
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {templates.map((template) => (
-              <FinanceTemplateRow key={template.id} template={template} members={members} />
-            ))}
+        <button
+          type="button"
+          className="mb-4 flex w-full items-center gap-2 text-left"
+          onClick={() => setTemplateSectionOpen((v) => !v)}
+        >
+          {templateSectionOpen ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+          <div>
+            <h2 className="text-base font-semibold tracking-wide text-muted-foreground">
+              模板管理
+              {templates.length > 0 && (
+                <span className="ml-2 text-sm font-normal">（{templates.length} 条）</span>
+              )}
+            </h2>
+            {!templateSectionOpen && (
+              <p className="text-sm text-muted-foreground">点击展开查看周期模板配置</p>
+            )}
           </div>
+        </button>
+        {templateSectionOpen && (
+          <>
+            <p className="mb-4 text-sm text-muted-foreground">
+              每条模板代表一类固定节奏事项，系统会按周期自动生成当前实例。
+            </p>
+            {templates.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-sm text-muted-foreground">
+                  还没有任何周期模板。先新增一条每月、每季度或每年的固定事项，系统就会开始生成当前周期任务。
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {templates.map((template) => (
+                  <FinanceTemplateRow key={template.id} template={template} members={members} />
+                ))}
+              </div>
+            )}
+            {unreadyTemplates.length > 0 ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                当前有 {unreadyTemplates.length} 条模板处于停用状态，停用后不会生成新的周期实例，但历史记录仍会保留。
+              </p>
+            ) : null}
+          </>
         )}
-        {unreadyTemplates.length > 0 ? (
-          <p className="mt-3 text-xs text-muted-foreground">
-            当前有 {unreadyTemplates.length} 条模板处于停用状态，停用后不会生成新的周期实例，但历史记录仍会保留。
-          </p>
-        ) : null}
       </section>
     </div>
   );
