@@ -369,7 +369,16 @@ export async function getWorkbenchRecentEvents(limit = 18): Promise<WorkbenchEve
 }
 
 /**
- * 首页工作台：复用同一 Supabase 客户端，避免 Promise.all 多路并行各建一套连接导致 fetch failed。
+ * 首页工作台：单客户端、两轮并行，消除重复 issues 查询和内部瀑布。
+ *
+ * 原模式（~7-8 次 DB 调用，有串行瀑布）：
+ *   workbenchStatsForUser:    issues → updates（瀑布）
+ *   workbenchTaskGroupsForUser: issues（重复）→ updates（瀑布）
+ *   workbenchRecentEventsForUser: issues + participants → events（瀑布）
+ *
+ * 优化后（5 次 DB 调用，两轮并行）：
+ *   第1轮（并行）：issues、reminders、participants
+ *   第2轮（并行）：updates（今日）、events
  */
 export async function getWorkbenchHomeBundle(limit = 16): Promise<{
   stats: WorkbenchStats;
@@ -386,11 +395,143 @@ export async function getWorkbenchHomeBundle(limit = 16): Promise<{
     return { stats: emptyStats, tasks: emptyTaskGroups, events: [] };
   }
 
-  const [stats, tasks, events] = await Promise.all([
-    workbenchStatsForUser(supabase, user),
-    workbenchTaskGroupsForUser(supabase, user),
-    workbenchRecentEventsForUser(supabase, user, limit),
+  const { startIso, endIso } = getChinaDayBounds();
+  const today = new Date().toISOString().slice(0, 10);
+
+  // ── 第1轮：全部独立查询并行发出 ──────────────────────────────────────────
+  const [issuesRes, remindersRes, participantRes] = await Promise.all([
+    supabase
+      .from("issues")
+      .select(issueSelect)
+      .eq("assignee_id", user.id)
+      .neq("status", "resolved")
+      .neq("status", "closed")
+      .order("due_date", { ascending: true, nullsFirst: false }),
+    supabase
+      .from("reminders")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("is_read", false),
+    supabase
+      .from("issue_participants")
+      .select("issue_id")
+      .eq("user_id", user.id)
+      .eq("active", true)
+      .eq("role", "handover_from"),
   ]);
 
-  return { stats, tasks, events };
+  if (issuesRes.error) logSupabaseQueryError("getWorkbenchHomeBundle issues", issuesRes.error);
+
+  const issues = (issuesRes.data ?? []) as IssueWithRelations[];
+  const activeIds = issues
+    .filter((r) => ACTIVE_STATUSES.includes(r.status))
+    .map((r) => r.id);
+
+  // 收集事件所需 issue ID 集合（自己负责的 + 跟进的）
+  const idSet = new Set<string>(issues.map((r) => r.id));
+  for (const r of participantRes.data ?? []) idSet.add(r.issue_id as string);
+  const eventIssueIds = [...idSet];
+
+  // ── 第2轮：依赖第1轮结果的查询并行发出 ──────────────────────────────────
+  const fetchLimit = Math.min(80, limit * 4);
+  const [updatesRes, eventsRes] = await Promise.all([
+    activeIds.length > 0
+      ? supabase
+          .from("issue_updates")
+          .select("issue_id")
+          .in("issue_id", activeIds)
+          .gte("created_at", startIso)
+          .lte("created_at", endIso)
+      : Promise.resolve({ data: [] as { issue_id: string }[], error: null }),
+    eventIssueIds.length > 0
+      ? supabase
+          .from("issue_events")
+          .select(
+            `id, issue_id, event_type, created_at, event_payload,
+             actor:users!issue_events_actor_id_fkey(id, name, avatar_url),
+             issue:issues!issue_events_issue_id_fkey(id, title)`
+          )
+          .in("issue_id", eventIssueIds)
+          .order("created_at", { ascending: false })
+          .limit(fetchLimit)
+      : Promise.resolve({ data: [] as unknown[], error: null }),
+  ]);
+
+  if (updatesRes.error) logSupabaseQueryError("getWorkbenchHomeBundle updates", updatesRes.error);
+  if (eventsRes.error) logSupabaseQueryError("getWorkbenchHomeBundle events", eventsRes.error as { message: string });
+
+  // ── 计算统计数字 ──────────────────────────────────────────────────────────
+  const updatedSet = new Set((updatesRes.data ?? []).map((u) => (u as { issue_id: string }).issue_id));
+  const overdue = issues.filter((r) => r.due_date && String(r.due_date).slice(0, 10) < today).length;
+  const needUpdateToday = activeIds.filter((id) => !updatedSet.has(id)).length;
+
+  const stats: WorkbenchStats = {
+    assignedOpen:    issues.length,
+    needUpdateToday,
+    overdue,
+    unreadReminders: remindersRes.count ?? 0,
+  };
+
+  // ── 计算任务分组 ──────────────────────────────────────────────────────────
+  const needUpdate: IssueWithRelations[] = [];
+  const updatedToday: IssueWithRelations[] = [];
+
+  for (const issue of issues) {
+    const active = ACTIVE_STATUSES.includes(issue.status);
+    if (active) {
+      if (updatedSet.has(issue.id)) updatedToday.push(issue);
+      else needUpdate.push(issue);
+    } else {
+      updatedToday.push(issue);
+    }
+  }
+
+  const sortByPriorityThenDue = (a: IssueWithRelations, b: IssueWithRelations) => {
+    const pa = PRI_ORDER[a.priority] ?? 99;
+    const pb = PRI_ORDER[b.priority] ?? 99;
+    const pd = pa - pb;
+    if (pd !== 0) return pd;
+    if (!a.due_date && !b.due_date) return 0;
+    if (!a.due_date) return 1;
+    if (!b.due_date) return -1;
+    return a.due_date.localeCompare(b.due_date);
+  };
+
+  needUpdate.sort(sortByPriorityThenDue);
+  updatedToday.sort(sortByPriorityThenDue);
+
+  // ── 整理事件流 ────────────────────────────────────────────────────────────
+  type RawRow = {
+    id: string;
+    issue_id: string;
+    event_type: IssueEventType;
+    created_at: string;
+    event_payload: Record<string, unknown> | null;
+    actor: { id: string; name: string; avatar_url: string | null } | { id: string; name: string; avatar_url: string | null }[] | null;
+    issue: { id: string; title: string } | { id: string; title: string }[] | null;
+  };
+
+  const raw = (eventsRes.data ?? []) as RawRow[];
+  const normalized: WorkbenchEventRow[] = raw.map((r) => ({
+    id:            r.id,
+    issue_id:      r.issue_id,
+    event_type:    r.event_type,
+    created_at:    r.created_at,
+    event_payload: r.event_payload && typeof r.event_payload === "object" ? r.event_payload : {},
+    actor:         Array.isArray(r.actor) ? r.actor[0] ?? null : r.actor,
+    issue:         Array.isArray(r.issue) ? r.issue[0] ?? null : r.issue,
+  }));
+
+  const events = dedupeWorkbenchEvents(
+    normalized.filter((e) => !NOISE_EVENT_TYPES.includes(e.event_type))
+  ).slice(0, limit);
+
+  return {
+    stats,
+    tasks: {
+      needUpdate:   needUpdate.slice(0, 12),
+      updatedToday: updatedToday.slice(0, 8),
+    },
+    events,
+  };
 }

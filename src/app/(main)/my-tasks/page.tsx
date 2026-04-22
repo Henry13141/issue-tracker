@@ -1,34 +1,13 @@
 import Link from "next/link";
-import { getIssueIdsWithUpdateTodayAmong, getMyOpenIssues, getMyFollowingIssues } from "@/actions/issues";
+import { getMyTasksBundle } from "@/actions/issues";
 import { getCurrentUser } from "@/lib/auth";
-import { ACTIVE_STATUSES } from "@/lib/constants";
 import { MyTasksClient } from "@/components/my-tasks-client";
-import type { IssueWithRelations } from "@/types";
-
-const ACTIVE_SET = new Set<string>(ACTIVE_STATUSES);
 
 export default async function MyTasksPage() {
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const [issues, following] = await Promise.all([
-    getMyOpenIssues(),
-    getMyFollowingIssues(),
-  ]);
-  const needUpdate: IssueWithRelations[] = [];
-  const updatedToday: IssueWithRelations[] = [];
-
-  const activeIds = issues.filter((i) => ACTIVE_SET.has(i.status)).map((i) => i.id);
-  const updatedIds = await getIssueIdsWithUpdateTodayAmong(activeIds);
-
-  for (const issue of issues) {
-    if (ACTIVE_SET.has(issue.status)) {
-      if (updatedIds.has(issue.id)) updatedToday.push(issue);
-      else needUpdate.push(issue);
-    } else {
-      updatedToday.push(issue);
-    }
-  }
+  const { needUpdate, updatedToday, following } = await getMyTasksBundle();
 
   return (
     <div>

@@ -45,6 +45,13 @@ const CATEGORY_META: Record<MemoryCategory, {
     bgColor: "bg-amber-50 dark:bg-amber-950/30",
     description: "每位成员的工作特点和当前状态",
   },
+  conversation_insight: {
+    label: "对话洞察",
+    icon: <BrainCircuit className="h-4 w-4" />,
+    color: "text-rose-600",
+    bgColor: "bg-rose-50 dark:bg-rose-950/30",
+    description: "从管理者与 AI 的对话中提炼的决策与关注重点",
+  },
 };
 
 const CATEGORY_ORDER: MemoryCategory[] = [
