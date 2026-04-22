@@ -16,7 +16,8 @@ export type MemoryCategory =
   | "member_profile"
   | "module_health"
   | "org_insight"
-  | "process_pattern";
+  | "process_pattern"
+  | "conversation_insight";
 
 export type AIMemoryEntry = {
   id: string;
@@ -99,15 +100,16 @@ export async function buildMemoryContext(): Promise<string> {
   }
 
   const CATEGORY_LABELS: Record<MemoryCategory, string> = {
-    member_profile:  "【成员画像】",
-    module_health:   "【模块健康度】",
-    org_insight:     "【组织洞察】",
-    process_pattern: "【协作流程规律】",
+    member_profile:       "【成员画像】",
+    module_health:        "【模块健康度】",
+    org_insight:          "【组织洞察】",
+    process_pattern:      "【协作流程规律】",
+    conversation_insight: "【对话中发现的洞察】",
   };
 
   const lines: string[] = ["=== AI 积累的组织记忆 ===", ""];
 
-  for (const cat of ["org_insight", "process_pattern", "module_health", "member_profile"] as MemoryCategory[]) {
+  for (const cat of ["org_insight", "process_pattern", "conversation_insight", "module_health", "member_profile"] as MemoryCategory[]) {
     const entries = byCategory[cat];
     if (!entries || entries.length === 0) continue;
     lines.push(CATEGORY_LABELS[cat]);
