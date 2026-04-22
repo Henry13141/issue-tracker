@@ -18,6 +18,7 @@ import type {
   PettyCashInvoiceCollectedStatus,
   PettyCashPaymentMethod,
   PettyCashReimbursementStatus,
+  PettyCashReplacementInvoiceStatus,
 } from "@/types";
 
 type PettyCashEntryInput = {
@@ -39,6 +40,7 @@ type PettyCashReplacementInvoiceInput = {
   received_on: string;
   title: string;
   amount: string;
+  status: PettyCashReplacementInvoiceStatus;
   notes?: string | null;
 };
 
@@ -144,6 +146,8 @@ const PETTY_CASH_REIMBURSEMENT_STATUS_OPTIONS_ALL: PettyCashReimbursementStatus[
   "voided",
 ];
 
+const REPLACEMENT_INVOICE_STATUS_OPTIONS: PettyCashReplacementInvoiceStatus[] = ["available", "used"];
+
 function normalizeReplacementInvoiceInput(input: PettyCashReplacementInvoiceInput) {
   const receivedOn = input.received_on?.trim();
   if (!isDateOnly(receivedOn)) {
@@ -155,10 +159,13 @@ function normalizeReplacementInvoiceInput(input: PettyCashReplacementInvoiceInpu
     throw new Error("请填写替票来源");
   }
 
+  const status = requireOneOf(input.status, REPLACEMENT_INVOICE_STATUS_OPTIONS, "替票状态");
+
   return {
     received_on: receivedOn,
     title,
     amount_minor: toMinorAmount(input.amount),
+    status,
     notes: input.notes?.trim() || null,
   };
 }

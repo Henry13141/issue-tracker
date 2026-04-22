@@ -31,7 +31,7 @@ function createEmptyPettyCashBundle(setupMessage?: string): PettyCashBundle {
       addedThisMonthAmountMinor: 0,
       invoiceNotReceivedCount: 0,
       replacementInvoiceCount: 0,
-      replacementTotalAmountMinor: 0,
+      replacementAvailableAmountMinor: 0,
     },
     replacementInvoices: [],
     schemaReady: !setupMessage,
@@ -53,7 +53,7 @@ export type PettyCashBundle = {
     addedThisMonthAmountMinor: number;
     invoiceNotReceivedCount: number;
     replacementInvoiceCount: number;
-    replacementTotalAmountMinor: number;
+    replacementAvailableAmountMinor: number;
   };
   replacementInvoices: PettyCashReplacementInvoiceWithRelations[];
   schemaReady: boolean;
@@ -130,7 +130,9 @@ export async function getPettyCashBundle(): Promise<PettyCashBundle | null> {
       addedThisMonthAmountMinor: 0,
       invoiceNotReceivedCount: 0,
       replacementInvoiceCount: replacementInvoices.length,
-      replacementTotalAmountMinor: replacementInvoices.reduce((sum, item) => sum + item.amount_minor, 0),
+      replacementAvailableAmountMinor: replacementInvoices
+        .filter((item) => item.status === "available")
+        .reduce((sum, item) => sum + item.amount_minor, 0),
     }
   );
 

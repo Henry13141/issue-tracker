@@ -7,6 +7,7 @@ import type {
   PettyCashInvoiceReplacementStatus,
   PettyCashPaymentMethod,
   PettyCashReimbursementStatus,
+  PettyCashReplacementInvoiceStatus,
 } from "@/types";
 
 export const PETTY_CASH_EXPENSE_PROJECT_LABELS: Record<PettyCashExpenseProject, string> = {
@@ -39,6 +40,16 @@ export const PETTY_CASH_INVOICE_REPLACEMENT_LABELS: Record<PettyCashInvoiceRepla
   pending: "待替票",
   matched: "已占用替票",
 };
+
+export const PETTY_CASH_REPLACEMENT_INVOICE_STATUS_LABELS: Record<PettyCashReplacementInvoiceStatus, string> = {
+  available: "可用",
+  used: "已使用",
+};
+
+export const PETTY_CASH_REPLACEMENT_INVOICE_STATUS_OPTIONS: PettyCashReplacementInvoiceStatus[] = [
+  "available",
+  "used",
+];
 
 export const PETTY_CASH_INVOICE_COLLECTED_LABELS: Record<PettyCashInvoiceCollectedStatus, string> = {
   not_received: "未收回",

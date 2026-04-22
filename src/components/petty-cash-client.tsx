@@ -55,6 +55,8 @@ import {
   PETTY_CASH_PROJECT_OPTIONS,
   PETTY_CASH_REIMBURSEMENT_STATUS_LABELS,
   PETTY_CASH_REIMBURSEMENT_STATUS_OPTIONS,
+  PETTY_CASH_REPLACEMENT_INVOICE_STATUS_LABELS,
+  PETTY_CASH_REPLACEMENT_INVOICE_STATUS_OPTIONS,
   toDisplayAmount,
 } from "@/lib/petty-cash";
 import type { PettyCashBundle } from "@/lib/petty-cash-queries";
@@ -64,6 +66,7 @@ import type {
   PettyCashInvoiceAvailability,
   PettyCashInvoiceCollectedStatus,
   PettyCashPaymentMethod,
+  PettyCashReplacementInvoiceStatus,
   PettyCashReplacementInvoiceWithRelations,
   PettyCashReimbursementStatus,
   User,
@@ -476,12 +479,14 @@ function PettyCashReplacementInvoiceDialog({
   const [receivedOn, setReceivedOn] = useState(invoice?.received_on ?? "");
   const [title, setTitle] = useState(invoice?.title ?? "");
   const [amount, setAmount] = useState(invoice ? toDisplayAmount(invoice.amount_minor) : "");
+  const [status, setStatus] = useState<PettyCashReplacementInvoiceStatus>(invoice?.status ?? "available");
   const [notes, setNotes] = useState(invoice?.notes ?? "");
 
   function openDialog() {
     setReceivedOn(invoice?.received_on ?? "");
     setTitle(invoice?.title ?? "");
     setAmount(invoice ? toDisplayAmount(invoice.amount_minor) : "");
+    setStatus(invoice?.status ?? "available");
     setNotes(invoice?.notes ?? "");
     setOpen(true);
   }
@@ -494,6 +499,7 @@ function PettyCashReplacementInvoiceDialog({
           received_on: receivedOn,
           title,
           amount,
+          status,
           notes,
         };
 
@@ -559,6 +565,26 @@ function PettyCashReplacementInvoiceDialog({
                 placeholder="例如 300.00"
                 disabled={pending}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>使用状态</Label>
+              <Select
+                value={status}
+                onValueChange={(value) =>
+                  setStatus((value ?? "available") as PettyCashReplacementInvoiceStatus)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue>{PETTY_CASH_REPLACEMENT_INVOICE_STATUS_LABELS[status]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {PETTY_CASH_REPLACEMENT_INVOICE_STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {PETTY_CASH_REPLACEMENT_INVOICE_STATUS_LABELS[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="petty-cash-replacement-notes">备注</Label>
@@ -712,8 +738,8 @@ export function PettyCashClient({
           />
           <StatCard title="发票未收回笔数" value={bundle.summary.invoiceNotReceivedCount} description="有票但财务尚未收回" />
           <StatCard
-            title="替票合计金额"
-            value={formatPettyCashAmount(bundle.summary.replacementTotalAmountMinor)}
+            title="可用替票金额"
+            value={formatPettyCashAmount(bundle.summary.replacementAvailableAmountMinor)}
             description={`共登记 ${bundle.summary.replacementInvoiceCount} 笔替票`}
           />
         </div>
@@ -741,6 +767,7 @@ export function PettyCashClient({
                     <TableHead>收票日期</TableHead>
                     <TableHead>替票来源</TableHead>
                     <TableHead>替票金额</TableHead>
+                    <TableHead>使用状态</TableHead>
                     <TableHead className="min-w-56 whitespace-normal">备注</TableHead>
                     <TableHead>登记人</TableHead>
                     <TableHead>操作</TableHead>
@@ -752,6 +779,18 @@ export function PettyCashClient({
                       <TableCell>{formatDateOnly(invoice.received_on)}</TableCell>
                       <TableCell className="max-w-64 whitespace-normal">{invoice.title}</TableCell>
                       <TableCell>{formatPettyCashAmount(invoice.amount_minor)}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            invoice.status === "used"
+                              ? "border-slate-200 bg-slate-50 text-slate-500"
+                              : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          }
+                        >
+                          {PETTY_CASH_REPLACEMENT_INVOICE_STATUS_LABELS[invoice.status]}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="max-w-80 whitespace-normal text-sm text-muted-foreground">
                         {invoice.notes || "—"}
                       </TableCell>
