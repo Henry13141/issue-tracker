@@ -10,14 +10,15 @@ import type {
 } from "@/types";
 
 export const PETTY_CASH_EXPENSE_PROJECT_LABELS: Record<PettyCashExpenseProject, string> = {
-  admin_procurement_invoice: "行政采购（有票）",
-  office_supplies_invoice: "办公用品（有票）",
-  employee_benefits_invoice: "员工福利（有票）",
-  hospitality_replacement: "招待 / 水果 / 茶歇（替票）",
-  logistics_invoice: "快递 / 物流（有票）",
-  travel_mixed: "差旅交通（混合）",
-  maintenance_mixed: "维修 / 杂项（混合）",
+  admin_procurement_invoice: "行政采购",
+  office_supplies_invoice: "办公用品",
+  employee_benefits_invoice: "员工福利",
+  hospitality_replacement: "招待 / 水果 / 茶歇",
+  logistics_invoice: "快递 / 物流",
+  travel_mixed: "差旅交通",
+  maintenance_mixed: "维修 / 杂项",
   other: "其他",
+  custom: "自定义项目",
 };
 
 export const PETTY_CASH_PAYMENT_METHOD_LABELS: Record<PettyCashPaymentMethod, string> = {
@@ -39,14 +40,6 @@ export const PETTY_CASH_INVOICE_REPLACEMENT_LABELS: Record<PettyCashInvoiceRepla
   matched: "已占用替票",
 };
 
-/** 兼容历史数据中的替票状态（库升级前可能存在 in_progress / completed） */
-export function normalizePettyCashReplacementStatus(raw: string): PettyCashInvoiceReplacementStatus {
-  if (raw === "pending" || raw === "not_needed") return raw;
-  if (raw === "in_progress") return "pending";
-  if (raw === "completed" || raw === "matched") return "matched";
-  return "not_needed";
-}
-
 export const PETTY_CASH_INVOICE_COLLECTED_LABELS: Record<PettyCashInvoiceCollectedStatus, string> = {
   not_received: "未收回",
   received: "已收回",
@@ -61,7 +54,7 @@ export const PETTY_CASH_REIMBURSEMENT_STATUS_LABELS: Record<PettyCashReimburseme
 
 export const PETTY_CASH_PROJECT_OPTIONS = Object.keys(
   PETTY_CASH_EXPENSE_PROJECT_LABELS
-) as PettyCashExpenseProject[];
+).filter((k) => k !== "custom") as PettyCashExpenseProject[];
 
 export const PETTY_CASH_PAYMENT_OPTIONS = Object.keys(
   PETTY_CASH_PAYMENT_METHOD_LABELS
@@ -98,41 +91,13 @@ export function isOutstandingReimbursement(status: PettyCashReimbursementStatus)
   return status === "pending" || status === "in_progress";
 }
 
+/** 有票时才需要财务收回发票 */
 export function expectsInvoiceCollection(
   entry:
-    | Pick<
-        PettyCashEntry,
-        "invoice_availability" | "invoice_replacement_status"
-      >
-    | Pick<
-        PettyCashEntryWithRelations,
-        "invoice_availability" | "invoice_replacement_status"
-      >
+    | Pick<PettyCashEntry, "invoice_availability">
+    | Pick<PettyCashEntryWithRelations, "invoice_availability">
 ) {
-  return (
-    entry.invoice_availability === "with_invoice" ||
-    entry.invoice_replacement_status === "pending"
-  );
-}
-
-export function isReplacementExpenseProject(project: PettyCashExpenseProject) {
-  return project === "hospitality_replacement";
-}
-
-export function usesReplacementQuota(
-  entry:
-    | Pick<PettyCashEntry, "expense_project" | "reimbursement_status">
-    | Pick<PettyCashEntryWithRelations, "expense_project" | "reimbursement_status">
-) {
-  return isReplacementExpenseProject(entry.expense_project) && entry.reimbursement_status !== "voided";
-}
-
-export function getReplacementQuotaUsageAmount(
-  entry:
-    | Pick<PettyCashEntry, "amount_minor" | "expense_project" | "reimbursement_status">
-    | Pick<PettyCashEntryWithRelations, "amount_minor" | "expense_project" | "reimbursement_status">
-) {
-  return usesReplacementQuota(entry) ? entry.amount_minor : 0;
+  return entry.invoice_availability === "with_invoice";
 }
 
 export function sortPettyCashEntries(entries: PettyCashEntryWithRelations[]) {
@@ -160,4 +125,14 @@ export function toMinorAmount(input: string) {
 
 export function toDisplayAmount(amountMinor: number) {
   return (amountMinor / 100).toFixed(2);
+}
+
+/** 返回记录应显示的支出项目名称（自定义项目使用用户填写的标签） */
+export function getExpenseProjectLabel(
+  entry: Pick<PettyCashEntry, "expense_project" | "custom_project_label">
+): string {
+  if (entry.expense_project === "custom" && entry.custom_project_label) {
+    return entry.custom_project_label;
+  }
+  return PETTY_CASH_EXPENSE_PROJECT_LABELS[entry.expense_project] ?? entry.expense_project;
 }

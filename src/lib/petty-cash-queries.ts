@@ -3,10 +3,7 @@
 import { getCurrentUser } from "@/lib/auth";
 import { canAccessFinanceOps } from "@/lib/permissions";
 import {
-  expectsInvoiceCollection,
-  getReplacementQuotaUsageAmount,
   isOutstandingReimbursement,
-  normalizePettyCashReplacementStatus,
   sortPettyCashEntries,
 } from "@/lib/petty-cash";
 import { getPettyCashSchemaHint, isPettyCashSchemaMissingError } from "@/lib/petty-cash-schema";
@@ -32,12 +29,9 @@ function createEmptyPettyCashBundle(setupMessage?: string): PettyCashBundle {
       unreimbursedAmountMinor: 0,
       reimbursedThisMonthAmountMinor: 0,
       addedThisMonthAmountMinor: 0,
-      pendingReplacementCount: 0,
       invoiceNotReceivedCount: 0,
       replacementInvoiceCount: 0,
       replacementTotalAmountMinor: 0,
-      replacementUsedAmountMinor: 0,
-      replacementAvailableAmountMinor: 0,
     },
     replacementInvoices: [],
     schemaReady: !setupMessage,
@@ -57,12 +51,9 @@ export type PettyCashBundle = {
     unreimbursedAmountMinor: number;
     reimbursedThisMonthAmountMinor: number;
     addedThisMonthAmountMinor: number;
-    pendingReplacementCount: number;
     invoiceNotReceivedCount: number;
     replacementInvoiceCount: number;
     replacementTotalAmountMinor: number;
-    replacementUsedAmountMinor: number;
-    replacementAvailableAmountMinor: number;
   };
   replacementInvoices: PettyCashReplacementInvoiceWithRelations[];
   schemaReady: boolean;
@@ -99,12 +90,7 @@ export async function getPettyCashBundle(): Promise<PettyCashBundle | null> {
   }
 
   const rows = (entryData ?? []) as PettyCashEntryWithRelations[];
-  const entries = sortPettyCashEntries(
-    rows.map((row) => ({
-      ...row,
-      invoice_replacement_status: normalizePettyCashReplacementStatus(row.invoice_replacement_status),
-    }))
-  );
+  const entries = sortPettyCashEntries(rows);
   const replacementInvoices = (replacementInvoiceData ?? []) as PettyCashReplacementInvoiceWithRelations[];
   const currentMonthKey = getMonthKey(new Date().toISOString());
 
@@ -127,19 +113,13 @@ export async function getPettyCashBundle(): Promise<PettyCashBundle | null> {
         acc.reimbursedThisMonthAmountMinor += entry.amount_minor;
       }
 
-      if (entry.invoice_replacement_status === "pending") {
-        acc.pendingReplacementCount += 1;
-      }
-
       if (
         !isVoided &&
-        expectsInvoiceCollection(entry) &&
+        entry.invoice_availability === "with_invoice" &&
         entry.invoice_collected_status === "not_received"
       ) {
         acc.invoiceNotReceivedCount += 1;
       }
-
-      acc.replacementUsedAmountMinor += getReplacementQuotaUsageAmount(entry);
 
       return acc;
     },
@@ -148,15 +128,11 @@ export async function getPettyCashBundle(): Promise<PettyCashBundle | null> {
       unreimbursedAmountMinor: 0,
       reimbursedThisMonthAmountMinor: 0,
       addedThisMonthAmountMinor: 0,
-      pendingReplacementCount: 0,
       invoiceNotReceivedCount: 0,
       replacementInvoiceCount: replacementInvoices.length,
       replacementTotalAmountMinor: replacementInvoices.reduce((sum, item) => sum + item.amount_minor, 0),
-      replacementUsedAmountMinor: 0,
-      replacementAvailableAmountMinor: 0,
     }
   );
-  summary.replacementAvailableAmountMinor = summary.replacementTotalAmountMinor - summary.replacementUsedAmountMinor;
 
   return {
     entries,

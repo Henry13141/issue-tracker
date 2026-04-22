@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   createPettyCashEntry,
   createPettyCashReplacementInvoice,
+  deletePettyCashEntry,
+  deletePettyCashReplacementInvoice,
   updatePettyCashEntry,
   updatePettyCashReplacementInvoice,
 } from "@/actions/petty-cash";
@@ -26,6 +28,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -40,16 +43,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateOnly } from "@/lib/dates";
 import {
-  expectsInvoiceCollection,
   formatPettyCashAmount,
-  isReplacementExpenseProject,
+  getExpenseProjectLabel,
   PETTY_CASH_EXPENSE_PROJECT_LABELS,
   PETTY_CASH_INVOICE_AVAILABILITY_LABELS,
   PETTY_CASH_INVOICE_AVAILABILITY_OPTIONS,
   PETTY_CASH_INVOICE_COLLECTED_LABELS,
   PETTY_CASH_INVOICE_COLLECTED_OPTIONS,
-  PETTY_CASH_INVOICE_REPLACEMENT_LABELS,
-  PETTY_CASH_INVOICE_REPLACEMENT_OPTIONS,
   PETTY_CASH_PAYMENT_METHOD_LABELS,
   PETTY_CASH_PAYMENT_OPTIONS,
   PETTY_CASH_PROJECT_OPTIONS,
@@ -63,13 +63,12 @@ import type {
   PettyCashExpenseProject,
   PettyCashInvoiceAvailability,
   PettyCashInvoiceCollectedStatus,
-  PettyCashInvoiceReplacementStatus,
   PettyCashPaymentMethod,
   PettyCashReplacementInvoiceWithRelations,
   PettyCashReimbursementStatus,
   User,
 } from "@/types";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL = "__all__";
@@ -85,21 +84,14 @@ function statusBadgeClass(status: PettyCashReimbursementStatus) {
   return "border-amber-200 bg-amber-50 text-amber-700";
 }
 
-function parseDisplayAmountToMinor(value: string) {
-  const normalized = value.trim();
-  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(normalized)) return null;
-  const [wholePart, decimalPart = ""] = normalized.split(".");
-  return Number(wholePart) * 100 + Number(decimalPart.padEnd(2, "0"));
-}
-
 function PettyCashEntryDialog({
   members,
-  replacementAvailableAmountMinor,
+  customProjectOptions,
   entry,
   trigger,
 }: {
   members: User[];
-  replacementAvailableAmountMinor: number;
+  customProjectOptions: string[];
   entry?: PettyCashEntryWithRelations;
   trigger?: React.ReactNode;
 }) {
@@ -112,13 +104,13 @@ function PettyCashEntryDialog({
   const [expenseProject, setExpenseProject] = useState<PettyCashExpenseProject>(
     entry?.expense_project ?? "office_supplies_invoice"
   );
+  const [customProjectLabel, setCustomProjectLabel] = useState(entry?.custom_project_label ?? "");
+  const [isEnteringCustom, setIsEnteringCustom] = useState(false);
   const [amount, setAmount] = useState(entry ? toDisplayAmount(entry.amount_minor) : "");
   const [paymentMethod, setPaymentMethod] = useState<PettyCashPaymentMethod>(entry?.payment_method ?? "wechat");
   const [invoiceAvailability, setInvoiceAvailability] = useState<PettyCashInvoiceAvailability>(
     entry?.invoice_availability ?? "with_invoice"
   );
-  const [invoiceReplacementStatus, setInvoiceReplacementStatus] =
-    useState<PettyCashInvoiceReplacementStatus>(entry?.invoice_replacement_status ?? "not_needed");
   const [invoiceCollectedStatus, setInvoiceCollectedStatus] =
     useState<PettyCashInvoiceCollectedStatus>(entry?.invoice_collected_status ?? "not_received");
   const [reimbursementStatus, setReimbursementStatus] = useState<PettyCashReimbursementStatus>(
@@ -126,53 +118,24 @@ function PettyCashEntryDialog({
   );
   const [reimbursedOn, setReimbursedOn] = useState(entry?.reimbursed_on ?? "");
   const [notes, setNotes] = useState(entry?.notes ?? "");
-  const isReplacementProject = isReplacementExpenseProject(expenseProject);
-  const currentAmountMinor = parseDisplayAmountToMinor(amount);
-  const replacementBalanceAfterSave =
-    currentAmountMinor == null || !isReplacementProject ? null : replacementAvailableAmountMinor - currentAmountMinor;
+
+  const isWithInvoice = invoiceAvailability === "with_invoice";
 
   function openDialog() {
     setOccurredOn(entry?.occurred_on ?? "");
     setPayerUserId(entry?.payer_user_id ?? "");
     setTitle(entry?.title ?? "");
     setExpenseProject(entry?.expense_project ?? "office_supplies_invoice");
+    setCustomProjectLabel(entry?.custom_project_label ?? "");
+    setIsEnteringCustom(false);
     setAmount(entry ? toDisplayAmount(entry.amount_minor) : "");
     setPaymentMethod(entry?.payment_method ?? "wechat");
     setInvoiceAvailability(entry?.invoice_availability ?? "with_invoice");
-    setInvoiceReplacementStatus(entry?.invoice_replacement_status ?? "not_needed");
     setInvoiceCollectedStatus(entry?.invoice_collected_status ?? "not_received");
     setReimbursementStatus(entry?.reimbursement_status ?? "pending");
     setReimbursedOn(entry?.reimbursed_on ?? "");
     setNotes(entry?.notes ?? "");
     setOpen(true);
-  }
-
-  function onInvoiceAvailabilityChange(value: string | null) {
-    if (isReplacementProject) return;
-    const nextValue = (value ?? "with_invoice") as PettyCashInvoiceAvailability;
-    setInvoiceAvailability(nextValue);
-    if (nextValue === "with_invoice") {
-      setInvoiceReplacementStatus("not_needed");
-    } else if (invoiceReplacementStatus === "not_needed") {
-      setInvoiceReplacementStatus("pending");
-    }
-  }
-
-  function onExpenseProjectChange(value: string | null) {
-    const nextProject = (value ?? "office_supplies_invoice") as PettyCashExpenseProject;
-    const nextIsReplacement = isReplacementExpenseProject(nextProject);
-    setExpenseProject(nextProject);
-    if (nextIsReplacement) {
-      setInvoiceAvailability("without_invoice");
-      setInvoiceReplacementStatus("matched");
-      setInvoiceCollectedStatus("received");
-      return;
-    }
-
-    if (invoiceReplacementStatus === "matched") {
-      setInvoiceReplacementStatus(invoiceAvailability === "with_invoice" ? "not_needed" : "pending");
-      setInvoiceCollectedStatus("not_received");
-    }
   }
 
   function onReimbursementStatusChange(value: string | null) {
@@ -192,10 +155,10 @@ function PettyCashEntryDialog({
           payer_user_id: payerUserId,
           title,
           expense_project: expenseProject,
+          custom_project_label: expenseProject === "custom" ? customProjectLabel : null,
           amount,
           payment_method: paymentMethod,
           invoice_availability: invoiceAvailability,
-          invoice_replacement_status: invoiceReplacementStatus,
           invoice_collected_status: invoiceCollectedStatus,
           reimbursement_status: reimbursementStatus,
           reimbursed_on: reimbursedOn || null,
@@ -280,11 +243,36 @@ function PettyCashEntryDialog({
               <div className="space-y-2">
                 <Label>支出项目</Label>
                 <Select
-                  value={expenseProject}
-                  onValueChange={onExpenseProjectChange}
+                  value={
+                    expenseProject === "custom"
+                      ? customProjectLabel
+                        ? `custom::${customProjectLabel}`
+                        : "custom::__new__"
+                      : expenseProject
+                  }
+                  onValueChange={(value) => {
+                    if (!value) return;
+                    if (value === "custom::__new__") {
+                      setExpenseProject("custom");
+                      setCustomProjectLabel("");
+                      setIsEnteringCustom(true);
+                    } else if (value.startsWith("custom::")) {
+                      setExpenseProject("custom");
+                      setCustomProjectLabel(value.slice("custom::".length));
+                      setIsEnteringCustom(false);
+                    } else {
+                      setExpenseProject(value as PettyCashExpenseProject);
+                      setCustomProjectLabel("");
+                      setIsEnteringCustom(false);
+                    }
+                  }}
                 >
                   <SelectTrigger>
-                    <SelectValue>{PETTY_CASH_EXPENSE_PROJECT_LABELS[expenseProject]}</SelectValue>
+                    <SelectValue>
+                      {expenseProject === "custom"
+                        ? (customProjectLabel || "自定义项目")
+                        : PETTY_CASH_EXPENSE_PROJECT_LABELS[expenseProject]}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {PETTY_CASH_PROJECT_OPTIONS.map((option) => (
@@ -292,8 +280,29 @@ function PettyCashEntryDialog({
                         {PETTY_CASH_EXPENSE_PROJECT_LABELS[option]}
                       </SelectItem>
                     ))}
+                    {customProjectOptions.length > 0 && (
+                      <>
+                        <SelectSeparator />
+                        {customProjectOptions.map((label) => (
+                          <SelectItem key={`custom::${label}`} value={`custom::${label}`}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    <SelectSeparator />
+                    <SelectItem value="custom::__new__">＋ 添加新项目类型…</SelectItem>
                   </SelectContent>
                 </Select>
+                {expenseProject === "custom" && isEnteringCustom && (
+                  <Input
+                    value={customProjectLabel}
+                    onChange={(e) => setCustomProjectLabel(e.target.value)}
+                    placeholder="请输入自定义项目名称"
+                    disabled={pending}
+                    autoFocus
+                  />
+                )}
               </div>
             </div>
 
@@ -329,10 +338,15 @@ function PettyCashEntryDialog({
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>有票无票</Label>
-                <Select value={invoiceAvailability} onValueChange={onInvoiceAvailabilityChange} disabled={isReplacementProject}>
+                <Select
+                  value={invoiceAvailability}
+                  onValueChange={(value) =>
+                    setInvoiceAvailability((value ?? "with_invoice") as PettyCashInvoiceAvailability)
+                  }
+                >
                   <SelectTrigger>
                     <SelectValue>{PETTY_CASH_INVOICE_AVAILABILITY_LABELS[invoiceAvailability]}</SelectValue>
                   </SelectTrigger>
@@ -345,62 +359,30 @@ function PettyCashEntryDialog({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>替票状态</Label>
-                <Select
-                  value={invoiceReplacementStatus}
-                  onValueChange={(value) =>
-                    setInvoiceReplacementStatus((value ?? "not_needed") as PettyCashInvoiceReplacementStatus)
-                  }
-                  disabled={isReplacementProject}
-                >
-                  <SelectTrigger>
-                    <SelectValue>{PETTY_CASH_INVOICE_REPLACEMENT_LABELS[invoiceReplacementStatus]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PETTY_CASH_INVOICE_REPLACEMENT_OPTIONS.map((option) => (
-                      <SelectItem
-                        key={option}
-                        value={option}
-                        disabled={invoiceAvailability === "with_invoice" && option !== "not_needed"}
-                      >
-                        {PETTY_CASH_INVOICE_REPLACEMENT_LABELS[option]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>发票是否收回</Label>
-                <Select
-                  value={invoiceCollectedStatus}
-                  onValueChange={(value) =>
-                    setInvoiceCollectedStatus((value ?? "not_received") as PettyCashInvoiceCollectedStatus)
-                  }
-                  disabled={isReplacementProject}
-                >
-                  <SelectTrigger>
-                    <SelectValue>{PETTY_CASH_INVOICE_COLLECTED_LABELS[invoiceCollectedStatus]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PETTY_CASH_INVOICE_COLLECTED_OPTIONS.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {PETTY_CASH_INVOICE_COLLECTED_LABELS[option]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+
+              {isWithInvoice && (
+                <div className="space-y-2">
+                  <Label>发票是否收回</Label>
+                  <Select
+                    value={invoiceCollectedStatus}
+                    onValueChange={(value) =>
+                      setInvoiceCollectedStatus((value ?? "not_received") as PettyCashInvoiceCollectedStatus)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue>{PETTY_CASH_INVOICE_COLLECTED_LABELS[invoiceCollectedStatus]}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PETTY_CASH_INVOICE_COLLECTED_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {PETTY_CASH_INVOICE_COLLECTED_LABELS[option]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
-            {isReplacementProject ? (
-              <div className="rounded-md border border-blue-200 bg-blue-50/70 px-3 py-2 text-sm text-blue-800">
-                <p>当前项目会自动占用替票额度，保存时将从可用额度中扣减本笔金额。</p>
-                <p className="mt-1">
-                  当前可用：{formatPettyCashAmount(replacementAvailableAmountMinor)}
-                  {replacementBalanceAfterSave != null ? `，保存后剩余：${formatPettyCashAmount(replacementBalanceAfterSave)}` : ""}
-                </p>
-              </div>
-            ) : null}
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
@@ -436,13 +418,37 @@ function PettyCashEntryDialog({
                 id="petty-cash-notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                rows={4}
+                rows={3}
                 placeholder="例如：发票待补、走替票、跨月报销、票据还未收回"
                 disabled={pending}
               />
             </div>
 
             <DialogFooter className="px-0 pb-0">
+              {entry && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="mr-auto text-destructive hover:text-destructive"
+                  onClick={() => {
+                    if (!confirm("确认删除该备用金登记？此操作不可撤销。")) return;
+                    startTransition(async () => {
+                      try {
+                        await deletePettyCashEntry(entry.id);
+                        toast.success("已删除备用金登记");
+                        setOpen(false);
+                        router.refresh();
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : "删除失败，请稍后再试");
+                      }
+                    });
+                  }}
+                  disabled={pending}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" />
+                  删除
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={pending}>
                 取消
               </Button>
@@ -520,7 +526,7 @@ function PettyCashReplacementInvoiceDialog({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{invoice ? "编辑替票登记" : "新增替票登记"}</DialogTitle>
-            <DialogDescription>财务收到替票后在这里登记，系统会自动累计替票额度并供替票项目占用。</DialogDescription>
+            <DialogDescription>财务收到替票后在这里登记，独立记录替票票据情况。</DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
@@ -544,7 +550,7 @@ function PettyCashReplacementInvoiceDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="petty-cash-replacement-amount">替票额度</Label>
+              <Label htmlFor="petty-cash-replacement-amount">替票金额</Label>
               <Input
                 id="petty-cash-replacement-amount"
                 inputMode="decimal"
@@ -566,6 +572,30 @@ function PettyCashReplacementInvoiceDialog({
               />
             </div>
             <DialogFooter className="px-0 pb-0">
+              {invoice && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="mr-auto text-destructive hover:text-destructive"
+                  onClick={() => {
+                    if (!confirm("确认删除该替票登记？此操作不可撤销。")) return;
+                    startTransition(async () => {
+                      try {
+                        await deletePettyCashReplacementInvoice(invoice.id);
+                        toast.success("已删除替票登记");
+                        setOpen(false);
+                        router.refresh();
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : "删除失败，请稍后再试");
+                      }
+                    });
+                  }}
+                  disabled={pending}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" />
+                  删除
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={pending}>
                 取消
               </Button>
@@ -591,11 +621,20 @@ export function PettyCashClient({
   const [payerFilter, setPayerFilter] = useState<string>(ALL);
   const [projectFilter, setProjectFilter] = useState<string>(ALL);
   const [invoiceFilter, setInvoiceFilter] = useState<string>(ALL);
-  const [replacementFilter, setReplacementFilter] = useState<string>(ALL);
   const [collectedFilter, setCollectedFilter] = useState<string>(ALL);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [keyword, setKeyword] = useState("");
+
+  const customProjectOptions = useMemo(() => {
+    const labels = new Set<string>();
+    for (const entry of bundle.entries) {
+      if (entry.expense_project === "custom" && entry.custom_project_label) {
+        labels.add(entry.custom_project_label);
+      }
+    }
+    return Array.from(labels).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [bundle.entries]);
 
   const filteredEntries = useMemo(() => {
     const loweredKeyword = keyword.trim().toLowerCase();
@@ -604,13 +643,12 @@ export function PettyCashClient({
       if (payerFilter !== ALL && entry.payer_user_id !== payerFilter) return false;
       if (projectFilter !== ALL && entry.expense_project !== projectFilter) return false;
       if (invoiceFilter !== ALL && entry.invoice_availability !== invoiceFilter) return false;
-      if (replacementFilter !== ALL && entry.invoice_replacement_status !== replacementFilter) return false;
       if (collectedFilter !== ALL && entry.invoice_collected_status !== collectedFilter) return false;
       if (dateFrom && entry.occurred_on < dateFrom) return false;
       if (dateTo && entry.occurred_on > dateTo) return false;
       if (!loweredKeyword) return true;
 
-      return [entry.title, entry.notes ?? "", entry.payer?.name ?? ""]
+      return [entry.title, entry.notes ?? "", entry.payer?.name ?? "", entry.custom_project_label ?? ""]
         .join(" ")
         .toLowerCase()
         .includes(loweredKeyword);
@@ -621,7 +659,6 @@ export function PettyCashClient({
     payerFilter,
     projectFilter,
     invoiceFilter,
-    replacementFilter,
     collectedFilter,
     dateFrom,
     dateTo,
@@ -633,18 +670,10 @@ export function PettyCashClient({
     setPayerFilter(ALL);
     setProjectFilter(ALL);
     setInvoiceFilter(ALL);
-    setReplacementFilter(ALL);
     setCollectedFilter(ALL);
     setDateFrom("");
     setDateTo("");
     setKeyword("");
-  }
-
-  function getReplacementAvailableAmountForEntry(entry?: PettyCashEntryWithRelations) {
-    if (!entry) return bundle.summary.replacementAvailableAmountMinor;
-    return isReplacementExpenseProject(entry.expense_project) && entry.reimbursement_status !== "voided"
-      ? bundle.summary.replacementAvailableAmountMinor + entry.amount_minor
-      : bundle.summary.replacementAvailableAmountMinor;
   }
 
   return (
@@ -658,14 +687,13 @@ export function PettyCashClient({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <PettyCashReplacementInvoiceDialog />
             <PettyCashEntryDialog
               members={members}
-              replacementAvailableAmountMinor={getReplacementAvailableAmountForEntry()}
+              customProjectOptions={customProjectOptions}
             />
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <StatCard title="当前未报销笔数" value={bundle.summary.unreimbursedCount} description="待报销与报销中的合计" />
           <StatCard
             title="当前未报销金额"
@@ -682,20 +710,11 @@ export function PettyCashClient({
             value={formatPettyCashAmount(bundle.summary.addedThisMonthAmountMinor)}
             description="按发生日期统计"
           />
-          <StatCard title="待替票笔数" value={bundle.summary.pendingReplacementCount} description="仍为待替票状态的记录" />
-          <StatCard title="发票未收回笔数" value={bundle.summary.invoiceNotReceivedCount} description="已应收票但财务尚未拿到" />
+          <StatCard title="发票未收回笔数" value={bundle.summary.invoiceNotReceivedCount} description="有票但财务尚未收回" />
           <StatCard
-            title="替票总额度"
+            title="替票合计金额"
             value={formatPettyCashAmount(bundle.summary.replacementTotalAmountMinor)}
             description={`共登记 ${bundle.summary.replacementInvoiceCount} 笔替票`}
-          />
-          <StatCard
-            title="可用替票额度"
-            value={formatPettyCashAmount(bundle.summary.replacementAvailableAmountMinor)}
-            description={`已占用 ${formatPettyCashAmount(bundle.summary.replacementUsedAmountMinor)}`}
-            className={
-              bundle.summary.replacementAvailableAmountMinor < 0 ? "border-red-200 bg-red-50/60" : undefined
-            }
           />
         </div>
       </section>
@@ -703,8 +722,8 @@ export function PettyCashClient({
       <section>
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold tracking-wide text-muted-foreground">替票额度池</h2>
-            <p className="text-sm text-muted-foreground">财务收到替票后统一登记，替票项目保存时会自动占用这里的可用额度。</p>
+            <h2 className="text-base font-semibold tracking-wide text-muted-foreground">替票登记</h2>
+            <p className="text-sm text-muted-foreground">财务收到替票后在这里统一登记，仅作票据记录，与备用金报销独立核算。</p>
           </div>
           <PettyCashReplacementInvoiceDialog />
         </div>
@@ -714,14 +733,14 @@ export function PettyCashClient({
           </CardHeader>
           <CardContent>
             {bundle.replacementInvoices.length === 0 ? (
-              <div className="py-8 text-sm text-muted-foreground">当前还没有替票登记，新增后即可开始累计可用替票额度。</div>
+              <div className="py-8 text-sm text-muted-foreground">当前还没有替票登记，收到替票后可在这里新增记录。</div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>收票日期</TableHead>
                     <TableHead>替票来源</TableHead>
-                    <TableHead>替票额度</TableHead>
+                    <TableHead>替票金额</TableHead>
                     <TableHead className="min-w-56 whitespace-normal">备注</TableHead>
                     <TableHead>登记人</TableHead>
                     <TableHead>操作</TableHead>
@@ -831,6 +850,7 @@ export function PettyCashClient({
                       {PETTY_CASH_EXPENSE_PROJECT_LABELS[option]}
                     </SelectItem>
                   ))}
+                  <SelectItem value="custom">自定义项目</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -850,27 +870,6 @@ export function PettyCashClient({
                   {PETTY_CASH_INVOICE_AVAILABILITY_OPTIONS.map((option) => (
                     <SelectItem key={option} value={option}>
                       {PETTY_CASH_INVOICE_AVAILABILITY_LABELS[option]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>替票状态</Label>
-              <Select value={replacementFilter} onValueChange={(value) => setReplacementFilter(value ?? ALL)}>
-                <SelectTrigger>
-                  <SelectValue>
-                    {replacementFilter === ALL
-                      ? "全部"
-                      : PETTY_CASH_INVOICE_REPLACEMENT_LABELS[replacementFilter as PettyCashInvoiceReplacementStatus]}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL}>全部</SelectItem>
-                  {PETTY_CASH_INVOICE_REPLACEMENT_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {PETTY_CASH_INVOICE_REPLACEMENT_LABELS[option]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -898,13 +897,13 @@ export function PettyCashClient({
               </Select>
             </div>
 
-            <div className="space-y-2 xl:col-span-3">
+            <div className="space-y-2 xl:col-span-2">
               <Label htmlFor="petty-cash-keyword">关键字搜索</Label>
               <Input
                 id="petty-cash-keyword"
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
-                placeholder="搜索事项名称、垫付人或备注"
+                placeholder="搜索事项名称、垫付人、项目或备注"
               />
             </div>
 
@@ -944,8 +943,7 @@ export function PettyCashClient({
                     <TableHead>垫付金额</TableHead>
                     <TableHead>支付方式</TableHead>
                     <TableHead>有票无票</TableHead>
-                    <TableHead>是否替票</TableHead>
-                    <TableHead>发票是否收回</TableHead>
+                    <TableHead>收票状态</TableHead>
                     <TableHead>报销状态</TableHead>
                     <TableHead>报销日期</TableHead>
                     <TableHead className="min-w-56 whitespace-normal">备注</TableHead>
@@ -958,7 +956,7 @@ export function PettyCashClient({
                       <TableCell>{formatDateOnly(entry.occurred_on)}</TableCell>
                       <TableCell>{entry.payer?.name ?? "未知成员"}</TableCell>
                       <TableCell className="max-w-64 whitespace-normal">{entry.title}</TableCell>
-                      <TableCell>{PETTY_CASH_EXPENSE_PROJECT_LABELS[entry.expense_project]}</TableCell>
+                      <TableCell>{getExpenseProjectLabel(entry)}</TableCell>
                       <TableCell>{formatPettyCashAmount(entry.amount_minor)}</TableCell>
                       <TableCell>{PETTY_CASH_PAYMENT_METHOD_LABELS[entry.payment_method]}</TableCell>
                       <TableCell>
@@ -967,18 +965,13 @@ export function PettyCashClient({
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">
-                          {PETTY_CASH_INVOICE_REPLACEMENT_LABELS[entry.invoice_replacement_status]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {entry.invoice_replacement_status === "matched"
-                            ? "已占用替票"
-                            : expectsInvoiceCollection(entry)
-                            ? PETTY_CASH_INVOICE_COLLECTED_LABELS[entry.invoice_collected_status]
-                            : "无需收票"}
-                        </Badge>
+                        {entry.invoice_availability === "with_invoice" ? (
+                          <Badge variant="outline">
+                            {PETTY_CASH_INVOICE_COLLECTED_LABELS[entry.invoice_collected_status]}
+                          </Badge>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge className={statusBadgeClass(entry.reimbursement_status)}>
@@ -992,7 +985,7 @@ export function PettyCashClient({
                       <TableCell>
                         <PettyCashEntryDialog
                           members={members}
-                          replacementAvailableAmountMinor={getReplacementAvailableAmountForEntry(entry)}
+                          customProjectOptions={customProjectOptions}
                           entry={entry}
                           trigger={
                             <Button type="button" size="sm" variant="outline">
