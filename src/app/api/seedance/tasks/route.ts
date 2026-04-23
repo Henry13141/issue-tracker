@@ -274,6 +274,9 @@ export async function POST(request: Request) {
 
   const payload = parsePayload(body);
   if (!payload) {
+    // #region agent log
+    fetch('http://127.0.0.1:7775/ingest/b31e32e3-9a37-499b-a590-4125b0b07067',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'70638a'},body:JSON.stringify({sessionId:'70638a',location:'tasks/route.ts:parsePayload',message:'payload validation failed',data:{error:describePayloadError(body)},runId:'run1',hypothesisId:'H4',timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     return NextResponse.json({ error: describePayloadError(body) }, { status: 400 });
   }
 
@@ -281,8 +284,15 @@ export async function POST(request: Request) {
     payload.safety_identifier = createHash("sha256").update(user.id).digest("hex").slice(0, 64);
   }
 
+  // #region agent log
+  fetch('http://127.0.0.1:7775/ingest/b31e32e3-9a37-499b-a590-4125b0b07067',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'70638a'},body:JSON.stringify({sessionId:'70638a',location:'tasks/route.ts:pre-createSeedanceTask',message:'about to call createSeedanceTask',data:{model:payload.model,ratio:payload.ratio,duration:payload.duration,contentLength:payload.content.length,contentTypes:payload.content.map(c=>c.type)},runId:'run1',hypothesisId:'H1',timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
   try {
     const task = await createSeedanceTask(payload);
+    // #region agent log
+    fetch('http://127.0.0.1:7775/ingest/b31e32e3-9a37-499b-a590-4125b0b07067',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'70638a'},body:JSON.stringify({sessionId:'70638a',location:'tasks/route.ts:post-createSeedanceTask',message:'createSeedanceTask succeeded',data:{taskId:task.taskId,status:task.status},runId:'run1',hypothesisId:'H1',timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const promptSnapshot = extractPromptTextFromContent(payload.content);
     if (task.taskId) {
       await upsertSeedanceTaskPrompt({
@@ -293,6 +303,10 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ task });
   } catch (error) {
+    // #region agent log
+    fetch('http://127.0.0.1:7775/ingest/b31e32e3-9a37-499b-a590-4125b0b07067',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'70638a'},body:JSON.stringify({sessionId:'70638a',location:'tasks/route.ts:catch',message:'caught error in POST handler',data:{errorType:error instanceof Error ? error.constructor.name : typeof error,errorMessage:error instanceof Error ? error.message : String(error)},runId:'run1',hypothesisId:'H1',timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    console.error("[seedance/tasks] POST error:", error instanceof Error ? `${error.constructor.name}: ${error.message}` : String(error));
     const response = toArkErrorResponse(error);
     return NextResponse.json(response.body, { status: response.status });
   }
