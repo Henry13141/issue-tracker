@@ -1290,26 +1290,13 @@ export function SeedancePlayground({
 
     setSubmitting(true);
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7775/ingest/b31e32e3-9a37-499b-a590-4125b0b07067',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'70638a'},body:JSON.stringify({sessionId:'70638a',location:'seedance-playground.tsx:handleSubmit',message:'about to POST /api/seedance/tasks',data:{payloadKeys:Object.keys(payload),contentLength:payload.content.length,contentTypes:(payload.content as {type:string}[]).map(c=>c.type)},runId:'run1',hypothesisId:'H3',timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      let fetchResponse: Response;
-      try {
-        fetchResponse = await fetch("/api/seedance/tasks", {
+      const { task: nextTask } = await parseTaskResponse(
+        await fetch("/api/seedance/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
-        });
-      } catch (fetchErr) {
-        // #region agent log
-        fetch('http://127.0.0.1:7775/ingest/b31e32e3-9a37-499b-a590-4125b0b07067',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'70638a'},body:JSON.stringify({sessionId:'70638a',location:'seedance-playground.tsx:handleSubmit-fetchErr',message:'client fetch itself threw (network error)',data:{errorType:fetchErr instanceof Error ? fetchErr.constructor.name : typeof fetchErr,errorMessage:fetchErr instanceof Error ? fetchErr.message : String(fetchErr)},runId:'run1',hypothesisId:'H3',timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-        throw fetchErr;
-      }
-      // #region agent log
-      fetch('http://127.0.0.1:7775/ingest/b31e32e3-9a37-499b-a590-4125b0b07067',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'70638a'},body:JSON.stringify({sessionId:'70638a',location:'seedance-playground.tsx:handleSubmit-response',message:'got HTTP response from /api/seedance/tasks',data:{status:fetchResponse.status,ok:fetchResponse.ok},runId:'run1',hypothesisId:'H3',timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      const { task: nextTask } = await parseTaskResponse(fetchResponse);
+        })
+      );
       setTask(nextTask);
       setTaskIdInput(nextTask.taskId);
       setSubmittedParams({ resolution, ratio, duration, modelId });
@@ -1324,9 +1311,6 @@ export function SeedancePlayground({
       void loadHistory();
       toast.success(nextTask.taskId ? `任务已创建：${nextTask.taskId}` : "任务已提交");
     } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7775/ingest/b31e32e3-9a37-499b-a590-4125b0b07067',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'70638a'},body:JSON.stringify({sessionId:'70638a',location:'seedance-playground.tsx:handleSubmit-catch',message:'handleSubmit caught error',data:{errorType:error instanceof Error ? error.constructor.name : typeof error,errorMessage:error instanceof Error ? error.message : String(error)},runId:'run1',hypothesisId:'H3',timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       toast.error(error instanceof Error ? error.message : "提交任务失败");
     } finally {
       setSubmitting(false);
