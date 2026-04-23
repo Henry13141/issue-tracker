@@ -53,10 +53,10 @@ export async function getNotificationCoverageForPage(): Promise<NotificationCove
  */
 const fetchMembersFromDB = unstable_cache(
   async (): Promise<User[]> => {
-    const { createClient: createServerClient } = await import("@/lib/supabase/server");
+    // unstable_cache 内部不能调用 cookies()，必须用 admin client（service role key）
     let supabase;
     try {
-      supabase = await createServerClient();
+      supabase = createAdminClient();
     } catch (error) {
       logMembersQueryError("createClient", error);
       return [];
