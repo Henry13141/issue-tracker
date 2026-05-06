@@ -12,7 +12,13 @@ import { SkeletonLine } from "@/components/skeleton-page";
 import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
 
-export default async function IssueDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function IssueDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
   const user = await getCurrentUser();
   if (!user) {
@@ -25,12 +31,19 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
   }
 
   const members = await getMembers();
+  const sp = await searchParams;
+
+  // 优先使用列表页传来的 from 参数（保留分页/筛选状态），否则 fallback 到 /issues
+  // 只允许跳回 /issues 路径，防止开放重定向
+  const rawFrom = typeof sp.from === "string" ? sp.from : undefined;
+  const backHref =
+    rawFrom && /^\/issues(\?|$)/.test(rawFrom) ? rawFrom : "/issues";
 
   return (
     <div>
       <div className="mb-6 flex items-center gap-3">
         <Link
-          href="/issues"
+          href={backHref}
           className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
         >
           ← 返回列表

@@ -101,11 +101,14 @@ export function IssuesTable({
   issues,
   currentUser,
   compact = false,
+  fromParam = "",
 }: {
   issues: IssueWithRelations[];
   currentUser: User;
   /** 分组视图中使用：移除外层 border，融入父卡片 */
   compact?: boolean;
+  /** 详情页返回时携带的来源参数，由列表页 Server Component 传入 */
+  fromParam?: string;
 }) {
   const router = useRouter();
   const [reasonDialog, setReasonDialog] = useState<ReasonDialog>({
@@ -279,7 +282,7 @@ export function IssuesTable({
                         </span>
                       ))}
                       <Link
-                        href={`/issues/${issue.id}`}
+                        href={`/issues/${issue.id}${fromParam}`}
                         className="font-medium text-primary hover:underline"
                       >
                         {issue.title}
@@ -346,7 +349,7 @@ export function IssuesTable({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
-                        onClick={() => router.push(`/issues/${issue.id}`)}
+                        onClick={() => router.push(`/issues/${issue.id}${fromParam}`)}
                       >
                         查看详情
                       </DropdownMenuItem>

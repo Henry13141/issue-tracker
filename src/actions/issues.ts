@@ -165,7 +165,12 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
 
   const { data, error, count } = await query.range(from, to);
   if (error) {
-    console.error(error);
+    if (error.code === "PGRST103" && page > 1) {
+      // 请求的页码超出了实际数据量（例如筛选条件改变后总数变少）。
+      // 自动回退到第1页，避免展示空列表。
+      return getIssues({ ...filters, page: 1 });
+    }
+    console.error("[getIssues] Supabase error:", error.code, error.message, error.details, error.hint);
     return { items: [], total: 0, page, pageSize };
   }
 

@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
   getIssues,
@@ -117,6 +118,14 @@ export default async function IssuesPage({
   const pageSize  = issueData?.pageSize ?? 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  // URL 里的页码比实际返回的页码大（数据量缩减后 getIssues 自动回退到第1页）。
+  // 做一次 server redirect，把 URL 更正过来，避免地址栏显示一个不存在的页码。
+  if (!isGrouped && issueData && filters.page > page) {
+    redirect(buildHref(sp, { page: null }));
+  }
+  const listQs = toSearchParams(sp).toString();
+  const fromParam = `?from=${encodeURIComponent("/issues" + (listQs ? "?" + listQs : ""))}`;
+
   return (
     <div>
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -176,7 +185,7 @@ export default async function IssuesPage({
         />
       ) : (
         <>
-          <IssuesTable issues={items} currentUser={user} />
+          <IssuesTable issues={items} currentUser={user} fromParam={fromParam} />
           {totalPages > 1 && (
             <div className="mt-4 flex items-center justify-center gap-2">
               <Link
