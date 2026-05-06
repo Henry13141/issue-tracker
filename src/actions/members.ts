@@ -1,37 +1,31 @@
 "use server";
 
-import { cache } from "react";
-import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
-
-// 此版本的 Next.js (>=16) revalidateTag 需要第二个 profile 参数
-const invalidateMembersCache = () => revalidateTag("members", {});
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth";
+import { getCachedMembers } from "@/lib/members-query";
 import { notifyNewMemberWelcome } from "@/lib/new-member-welcome";
 import { getMemberWorkload, getNotificationCoverage } from "@/lib/dashboard-queries";
 import type { MemberWorkloadRow, NotificationCoverage } from "@/lib/dashboard-queries";
 import type { User, UserRole } from "@/types";
 
-function logMembersQueryError(scope: string, err: unknown) {
-  const message =
-    typeof err === "object" && err !== null && "message" in err
-      ? String((err as { message?: unknown }).message ?? "")
-      : String(err ?? "");
-  const cause =
-    typeof err === "object" && err !== null && "cause" in err
-      ? (err as { cause?: unknown }).cause
-      : undefined;
+const MEMBER_DEPENDENT_PATHS = [
+  "/members",
+  "/home",
+  "/issues",
+  "/my-tasks",
+  "/dashboard",
+  "/dashboard/notifications",
+  "/dashboard/wecom-health",
+  "/finance-ops",
+];
 
-  if (message.includes("fetch failed")) {
-    console.warn(
-      `[getMembers] Supabase 网络请求失败（多为瞬时网络/DNS/防火墙；已降级为空列表）`,
-      cause instanceof Error ? cause.message : cause != null ? String(cause) : ""
-    );
-    return;
+function invalidateMembersCache() {
+  updateTag("members");
+  for (const path of MEMBER_DEPENDENT_PATHS) {
+    revalidatePath(path);
   }
-
-  console.error(`[getMembers:${scope}]`, err);
 }
 
 export async function getMemberWorkloadForPage(): Promise<MemberWorkloadRow[]> {
@@ -46,45 +40,10 @@ export async function getNotificationCoverageForPage(): Promise<NotificationCove
   return getNotificationCoverage();
 }
 
-/**
- * 内部实现：从 DB 拉取成员列表。
- * 使用 unstable_cache 在请求之间缓存 60 秒，避免每次页面导航重复查询。
- * 当成员数据变更（增/删/改角色）时通过 revalidateTag("members") 失效缓存。
- */
-const fetchMembersFromDB = unstable_cache(
-  async (): Promise<User[]> => {
-    // unstable_cache 内部不能调用 cookies()，必须用 admin client（service role key）
-    let supabase;
-    try {
-      supabase = createAdminClient();
-    } catch (error) {
-      logMembersQueryError("createClient", error);
-      return [];
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from("users")
-        .select("*")
-        .order("name", { ascending: true });
-
-      if (error) {
-        logMembersQueryError("query", error);
-        return [];
-      }
-
-      return (data ?? []) as User[];
-    } catch (error) {
-      logMembersQueryError("query", error);
-      return [];
-    }
-  },
-  ["members-list"],
-  { revalidate: 60, tags: ["members"] }
-);
-
-/** 获取成员列表；同一请求内通过 React cache 去重，跨请求通过 unstable_cache 缓存 60 秒。 */
-export const getMembers = cache(fetchMembersFromDB);
+/** 获取成员列表；跨请求通过 Next 16 Cache Components 缓存 60 秒。 */
+export async function getMembers(): Promise<User[]> {
+  return getCachedMembers();
+}
 
 export async function updateUserName(
   userId: string,
@@ -101,7 +60,6 @@ export async function updateUserName(
     .eq("id", userId);
   if (error) return { ok: false, error: error.message };
   invalidateMembersCache();
-  revalidatePath("/members");
   return { ok: true };
 }
 
@@ -116,7 +74,6 @@ export async function removeMember(
   const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) return { ok: false, error: error.message };
   invalidateMembersCache();
-  revalidatePath("/members");
   return { ok: true };
 }
 
@@ -148,7 +105,6 @@ export async function updateUserWecomUserId(
     notifyNewMemberWelcome(trimmed, (beforeRow?.name as string) || "同事");
   }
   invalidateMembersCache();
-  revalidatePath("/members");
   return { ok: true };
 }
 
@@ -181,7 +137,5 @@ export async function updateUserRole(
   }
 
   invalidateMembersCache();
-  revalidatePath("/members");
-  revalidatePath("/finance-ops");
   return { ok: true };
 }

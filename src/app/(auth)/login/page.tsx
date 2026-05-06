@@ -4,11 +4,21 @@ import { isWecomScanLoginConfigured } from "@/lib/wecom";
 import { getPublicAppUrl } from "@/lib/app-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export default async function LoginPage() {
-  const showWecomLogin =
-    isWecomScanLoginConfigured() && Boolean(getPublicAppUrl());
-  const showDevLogin = process.env.NODE_ENV !== "production";
-  let devUsers: { id: string; name: string; email: string; role: "admin" | "finance" | "member" }[] = [];
+type DebugUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "finance" | "member";
+};
+
+async function LoginFormShell({
+  showWecomLogin,
+  showDevLogin,
+}: {
+  showWecomLogin: boolean;
+  showDevLogin: boolean;
+}) {
+  let devUsers: DebugUser[] = [];
 
   if (showDevLogin) {
     const admin = createAdminClient();
@@ -26,6 +36,20 @@ export default async function LoginPage() {
   }
 
   return (
+    <LoginForm
+      showWecomLogin={showWecomLogin}
+      showDevLogin={showDevLogin}
+      debugUsers={devUsers}
+    />
+  );
+}
+
+export default function LoginPage() {
+  const showWecomLogin =
+    isWecomScanLoginConfigured() && Boolean(getPublicAppUrl());
+  const showDevLogin = process.env.NODE_ENV !== "production";
+
+  return (
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center text-muted-foreground">
@@ -33,11 +57,7 @@ export default async function LoginPage() {
         </div>
       }
     >
-      <LoginForm
-        showWecomLogin={showWecomLogin}
-        showDevLogin={showDevLogin}
-        debugUsers={devUsers}
-      />
+      <LoginFormShell showWecomLogin={showWecomLogin} showDevLogin={showDevLogin} />
     </Suspense>
   );
 }

@@ -24,8 +24,6 @@ import {
 } from "@/lib/wecom-issue-intake";
 import type { IssuePriority, IssueStatus } from "@/types";
 
-export const dynamic = "force-dynamic";
-
 const HELP_MESSAGE = [
   "## 米伽米问题助手",
   "",

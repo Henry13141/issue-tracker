@@ -1,16 +1,11 @@
 import { NextResponse } from "next/server";
+import { authorizeCronRequest } from "@/lib/cron-auth";
 import { ensureFinanceTaskInstancesForCurrentPeriod } from "@/lib/finance-ops-queries";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  const vercelCron = request.headers.get("x-vercel-cron") === "1";
-  if (secret) {
-    const header = request.headers.get("authorization");
-    if (!vercelCron && header !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const auth = authorizeCronRequest(request);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   try {

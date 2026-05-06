@@ -8,7 +8,6 @@ import { deleteAttachment, reassignAttachmentIssue } from "@/actions/attachments
 import type {
   IssuePriority,
   IssueAttachmentWithUrl,
-  IssueHandoverWithUsers,
   IssueStatus,
   IssueWithRelations,
   User,
@@ -109,6 +108,7 @@ export function IssueDetailClient({
       reviewerId && reviewerId !== "__none__" ? members.find((m) => m.id === reviewerId) ?? null : null,
     [members, reviewerId],
   );
+
   const handoverToLabel = useMemo(() => {
     if (handoverTo === "__none__") return "选择同事";
     return members.find((m) => m.id === handoverTo)?.name ?? "未知成员";

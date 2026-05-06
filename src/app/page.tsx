@@ -1,9 +1,10 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { canAccessFinanceOps } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function Home() {
+async function HomeRedirect() {
   let supabase;
   try {
     supabase = await createClient();
@@ -27,4 +28,13 @@ export default async function Home() {
     redirect("/finance-ops");
   }
   redirect("/home");
+  return null;
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <HomeRedirect />
+    </Suspense>
+  );
 }

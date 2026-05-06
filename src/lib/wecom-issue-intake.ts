@@ -8,6 +8,7 @@ import {
   isIssueModule,
 } from "@/lib/constants";
 import { dispatchEventNotifications } from "@/lib/event-notification";
+import { getChinaDayBounds } from "@/lib/dates";
 import { writeIssueEvent } from "@/lib/issue-events";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { IssuePriority, UserRole } from "@/types";
@@ -146,7 +147,7 @@ async function collectIssueDraft(draft: IssueDraftData, userMessage: string): Pr
 
   const systemPrompt = [
     "你是内部问题系统的建单助手，负责把用户自然语言整理成可直接落库的 issue 草稿。",
-    `今天日期：${new Date().toISOString().slice(0, 10)}`,
+    `今天日期：${getChinaDayBounds().dateStr}`,
     "",
     "规则：",
     "1. 你会拿到当前草稿和用户最新一句话，请输出合并后的完整草稿。",

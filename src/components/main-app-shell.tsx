@@ -2,12 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { Menu } from "lucide-react";
 import { Sidebar, SidebarPanel } from "@/components/sidebar";
 import { Button } from "@/components/ui/button";
-import { AIAssistant } from "@/components/ai-assistant";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@/types";
+
+const AIAssistant = dynamic(
+  () => import("@/components/ai-assistant").then((mod) => mod.AIAssistant),
+  { ssr: false }
+);
 
 export function MainAppShell({ user, children }: { user: User; children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);

@@ -3,8 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { chatCompletion, isAIConfigured } from "@/lib/ai";
 import type { WeatherTipsRequestBody } from "@/types/weather-tips";
 
-export const dynamic = "force-dynamic";
-
 export async function POST(req: Request) {
   const supabase = await createClient();
   const {

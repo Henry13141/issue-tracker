@@ -1,12 +1,32 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/members", "/issues", "/my-tasks", "/reminders", "/seedance"];
+const PROTECTED_PREFIXES = [
+  "/dashboard",
+  "/finance-ops",
+  "/home",
+  "/issues",
+  "/members",
+  "/my-tasks",
+  "/reminders",
+  "/seedance",
+  "/svn-reports",
+  "/tts",
+];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
+  // ── 只对需要保护的业务路由做 Supabase 会话检查 ───────────────────────────
+  const isProtected = PROTECTED_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`)
+  );
+
+  if (!isProtected) {
     return NextResponse.next();
   }
 
@@ -36,12 +56,7 @@ export async function proxy(request: NextRequest) {
   // 保持登录状态不需要反复扫码。
   const { data: { user } } = await supabase.auth.getUser();
 
-  // ── 路由保护 ──────────────────────────────────────────────────────────────
-  const isProtected = PROTECTED_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`)
-  );
-
-  if (isProtected && !user) {
+  if (!user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", pathname);

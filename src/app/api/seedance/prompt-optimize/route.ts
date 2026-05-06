@@ -8,8 +8,6 @@ import {
   type SeedancePromptOptimizationResult,
 } from "@/lib/seedance-prompt-builder";
 
-export const dynamic = "force-dynamic";
-
 type OptimizeRequestBody = {
   rawPrompt?: unknown;
   draft?: unknown;

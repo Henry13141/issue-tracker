@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
+import { authorizeCronRequest } from "@/lib/cron-auth";
 import { getAccessToken, wecomQyapiFetch } from "@/lib/wecom";
-
-export const dynamic = "force-dynamic";
 
 const AGENTID = process.env.WECOM_AGENTID!;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "";
@@ -15,13 +14,9 @@ const USERS = [
 ];
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  const vercelCron = request.headers.get("x-vercel-cron") === "1";
-  if (secret) {
-    const header = request.headers.get("authorization");
-    if (!vercelCron && header !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const auth = authorizeCronRequest(request);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   if (!AGENTID) {

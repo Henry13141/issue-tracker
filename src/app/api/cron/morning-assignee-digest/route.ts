@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { authorizeCronRequest } from "@/lib/cron-auth";
 import { getChinaDayBounds } from "@/lib/reminder-logic";
 import { getChinaWeekday } from "@/lib/dates";
 import { isWecomAppConfigured, isWecomWebhookConfigured } from "@/lib/wecom";
@@ -7,15 +8,6 @@ import { sendAdminDigest, sendGroupDigest } from "@/lib/notification-service";
 import { INCOMPLETE_ISSUE_STATUSES, ISSUE_STATUS_LABELS } from "@/lib/constants";
 import { chatCompletion, isAIConfigured } from "@/lib/ai";
 import type { IssueStatus } from "@/types";
-
-export const dynamic = "force-dynamic";
-
-function authorizeCron(request: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  const vercelCron = request.headers.get("x-vercel-cron") === "1";
-  if (!secret) return true;
-  return vercelCron || request.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 function buildGentleMorningMarkdown(
   assigneeName: string,
@@ -75,8 +67,9 @@ async function generateYesterdaySummary(
 }
 
 export async function GET(request: Request) {
-  if (!authorizeCron(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = authorizeCronRequest(request);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {

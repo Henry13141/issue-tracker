@@ -123,8 +123,7 @@ const emptyStats: WorkbenchStats = {
 };
 
 async function workbenchStatsForUser(supabase: SupabaseClient, user: User): Promise<WorkbenchStats> {
-  const today = new Date().toISOString().slice(0, 10);
-  const { startIso, endIso } = getChinaDayBounds();
+  const { startIso, endIso, dateStr: today } = getChinaDayBounds();
 
   const { data: issues, error: issuesErr } = await supabase
     .from("issues")
@@ -395,8 +394,7 @@ export async function getWorkbenchHomeBundle(limit = 16): Promise<{
     return { stats: emptyStats, tasks: emptyTaskGroups, events: [] };
   }
 
-  const { startIso, endIso } = getChinaDayBounds();
-  const today = new Date().toISOString().slice(0, 10);
+  const { startIso, endIso, dateStr: today } = getChinaDayBounds();
 
   // ── 第1轮：全部独立查询并行发出 ──────────────────────────────────────────
   const [issuesRes, remindersRes, participantRes] = await Promise.all([

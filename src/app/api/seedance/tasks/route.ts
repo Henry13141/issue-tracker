@@ -27,8 +27,6 @@ import {
   fetchSeedanceTaskPromptsByTaskIds,
 } from "@/lib/seedance-task-prompts";
 
-export const dynamic = "force-dynamic";
-
 function isValidHttpUrl(url: unknown): url is string {
   return typeof url === "string" && /^https?:\/\//i.test(url.trim());
 }

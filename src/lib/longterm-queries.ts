@@ -6,7 +6,6 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/dates";
-import type { IssueStatus } from "@/types";
 
 function tryDB() {
   try { return createAdminClient(); } catch { return null; }
@@ -164,7 +163,6 @@ export async function getIssueLifecycleStats(): Promise<LifecycleStats> {
   if (!db) return empty;
 
   const thirtyDaysAgo = toShanghaiBound(30);
-  const todayStr = getChinaDayBounds().dateStr;
   const now = Date.now();
 
   const [closedRes, reworkRes, openAgeRes] = await Promise.all([

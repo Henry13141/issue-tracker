@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { WeatherWidget } from "@/components/weather-widget";
 import { WorkbenchAvatar } from "@/components/workbench-avatar";
@@ -12,33 +13,56 @@ import { StatusBadge } from "@/components/status-badge";
 import { PriorityBadge } from "@/components/priority-badge";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
+import type { User } from "@/types";
 
 
-export default async function HomeWorkbenchPage() {
-  const user = await getCurrentUser();
-  if (!user) return null;
+function HomeWorkbenchDataSkeleton() {
+  return (
+    <>
+      <section>
+        <div className="mb-3 h-5 w-24 animate-pulse rounded bg-muted" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-lg border bg-muted/40" />
+          ))}
+        </div>
+      </section>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="rounded-lg border lg:col-span-2">
+          <div className="space-y-2 border-b p-6">
+            <div className="h-5 w-40 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-64 max-w-full animate-pulse rounded bg-muted/60" />
+          </div>
+          <div className="space-y-3 p-6">
+            <div className="h-14 animate-pulse rounded bg-muted" />
+            <div className="h-14 animate-pulse rounded bg-muted" />
+            <div className="h-14 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+        <div className="rounded-lg border p-6">
+          <div className="mb-3 h-4 w-20 animate-pulse rounded bg-muted" />
+          <div className="h-10 animate-pulse rounded bg-muted" />
+          <div className="mt-2 h-10 animate-pulse rounded bg-muted" />
+        </div>
+      </div>
+      <section>
+        <div className="mb-3 h-5 w-32 animate-pulse rounded bg-muted" />
+        <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />
+      </section>
+    </>
+  );
+}
 
+async function HomeWorkbenchData({ user }: { user: User }) {
   const [members, bundle] = await Promise.all([getMembers(), getWorkbenchHomeBundle(16)]);
 
   const s = bundle.stats;
   const needUpdate = bundle.tasks.needUpdate;
   const updatedToday = bundle.tasks.updatedToday;
   const events = bundle.events;
-  const tenureDays = getTenureDays(user.created_at);
 
   return (
-    <div className="space-y-8">
-      <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="grid min-w-0 grid-cols-1 lg:grid-cols-[minmax(8rem,9.5rem)_minmax(0,1fr)]">
-          <div className="border-b border-border/50 px-4 py-4 lg:border-b-0 lg:border-r lg:border-border/60 lg:bg-muted/[0.04] lg:px-4 lg:py-6">
-            <WorkbenchAvatar user={{ name: user.name, avatar_url: user.avatar_url }} />
-          </div>
-          <div className="min-w-0 p-4 sm:p-5 lg:p-6">
-            <WeatherWidget tenureDays={tenureDays} />
-          </div>
-        </div>
-      </section>
-
+    <>
       <section>
         <h2 className="mb-3 text-base font-semibold tracking-wide text-muted-foreground">今日概览</h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -184,6 +208,32 @@ export default async function HomeWorkbenchPage() {
           </CardContent>
         </Card>
       </section>
+    </>
+  );
+}
+
+export default async function HomeWorkbenchPage() {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const tenureDays = getTenureDays(user.created_at);
+
+  return (
+    <div className="space-y-8">
+      <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+        <div className="grid min-w-0 grid-cols-1 lg:grid-cols-[minmax(8rem,9.5rem)_minmax(0,1fr)]">
+          <div className="border-b border-border/50 px-4 py-4 lg:border-b-0 lg:border-r lg:border-border/60 lg:bg-muted/[0.04] lg:px-4 lg:py-6">
+            <WorkbenchAvatar user={{ name: user.name, avatar_url: user.avatar_url }} />
+          </div>
+          <div className="min-w-0 p-4 sm:p-5 lg:p-6">
+            <WeatherWidget tenureDays={tenureDays} />
+          </div>
+        </div>
+      </section>
+
+      <Suspense fallback={<HomeWorkbenchDataSkeleton />}>
+        <HomeWorkbenchData user={user} />
+      </Suspense>
     </div>
   );
 }

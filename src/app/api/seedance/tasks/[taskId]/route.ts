@@ -4,8 +4,6 @@ import { SEEDANCE_PROFILE_MISSING_MESSAGE } from "@/lib/seedance-auth-messages";
 import { deleteSeedanceTask, getSeedanceTask, toArkErrorResponse } from "@/lib/ark-seedance";
 import { fetchSeedanceTaskPrompt } from "@/lib/seedance-task-prompts";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(
   _request: Request,
   context: RouteContext<"/api/seedance/tasks/[taskId]">

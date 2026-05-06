@@ -448,7 +448,6 @@ function _buildActionHint(changes: NotifiableChange[]): string {
   }
   return "方便时补一条简短进展，让协作信息保持完整。";
 }
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 void _buildActionHint;
 
 /**

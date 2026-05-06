@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/auth";
 import { canAccessFinanceOps } from "@/lib/permissions";
+import { getChinaDayBounds } from "@/lib/dates";
 import {
   PETTY_CASH_INVOICE_AVAILABILITY_OPTIONS,
   PETTY_CASH_INVOICE_COLLECTED_OPTIONS,
@@ -242,7 +243,7 @@ export async function quickUpdateEntryReimbursementStatus(
   const supabase = await createClient();
 
   const reimbursedOn =
-    status === "reimbursed" ? new Date().toISOString().slice(0, 10) : null;
+    status === "reimbursed" ? getChinaDayBounds().dateStr : null;
 
   const { error } = await supabase
     .from("petty_cash_entries")

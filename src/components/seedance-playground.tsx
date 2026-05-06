@@ -870,7 +870,7 @@ export function SeedancePlayground({
     return estimateSeedance20TaskCostFromUsage(task.model, task.raw, task.resolution ?? undefined);
   }, [task]);
 
-  async function parseTaskResponse(response: Response) {
+  const parseTaskResponse = useCallback(async (response: Response) => {
     const data = (await response.json().catch(() => ({}))) as ApiResult;
     if (!response.ok) {
       throw new Error(data.error || "请求失败");
@@ -879,24 +879,24 @@ export function SeedancePlayground({
       throw new Error("服务端未返回任务信息");
     }
     return { task: data.task, prompt: data.prompt ?? null };
-  }
+  }, []);
 
-  function persistPromptHistory(next: Record<string, string>) {
+  const persistPromptHistory = useCallback((next: Record<string, string>) => {
     try {
       localStorage.setItem(LOCAL_PROMPT_STORAGE_KEY, JSON.stringify(next));
     } catch {
       /* ignore */
     }
-  }
+  }, []);
 
-  function mergePromptIntoState(taskId: string | undefined, prompt: string | null | undefined) {
+  const mergePromptIntoState = useCallback((taskId: string | undefined, prompt: string | null | undefined) => {
     if (!taskId || prompt == null) return;
     setPromptHistory((prev) => {
       const next = { ...prev, [taskId]: prompt };
       persistPromptHistory(next);
       return next;
     });
-  }
+  }, [persistPromptHistory]);
 
   async function refreshTask(targetTaskId?: string) {
     const nextTaskId = (targetTaskId ?? taskIdInput ?? task?.taskId ?? "").trim();
@@ -967,7 +967,7 @@ export function SeedancePlayground({
     }
   }
 
-  async function loadHistory(options?: { silent?: boolean }) {
+  const loadHistory = useCallback(async (options?: { silent?: boolean }) => {
     if (profileMissing) {
       if (!options?.silent) {
         toast.error(SEEDANCE_PROFILE_MISSING_MESSAGE);
@@ -1015,7 +1015,7 @@ export function SeedancePlayground({
     } finally {
       setHistoryLoading(false);
     }
-  }
+  }, [authenticated, persistPromptHistory, profileMissing]);
 
   async function uploadLocalFiles(kind: LocalAssetKind, files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -1476,7 +1476,7 @@ export function SeedancePlayground({
 
   useEffect(() => {
     void loadHistory({ silent: true });
-  }, [authenticated, profileMissing]);
+  }, [loadHistory]);
 
   useEffect(() => {
     setPromptReferenceActiveIndex(0);
@@ -1638,7 +1638,7 @@ export function SeedancePlayground({
         window.clearTimeout(timeoutId);
       }
     };
-  }, [shouldAutoPoll, task?.taskId]);
+  }, [loadHistory, mergePromptIntoState, parseTaskResponse, shouldAutoPoll, task?.taskId]);
 
   useEffect(() => {
     if (!task || !isTerminal(task.status)) return;

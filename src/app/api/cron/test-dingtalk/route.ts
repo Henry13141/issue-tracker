@@ -1,19 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { authorizeCronRequest } from "@/lib/cron-auth";
 import {
   sendWecomWorkNotice,
   isWecomAppConfigured,
 } from "@/lib/wecom";
-
-export const dynamic = "force-dynamic";
-
-function authorizeCron(request: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  const vercelCron = request.headers.get("x-vercel-cron") === "1";
-  if (!secret) return true;
-  const header = request.headers.get("authorization");
-  return vercelCron || header === `Bearer ${secret}`;
-}
 
 /**
  * 手动验证企业微信「应用消息」是否打通。
@@ -21,8 +12,9 @@ function authorizeCron(request: Request): boolean {
  * - 路径保留为 /api/cron/test-dingtalk 以兼容现有 vercel.json 配置（如有）。
  */
 export async function GET(request: Request) {
-  if (!authorizeCron(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = authorizeCronRequest(request);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   if (!isWecomAppConfigured()) {

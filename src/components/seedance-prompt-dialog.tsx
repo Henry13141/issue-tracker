@@ -1,7 +1,7 @@
 "use client";
 
 import type { KeyboardEvent as ReactKeyboardEvent, TextareaHTMLAttributes } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Copy, Loader2, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -588,7 +588,7 @@ export function SeedancePromptDialog({
     toast.success("提示词草稿已生成，可继续手动修改");
   }
 
-  function handlePreviewChange(next: string) {
+  const handlePreviewChange = useCallback((next: string) => {
     onPreviewChange(next);
     setOptimizerResult((previous) =>
       previous
@@ -598,7 +598,7 @@ export function SeedancePromptDialog({
           }
         : previous
     );
-  }
+  }, [onPreviewChange]);
 
   function seedOptimizerFromCurrentPrompt() {
     const next = currentPrompt.trim();
@@ -620,7 +620,7 @@ export function SeedancePromptDialog({
     toast.success("已把结构化草稿转成待优化初稿");
   }
 
-  async function optimizePrompt(options?: { rawPrompt?: string; silent?: boolean }) {
+  const optimizePrompt = useCallback(async (options?: { rawPrompt?: string; silent?: boolean }) => {
     const rawPrompt = normalizeSeedanceReferenceMentions(
       options?.rawPrompt?.trim() || optimizerInput.trim() || currentPrompt.trim()
     );
@@ -697,7 +697,7 @@ export function SeedancePromptDialog({
     } finally {
       setOptimizing(false);
     }
-  }
+  }, [currentPrompt, draft, handlePreviewChange, optimizerInput, referenceCounts]);
 
   useEffect(() => {
     if (!open || !isOptimizerMode) return;
@@ -713,7 +713,7 @@ export function SeedancePromptDialog({
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [open, isOptimizerMode, optimizerInput, optimizerAutoSignature, optimizing, draft, referenceCounts]);
+  }, [open, isOptimizerMode, optimizerInput, optimizerAutoSignature, optimizing, optimizePrompt]);
 
   function insertDocTemplate(field: PromptFieldKey, snippet: string) {
     updateField(field, appendBlock(draft[field], snippet));

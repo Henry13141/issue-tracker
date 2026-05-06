@@ -90,7 +90,7 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
     query = query.eq("assignee_id", filters.assigneeId).not("status", "in", '("resolved","closed")');
   }
   if (tab === "risk") {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getChinaDayBounds().dateStr;
     const staleThreshold = new Date(Date.now() - 3 * 86_400_000).toISOString();
     query = query.or(
       [
@@ -117,7 +117,7 @@ export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResul
 
   // 风险标签筛选（服务端）
   if (filters.risk) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getChinaDayBounds().dateStr;
     const staleThreshold = new Date(Date.now() - 3 * 86_400_000).toISOString();
     switch (filters.risk) {
       case "overdue":
