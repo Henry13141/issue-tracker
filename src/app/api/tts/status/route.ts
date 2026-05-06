@@ -1,8 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const TTS_PORT = 7860;
 
-export async function GET() {
+function isLocalhostRequest(req: NextRequest) {
+  const host = req.headers.get("host") ?? "";
+  return host.startsWith("localhost") || host.startsWith("127.0.0.1") || host.startsWith("[::1]");
+}
+
+export async function GET(req: NextRequest) {
+  if (process.env.NODE_ENV === "production" || !isLocalhostRequest(req)) {
+    return NextResponse.json({ running: false });
+  }
+
   try {
     const res = await fetch(`http://localhost:${TTS_PORT}`, {
       signal: AbortSignal.timeout(2000),

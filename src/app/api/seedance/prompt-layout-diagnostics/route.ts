@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 type DiagnosticBody = {
   trigger?: unknown;
@@ -56,6 +57,12 @@ function normalizeSnapshot(value: unknown): Snapshot | null {
 }
 
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
   let body: DiagnosticBody;
   try {
     body = (await request.json()) as DiagnosticBody;

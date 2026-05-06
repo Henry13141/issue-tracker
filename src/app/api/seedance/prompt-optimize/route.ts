@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { chatCompletion, isAIConfigured } from "@/lib/ai";
 import {
   buildSeedanceOptimizationFallback,
@@ -125,6 +126,12 @@ JSON 结构必须严格如下：
 `;
 
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "未登录，无法使用提示词优化。" }, { status: 401 });
+  }
+
   let body: OptimizeRequestBody;
   try {
     body = (await request.json()) as OptimizeRequestBody;

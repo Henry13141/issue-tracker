@@ -5,9 +5,14 @@ const NOTIFY_SECRET = process.env.UPTIME_KUMA_NOTIFY_SECRET;
 const NOTIFY_USERID = process.env.UPTIME_KUMA_NOTIFY_USERID || "HaoYi";
 
 export async function POST(req: NextRequest) {
-  // 简单密钥校验（防止公网滥用）
+  // 密钥校验：UPTIME_KUMA_NOTIFY_SECRET 必须配置，否则拒绝所有请求。
+  // 防止未配置时公网可任意触发企业微信告警推送。
+  if (!NOTIFY_SECRET) {
+    console.error("[notify/uptime-kuma] UPTIME_KUMA_NOTIFY_SECRET is not configured");
+    return NextResponse.json({ ok: false, error: "endpoint not configured" }, { status: 503 });
+  }
   const secret = req.headers.get("x-notify-secret") ?? req.nextUrl.searchParams.get("secret");
-  if (NOTIFY_SECRET && secret !== NOTIFY_SECRET) {
+  if (secret !== NOTIFY_SECRET) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
