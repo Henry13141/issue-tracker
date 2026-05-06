@@ -120,7 +120,7 @@ export default async function IssuesPage({
 
   // URL 里的页码比实际返回的页码大（数据量缩减后 getIssues 自动回退到第1页）。
   // 做一次 server redirect，把 URL 更正过来，避免地址栏显示一个不存在的页码。
-  if (!isGrouped && issueData && filters.page > page) {
+  if (!isGrouped && issueData && (filters.page ?? 1) > page) {
     redirect(buildHref(sp, { page: null }));
   }
   const listQs = toSearchParams(sp).toString();
