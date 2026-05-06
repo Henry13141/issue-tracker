@@ -68,6 +68,29 @@ export type IssuesResult = {
   pageSize: number;
 };
 
+export type IssueGroup = {
+  module: string;
+  issues: IssueWithRelations[];
+};
+
+/** 返回按游戏开发模块分组的工单列表（不分页，最多 500 条）。 */
+export async function getIssuesGrouped(
+  filters: Omit<IssueFilters, "module" | "page" | "pageSize">
+): Promise<IssueGroup[]> {
+  const { ISSUE_MODULES } = await import("@/lib/constants");
+  const result = await getIssues({ ...filters, module: undefined, pageSize: 500, page: 1 });
+
+  const grouped = new Map<string, IssueWithRelations[]>();
+  for (const issue of result.items) {
+    const key = issue.module ?? "未分模块";
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(issue);
+  }
+
+  const order = [...ISSUE_MODULES, "未分模块"] as readonly string[];
+  return order.filter((m) => grouped.has(m)).map((m) => ({ module: m, issues: grouped.get(m)! }));
+}
+
 export async function getIssues(filters: IssueFilters = {}): Promise<IssuesResult> {
   const supabase = await createClient();
   const sortBy = filters.sortBy ?? "last_activity_at";

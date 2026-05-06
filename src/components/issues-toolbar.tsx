@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ISSUE_CATEGORIES, ISSUE_MODULES, ISSUE_PRIORITY_LABELS, ISSUE_STATUS_LABELS } from "@/lib/constants";
+import { LayoutList, Rows3 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const ALL = "__all__";
 const SOURCE_LABELS: Record<string, string> = {
@@ -53,7 +55,6 @@ export function IssuesToolbar({
     Boolean(
       searchParams.get("reviewer") ||
       searchParams.get("category") ||
-      searchParams.get("module") ||
       searchParams.get("source") ||
       searchParams.get("risk") ||
       searchParams.get("sortBy")
@@ -79,6 +80,8 @@ export function IssuesToolbar({
   const sortBy   = searchParams.get("sortBy")   ?? ALL;
   const sortDir  = searchParams.get("sortDir")  ?? "desc";
   const q        = searchParams.get("q")        ?? "";
+  const view     = searchParams.get("view")     ?? "list";
+
   const assigneeLabel = assignee === ALL
     ? "全部成员"
     : members.find((m) => m.id === assignee)?.name ?? "全部成员";
@@ -90,8 +93,69 @@ export function IssuesToolbar({
   const sortByLabel = sortBy === ALL ? "默认（更新时间）" : (SORT_BY_LABELS[sortBy] ?? "默认（更新时间）");
   const sortDirLabel = sortDir === "asc" ? "升序" : "降序";
 
+  const isGrouped = view === "grouped";
+
   return (
-    <div className="mb-6 space-y-3">
+    <div className="mb-4 space-y-3">
+      {/* ── 模块 pills（游戏开发环节）── */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-muted-foreground">游戏开发环节</p>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => push({ view: isGrouped ? null : "grouped", module: null, page: null })}
+              disabled={pending}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                isGrouped
+                  ? "bg-primary text-primary-foreground"
+                  : "border bg-background text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}
+              title={isGrouped ? "切换到列表视图" : "按模块分组显示"}
+            >
+              {isGrouped ? (
+                <><Rows3 className="h-3.5 w-3.5" />分组视图</>
+              ) : (
+                <><LayoutList className="h-3.5 w-3.5" />按模块分组</>
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          <button
+            type="button"
+            onClick={() => push({ module: null, page: null })}
+            disabled={pending}
+            className={cn(
+              "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap",
+              moduleFilter === ALL
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            全部
+          </button>
+          {ISSUE_MODULES.map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => push({ module: m, page: null })}
+              disabled={pending}
+              className={cn(
+                "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap",
+                moduleFilter === m
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── 基础筛选行 ── */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
@@ -221,27 +285,6 @@ export function IssuesToolbar({
                 {ISSUE_CATEGORIES.map((c) => (
                   <SelectItem key={c} value={c}>
                     {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">模块</p>
-            <Select
-              value={moduleFilter}
-              onValueChange={(v) => push({ module: (v ?? ALL) === ALL ? null : (v ?? null), page: null })}
-              disabled={pending}
-            >
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="全部">{moduleFilter === ALL ? "全部" : moduleFilter}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>全部</SelectItem>
-                {ISSUE_MODULES.map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {m}
                   </SelectItem>
                 ))}
               </SelectContent>

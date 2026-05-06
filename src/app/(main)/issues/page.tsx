@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import {
   getIssues,
+  getIssuesGrouped,
   type IssueFilters,
   type IssueSortBy,
   type IssueRisk,
@@ -12,6 +13,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { IssuesToolbar } from "@/components/issues-toolbar";
 import { IssuesTabRow } from "@/components/issues-tab-row";
 import { IssuesTable } from "@/components/issues-table";
+import { IssuesGroupedView } from "@/components/issues-grouped-view";
 import { IssueFormDialog } from "@/components/issue-form-dialog";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
 import { ExportTemplateButton } from "@/components/export-template-button";
@@ -89,14 +91,30 @@ export default async function IssuesPage({
 
   const filters = parseFilters(sp);
   const effectiveTab: IssueTab = filters.tab ?? (user.role === "admin" ? "all" : "mine");
-  const [{ items, total, page, pageSize }, members] = await Promise.all([
-    getIssues({
-      ...filters,
-      tab: effectiveTab,
-      assigneeId: effectiveTab === "mine" ? user.id : filters.assigneeId,
-    }),
+  const isGrouped = str(sp.view) === "grouped" && !filters.module; // 有具体模块时不强制分组
+
+  const [issueData, groupedData, members] = await Promise.all([
+    isGrouped
+      ? Promise.resolve(null)
+      : getIssues({
+          ...filters,
+          tab: effectiveTab,
+          assigneeId: effectiveTab === "mine" ? user.id : filters.assigneeId,
+        }),
+    isGrouped
+      ? getIssuesGrouped({
+          ...filters,
+          tab: effectiveTab,
+          assigneeId: effectiveTab === "mine" ? user.id : filters.assigneeId,
+        })
+      : Promise.resolve(null),
     getMembers(),
   ]);
+
+  const items     = issueData?.items ?? [];
+  const total     = issueData?.total ?? 0;
+  const page      = issueData?.page  ?? 1;
+  const pageSize  = issueData?.pageSize ?? 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -142,7 +160,16 @@ export default async function IssuesPage({
         <IssuesToolbar members={members} />
       </Suspense>
 
-      {items.length === 0 ? (
+      {isGrouped ? (
+        groupedData && groupedData.length > 0 ? (
+          <IssuesGroupedView groups={groupedData} currentUser={user} />
+        ) : (
+          <EmptyState
+            title="当前没有匹配的记录"
+            description="可以新建问题开启跟踪，或调整筛选条件重新查看。"
+          />
+        )
+      ) : items.length === 0 ? (
         <EmptyState
           title="当前没有匹配的记录"
           description="可以新建问题开启跟踪，或调整筛选条件重新查看。"

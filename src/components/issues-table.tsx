@@ -100,9 +100,12 @@ type ReasonDialog = {
 export function IssuesTable({
   issues,
   currentUser,
+  compact = false,
 }: {
   issues: IssueWithRelations[];
   currentUser: User;
+  /** 分组视图中使用：移除外层 border，融入父卡片 */
+  compact?: boolean;
 }) {
   const router = useRouter();
   const [reasonDialog, setReasonDialog] = useState<ReasonDialog>({
@@ -216,7 +219,7 @@ export function IssuesTable({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    <div className="rounded-md border">
+    <div className={cn(!compact && "rounded-md border")}>
       <Table>
         <TableHeader>
           <TableRow>
