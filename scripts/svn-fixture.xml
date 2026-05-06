@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 模拟 SVN 日志 XML，用于在 MacBook 上测试采集器，无需真实 SVN 服务器 -->
+<!-- 使用方式：node svn-daily-collector.mjs --fixture ./svn-fixture.xml --dry-run -->
+<log>
+<logentry
+   revision="5842">
+<author>action_artist</author>
+<date>2026-04-29T10:23:45.000000Z</date>
+<paths>
+<path
+   text-mods="true"
+   kind="file"
+   action="M"
+   prop-mods="false">/Content/Characters/Hero/Animations/Attack_Combo_01.uasset</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="M"
+   prop-mods="false">/Content/Characters/Hero/Animations/Attack_Combo_02.uasset</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="A"
+   prop-mods="false">/Content/Characters/Hero/Animations/Attack_Combo_03.uasset</path>
+</paths>
+<msg>调整主角普攻三连击动作节奏，增加第三段收招硬直</msg>
+</logentry>
+<logentry
+   revision="5843">
+<author>programmer_a</author>
+<date>2026-04-29T11:05:12.000000Z</date>
+<paths>
+<path
+   text-mods="true"
+   kind="file"
+   action="M"
+   prop-mods="false">/Content/Blueprints/Combat/BP_HeroAttackComponent.uasset</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="M"
+   prop-mods="false">/Content/Blueprints/Combat/BP_InputBuffer.uasset</path>
+</paths>
+<msg>接入三连击 Montage，调整输入缓存窗口为 0.15s</msg>
+</logentry>
+<logentry
+   revision="5844">
+<author>programmer_b</author>
+<date>2026-04-29T13:30:00.000000Z</date>
+<paths>
+<path
+   text-mods="true"
+   kind="file"
+   action="M"
+   prop-mods="false">/Content/AI/EnemyBehaviorTree.uasset</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="M"
+   prop-mods="false">/Content/AI/EnemyBlackboard.uasset</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="M"
+   prop-mods="false">/Source/YourGame/AI/EnemyAIController.cpp</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="M"
+   prop-mods="false">/Source/YourGame/AI/EnemyAIController.h</path>
+</paths>
+<msg>优化敌人追击逻辑，修复脱战后仍追击的问题；扩展黑板变量支持多目标</msg>
+</logentry>
+<logentry
+   revision="5845">
+<author>action_artist</author>
+<date>2026-04-29T14:55:30.000000Z</date>
+<paths>
+<path
+   text-mods="true"
+   kind="file"
+   action="A"
+   prop-mods="false">/Content/Characters/Boss/Animations/Boss_HitReact_Heavy.uasset</path>
+<path
+   text-mods="true"
+   kind="file"
+   action="A"
+   prop-mods="false">/Content/Characters/Boss/Animations/Boss_HitReact_Light.uasset</path>
+</paths>
+<msg>新增 Boss 受击动画（重击/轻击各一套），待策划验证受击表现</msg>
+</logentry>
+<logentry
+   revision="5846">
+<author>programmer_a</author>
+<date>2026-04-29T16:10:44.000000Z</date>
+<paths>
+<path
+   text-mods="true"
+   kind="file"
+   action="M"
+   prop-mods="false">/Content/Maps/CombatTestLevel.umap</path>
+</paths>
+<msg></msg>
+</logentry>
+</log>

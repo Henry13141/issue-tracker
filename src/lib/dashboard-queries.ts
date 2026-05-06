@@ -8,11 +8,20 @@
  * 所有函数失败时返回安全默认值，不抛出。
  */
 
+import { cacheLife, cacheTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChinaDayBounds } from "@/lib/dates";
 import type { IssueStatus, IssuePriority } from "@/types";
 
 // ─── 内部 helpers ──────────────────────────────────────────────────────────
+
+const DASHBOARD_CACHE_TAG = "dashboard";
+const DASHBOARD_CACHE_LIFE = { stale: 60, revalidate: 60, expire: 600 };
+
+function cacheDashboardQuery() {
+  cacheTag(DASHBOARD_CACHE_TAG);
+  cacheLife(DASHBOARD_CACHE_LIFE);
+}
 
 function tryDB() {
   try { return createAdminClient(); } catch { return null; }
@@ -141,6 +150,9 @@ export type PositiveStats = {
 };
 
 export async function getPositiveStats(): Promise<PositiveStats> {
+  "use cache";
+  cacheDashboardQuery();
+
   const db = tryDB();
   if (!db) return { todayProgressUpdates: 0, todayClosedResolved: 0, todayNewIssues: 0, weekClosedResolved: 0, activeContributors: 0, todayHandovers: 0 };
 
@@ -171,6 +183,9 @@ export async function getPositiveStats(): Promise<PositiveStats> {
 // ─── 今日总览统计 ──────────────────────────────────────────────────────────
 
 export async function getOverviewStats(): Promise<OverviewStats> {
+  "use cache";
+  cacheDashboardQuery();
+
   const db = tryDB();
   if (!db) return { noUpdateToday: 0, overdueCount: 0, blockedCount: 0, urgentCount: 0, stale3DaysCount: 0, todayNotifFailed: 0, todayNotifTotal: 0, todayReminders: 0 };
 
@@ -220,6 +235,9 @@ export async function getOverviewStats(): Promise<OverviewStats> {
 // ─── 高风险工单 ────────────────────────────────────────────────────────────
 
 export async function getHighRiskIssues(limit = 20): Promise<HighRiskIssue[]> {
+  "use cache";
+  cacheDashboardQuery();
+
   const db = tryDB();
   if (!db) return [];
 
@@ -300,6 +318,9 @@ export async function getHighRiskIssues(limit = 20): Promise<HighRiskIssue[]> {
 // ─── 成员工作负载 ──────────────────────────────────────────────────────────
 
 export async function getMemberWorkload(): Promise<MemberWorkloadRow[]> {
+  "use cache";
+  cacheDashboardQuery();
+
   const db = tryDB();
   if (!db) return [];
 
@@ -364,6 +385,9 @@ export async function getMemberWorkload(): Promise<MemberWorkloadRow[]> {
 // ─── 模块 / 分类分布 ────────────────────────────────────────────────────────
 
 export async function getModuleCategoryStats(): Promise<ModuleCategoryStats> {
+  "use cache";
+  cacheDashboardQuery();
+
   const db = tryDB();
   if (!db) return { modules: [], categories: [] };
 
@@ -399,6 +423,9 @@ export async function getModuleCategoryStats(): Promise<ModuleCategoryStats> {
 // ─── 近 7 天趋势 ────────────────────────────────────────────────────────────
 
 export async function get7DayTrend(): Promise<TrendDay[]> {
+  "use cache";
+  cacheDashboardQuery();
+
   const db = tryDB();
   const days = getLast7Days();
   if (!db) return days.map((d) => ({ dateStr: d.dateStr, newIssues: 0, closedIssues: 0, reminders: 0, notifFailed: 0 }));
@@ -446,6 +473,9 @@ export async function get7DayTrend(): Promise<TrendDay[]> {
 // ─── 通知健康度 ────────────────────────────────────────────────────────────
 
 export async function getNotificationHealth(): Promise<NotificationHealth> {
+  "use cache";
+  cacheDashboardQuery();
+
   const db = tryDB();
   const empty: NotificationHealth = {
     todayTotal: 0, todaySuccess: 0, todayFailed: 0, todayFailureRate: null,
@@ -511,6 +541,9 @@ export type NotificationCoverage = {
 };
 
 export async function getNotificationCoverage(): Promise<NotificationCoverage> {
+  "use cache";
+  cacheDashboardQuery();
+
   const db = tryDB();
   if (!db) return { total: 0, withWecom: 0, withoutWecom: 0, coverageRate: 0 };
 

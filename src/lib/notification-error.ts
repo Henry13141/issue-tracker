@@ -75,5 +75,23 @@ export function normalizeNotificationError(err: unknown): NormalizedError {
     return { code: "ip_not_allowed", message: "服务器 IP 未加入企业微信可信 IP 白名单", providerResponse };
   }
 
+  // fetch 网络层失败（Node.js undici 抛出 TypeError: fetch failed，真实原因在 cause）
+  if (/fetch failed|network.*error|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET/i.test(raw)) {
+    const cause = err instanceof Error ? (err as NodeJS.ErrnoException).cause : undefined;
+    const causeMsg = cause instanceof Error ? cause.message
+      : (cause != null && typeof cause === 'object' && 'message' in cause)
+        ? String((cause as {message: unknown}).message)
+        : undefined;
+    const causeCode = (cause != null && typeof cause === 'object' && 'code' in cause)
+      ? String((cause as {code: unknown}).code)
+      : undefined;
+    const detail = [causeCode, causeMsg].filter(Boolean).join(" ");
+    return {
+      code: "provider_unknown_error",
+      message: `网络请求失败（fetch failed）${detail ? `: ${detail}` : ""}。请检查服务器出口网络是否可访问 qyapi.weixin.qq.com，或配置 WECOM_API_BASE_URL / WECOM_PROXY_URL 代理。`,
+      providerResponse: { ...providerResponse, causeCode, causeMsg },
+    };
+  }
+
   return { code: "provider_unknown_error", message: raw.slice(0, 500), providerResponse };
 }

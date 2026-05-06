@@ -1,0 +1,26 @@
+{
+  "_comment": "复制此文件为 svn-collector.config.json 并填写实际配置。config.json 不要提交到 git（已在 .gitignore 排除）。",
+
+  "workingCopyPath": "D:\\Projects\\YourGame",
+  "_workingCopyPath_comment": "UE5 项目 SVN 工作副本的本地路径。在该目录下运行 svn info 确认是有效工作副本。",
+
+  "platformUrl": "https://your-tracker.vercel.app",
+  "_platformUrl_comment": "只填域名，不要加 /api/... 路径。采集器会自动拼接成 <platformUrl>/api/svn/daily-ingest 发送请求。",
+
+  "ingestSecret": "替换为与平台环境变量 SVN_INGEST_SECRET 一致的密钥",
+  "_ingestSecret_comment": "平台侧设置环境变量 SVN_INGEST_SECRET=<同一个值>。",
+
+  "authorMap": {
+    "svn_username_1": "主策划",
+    "svn_username_2": "动作设计师",
+    "svn_username_3": "程序员A",
+    "svn_username_4": "程序员B"
+  },
+  "_authorMap_comment": "SVN 提交者用户名 -> 团队显示名的映射。运行 svn log <path> 查看 author 字段的实际值。",
+
+  "timezone": "Asia/Shanghai",
+  "_timezone_comment": "固定填 Asia/Shanghai，采集器按北京时间计算当天日期。",
+
+  "logDir": "C:\\svn-collector-logs",
+  "_logDir_comment": "本地日志目录。采集器会在此目录下按日期创建日志文件，方便排查。填 null 则不写日志文件，只输出到控制台。"
+}

@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getChinaDayBounds } from "@/lib/dates";
@@ -33,6 +33,11 @@ const issueSelect = `
   reviewer:users!issues_reviewer_id_fkey(id, email, name, role, avatar_url, created_at, updated_at),
   creator:users!issues_creator_id_fkey(id, email, name, role, avatar_url, created_at, updated_at)
 `;
+
+function revalidateDashboardPath() {
+  updateTag("dashboard");
+  revalidatePath("/dashboard");
+}
 
 export type IssueSortBy = "updated_at" | "created_at" | "due_date" | "last_activity_at" | "priority";
 export type IssueSortDir = "asc" | "desc";
@@ -637,7 +642,7 @@ export async function createIssue(input: {
   });
 
   revalidatePath("/issues");
-  revalidatePath("/dashboard");
+  revalidateDashboardPath();
   revalidatePath("/my-tasks");
   revalidatePath("/home");
   if (input.parent_issue_id) {
@@ -937,7 +942,7 @@ export async function updateIssue(
 
   revalidatePath("/issues");
   revalidatePath(`/issues/${id}`);
-  revalidatePath("/dashboard");
+  revalidateDashboardPath();
   revalidatePath("/my-tasks");
   revalidatePath("/home");
 }
@@ -947,7 +952,7 @@ export async function deleteIssue(id: string) {
   const { error } = await supabase.from("issues").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/issues");
-  revalidatePath("/dashboard");
+  revalidateDashboardPath();
 }
 
 export async function addIssueUpdate(
@@ -1143,7 +1148,7 @@ export async function addIssueUpdate(
   revalidatePath("/issues");
   revalidatePath("/my-tasks");
   revalidatePath("/home");
-  revalidatePath("/dashboard");
+  revalidateDashboardPath();
 }
 
 export async function bulkCreateIssues(
@@ -1209,7 +1214,7 @@ export async function bulkCreateIssues(
   }
 
   revalidatePath("/issues");
-  revalidatePath("/dashboard");
+  revalidateDashboardPath();
   revalidatePath("/my-tasks");
   revalidatePath("/home");
   return inserts.length;
@@ -1566,7 +1571,7 @@ export async function handoverIssue(params: {
   revalidatePath("/issues");
   revalidatePath("/my-tasks");
   revalidatePath("/home");
-  revalidatePath("/dashboard");
+  revalidateDashboardPath();
 
   return {};
 }
@@ -1642,7 +1647,7 @@ export async function toggleSubtaskCompletion(subtaskId: string, completed: bool
   revalidatePath(`/issues/${subtaskId}`);
   revalidatePath(`/issues/${subtask.parent_issue_id}`);
   revalidatePath("/issues");
-  revalidatePath("/dashboard");
+  revalidateDashboardPath();
   revalidatePath("/my-tasks");
   revalidatePath("/home");
 }

@@ -442,6 +442,9 @@ export async function listSeedanceTasks(params?: {
 }
 
 function translateArkError(message: string): string {
+  if (/input image may contain real person|may contain real person/i.test(message)) {
+    return "参考图可能包含真实人物或人脸，Seedance 当前拒绝处理。请改用不含真人的角色设定图，或遮挡/替换人脸后重试。";
+  }
   if (/video total duration.*must be less than or equal to/i.test(message)) {
     const match = message.match(/less than or equal to ([\d.]+)/i);
     const limit = match ? match[1] : "15.2";

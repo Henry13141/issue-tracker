@@ -23,6 +23,7 @@ const MEMBER_DEPENDENT_PATHS = [
 
 function invalidateMembersCache() {
   updateTag("members");
+  updateTag("dashboard");
   for (const path of MEMBER_DEPENDENT_PATHS) {
     revalidatePath(path);
   }

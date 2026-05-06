@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
-import { Home, LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send, Sparkles, Activity, Landmark, Mic } from "lucide-react";
+import { Home, LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send, Sparkles, Activity, Landmark, Mic, GitCommitHorizontal } from "lucide-react";
 
 const nav = [
   { href: "/home",                    label: "工作台",     icon: Home },
@@ -21,6 +21,7 @@ const nav = [
   { href: "/issues",                  label: "问题列表",   icon: ListTodo },
   { href: "/my-tasks",                label: "我的任务",   icon: ClipboardList },
   { href: "/reminders",               label: "待你回应",   icon: Bell },
+  { href: "/svn-reports",             label: "研发日报",   icon: GitCommitHorizontal },
   { href: "/seedance",                label: "Seedance 2.0", icon: Sparkles },
   { href: "/tts",                     label: "语音合成",   icon: Mic },
 ];
