@@ -21,9 +21,9 @@ const nav = [
   { href: "/issues",                  label: "问题列表",   icon: ListTodo },
   { href: "/my-tasks",                label: "我的任务",   icon: ClipboardList },
   { href: "/reminders",               label: "待你回应",   icon: Bell },
-  { href: "/svn-reports",             label: "研发日报",   icon: GitCommitHorizontal },
-  { href: "/seedance",                label: "Seedance 2.0", icon: Sparkles },
-  { href: "/tts",                     label: "语音合成",   icon: Mic },
+  { href: "/svn-reports",             label: "研发日报",   icon: GitCommitHorizontal, adminOnly: true },
+  { href: "/seedance",                label: "Seedance 2.0", icon: Sparkles,            adminOnly: true },
+  { href: "/tts",                     label: "语音合成",   icon: Mic,                  adminOnly: true },
 ];
 
 export function SidebarPanel({

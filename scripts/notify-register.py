@@ -1,12 +1,19 @@
-"""9:30（北京时间）给全员发钉钉工作通知，提醒注册米伽米工单管理系统。"""
+"""9:30（北京时间）给全员发钉钉工作通知，提醒注册米伽米工单管理系统。
 
-import json, time, urllib.request, urllib.parse
+使用前先设置环境变量：
+  export DINGTALK_APP_KEY="..."
+  export DINGTALK_APP_SECRET="..."
+  export DINGTALK_AGENT_ID="..."
+  export APP_URL="https://..."         # 可选，默认已内置
+"""
+
+import json, os, time, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
 
-APP_KEY = "REDACTED_APP_KEY"
-APP_SECRET = "REDACTED_APP_SECRET"
-AGENT_ID = "REDACTED_AGENT_ID"
-APP_URL = "https://issue-tracker-nu-sandy.vercel.app"
+APP_KEY    = os.environ["DINGTALK_APP_KEY"]
+APP_SECRET = os.environ["DINGTALK_APP_SECRET"]
+AGENT_ID   = os.environ["DINGTALK_AGENT_ID"]
+APP_URL    = os.environ.get("APP_URL", "https://issue-tracker-nu-sandy.vercel.app")
 
 USERS = [
     "0113566156491177224",   # 郝毅

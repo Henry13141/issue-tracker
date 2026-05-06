@@ -14,7 +14,7 @@ const PROTECTED_PREFIXES = [
   "/tts",
 ];
 
-export async function proxy(request: NextRequest) {
+export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith("/api")) {

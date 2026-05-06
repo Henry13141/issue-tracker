@@ -207,6 +207,13 @@ function decodeXmlText(text) {
 
 // ─── 推送到平台 ─────────────────────────────────────────────────────────────
 
+const PUSH_MAX_RETRIES = 3;
+const PUSH_RETRY_DELAY_MS = 3000;
+
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function pushToPlatform(cfg, reportDate, commits) {
   const payload = {
     reportDate,
@@ -218,27 +225,52 @@ async function pushToPlatform(cfg, reportDate, commits) {
   info(`推送到平台：${url}`);
   info(`提交数量：${commits.length}`);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-svn-ingest-secret": cfg.ingestSecret,
-    },
-    body: JSON.stringify(payload),
-  });
+  let lastError;
+  for (let attempt = 1; attempt <= PUSH_MAX_RETRIES; attempt++) {
+    if (attempt > 1) {
+      info(`第 ${attempt} 次重试，等待 ${PUSH_RETRY_DELAY_MS / 1000}s…`);
+      await sleep(PUSH_RETRY_DELAY_MS);
+    }
 
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`平台返回错误 ${res.status}：${text}`);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-svn-ingest-secret": cfg.ingestSecret,
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (fetchErr) {
+      lastError = new Error(`网络请求失败：${fetchErr.message}`);
+      warn(`推送失败（attempt ${attempt}/${PUSH_MAX_RETRIES}）：${lastError.message}`);
+      continue;
+    }
+
+    const text = await res.text();
+
+    // 4xx 鉴权/参数错误不重试，直接抛出
+    if (res.status >= 400 && res.status < 500) {
+      throw new Error(`平台返回 ${res.status}（不重试）：${text}`);
+    }
+
+    if (!res.ok) {
+      lastError = new Error(`平台返回错误 ${res.status}：${text}`);
+      warn(`推送失败（attempt ${attempt}/${PUSH_MAX_RETRIES}）：${lastError.message}`);
+      continue;
+    }
+
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch {
+      result = text;
+    }
+    return result;
   }
 
-  let result;
-  try {
-    result = JSON.parse(text);
-  } catch {
-    result = text;
-  }
-  return result;
+  throw lastError ?? new Error("推送失败，已用尽重试次数");
 }
 
 // ─── 主流程 ─────────────────────────────────────────────────────────────────

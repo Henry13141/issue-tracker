@@ -53,3 +53,6 @@ next-env.d.ts
 # SVN 采集器本地配置（含密钥，不提交）
 scripts/svn-collector.config.json
 scripts/svn-collector-logs/
+
+# 钉钉推送脚本（含敏感凭据，不提交实际使用的副本）
+scripts/notify-register.py
