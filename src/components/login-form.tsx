@@ -37,7 +37,7 @@ export function LoginForm({
   useEffect(() => {
     const err = searchParams.get("error");
     const desc = searchParams.get("error_description");
-    if ((err === "wecom" || err === "dingtalk") && desc) {
+    if (err === "wecom" && desc) {
       try {
         toast.error(decodeURIComponent(desc));
       } catch {

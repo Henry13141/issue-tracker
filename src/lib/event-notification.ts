@@ -18,7 +18,7 @@
  *
  * 不涉及：
  *   Cron 催办（daily-reminder / morning-assignee-digest / admin-escalation）
- *   进度更新内容通知（dingtalkAfterProgressUpdate，继续独立运行）
+ *   进度更新内容通知（notifyAdminsOnProgressUpdate）
  */
 
 import type { IssueStatus, IssuePriority } from "@/types";
@@ -517,7 +517,7 @@ function formatChangeLine(
   }
 }
 
-// ─── 进度更新相关通知（原 issue-dingtalk-notify.ts 迁入）─────────────────────
+// ─── 进度更新相关通知 ─────────────────────────────────────────────────────────
 
 function formatIssueTitle(title: string): string {
   return `「${title}」`;
