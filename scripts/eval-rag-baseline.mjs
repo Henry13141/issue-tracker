@@ -7,7 +7,7 @@ const SNAPSHOT_PATH = `${REPO}/scripts/RAG_BASELINE_SNAPSHOT.md`;
 const ARK_EMBEDDING_URL = "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal";
 const ARK_EMBEDDING_MODEL = "doubao-embedding-vision-251215";
 const MIN_KNOWLEDGE_SIMILARITY = 0.25;
-const MATCH_COUNT = 5;
+const MATCH_COUNT = 12;
 
 const QUESTIONS = [
   {
@@ -15,7 +15,7 @@ const QUESTIONS = [
     question: "问题追踪系统的核心功能和知识库模块是怎么设计的？",
   },
   {
-    project_name: "GameParty",
+    project_name: "GameParty / 欢乐客栈",
     question: "GameParty 项目的整体架构和部署方式是什么？",
   },
   {
@@ -174,19 +174,19 @@ function aggregateRetrievedArticles(chunks) {
 
 async function askDirect(supabase, item) {
   const queryEmbedding = await createEmbedding(item.question);
-  const { data: rawChunks, error } = await supabase.rpc("match_knowledge_chunks", {
+  const { data: rawChunks, error } = await supabase.rpc("match_knowledge_chunks_v2", {
     query_embedding: queryEmbedding,
     match_count: MATCH_COUNT,
     only_approved: true,
+    filter_project_name: item.project_name,
+    min_similarity: MIN_KNOWLEDGE_SIMILARITY,
   });
 
-  if (error) throw new Error(`match_knowledge_chunks failed: ${error.message}`);
+  if (error) throw new Error(`match_knowledge_chunks_v2 failed: ${error.message}`);
 
   const rawChunkList = rawChunks || [];
   const chunks = rawChunkList.filter(
-    (chunk) =>
-      chunk.similarity >= MIN_KNOWLEDGE_SIMILARITY &&
-      String(chunk.chunk_content || "").trim().length >= 100,
+    (chunk) => String(chunk.chunk_content || "").trim().length >= 100,
   );
 
   // 召回元信息：过滤前/后 chunk 数 + 按文章聚合（含 top similarity 与 chunk 数）
@@ -221,11 +221,15 @@ async function askDirect(supabase, item) {
   const verifiedCitations = (parsed.citations || []).filter((citation) =>
     retrievedArticleIdsSet.has(citation.id),
   );
+  const seenCitationIds = new Set();
+  const dedupedCitations = verifiedCitations.filter((citation) =>
+    seenCitationIds.has(citation.id) ? false : (seenCitationIds.add(citation.id), true),
+  );
 
   return {
     question: item.question,
     project_name: item.project_name,
-    cited_article_ids: verifiedCitations.map((citation) => citation.id),
+    cited_article_ids: dedupedCitations.map((citation) => citation.id),
     similarity_top1: rawChunks?.[0]?.similarity ?? null,
     retrieved_chunks: `${retrievedChunkCountRaw}→${retrievedChunkCountFiltered}`,
     retrieved_articles: retrievedArticles,

@@ -628,12 +628,12 @@ export async function chatWithAssistant(
 
   // ── 1. 并行拉取：组织记忆 + 实时数据 + 知识库 RAG ───────────────────
   type KnowledgeChunk = {
-    chunk_id: string;
     article_id: string;
     article_title: string;
-    category: string;
+    module: string | null;
+    project_name: string | null;
+    chunk_index: number;
     chunk_content: string;
-    similarity: number;
   };
 
   const [memoryContext, realtimeResult, knowledgeChunks] = await Promise.all([
@@ -663,14 +663,16 @@ export async function chatWithAssistant(
         const embedding = await createEmbedding(message);
         if (!embedding) return [];
         const admin = createAdminClient();
-        const { data, error } = await admin.rpc("match_knowledge_chunks", {
+        const { data, error } = await admin.rpc("match_knowledge_chunks_v2", {
           query_embedding: embedding,
-          match_count: 4,
+          match_count: 6,
           only_approved: true,
+          filter_project_name: null,
+          min_similarity: MIN_KNOWLEDGE_SIMILARITY,
         });
         if (error || !data) return [];
         return (data as KnowledgeChunk[]).filter(
-          (c) => c.similarity >= MIN_KNOWLEDGE_SIMILARITY && c.chunk_content.trim().length >= 100,
+          (c) => c.chunk_content.trim().length >= 100,
         );
       } catch {
         return [];

@@ -5,7 +5,7 @@ import { chatCompletion, createEmbedding, isAIConfigured, MIN_KNOWLEDGE_SIMILARI
 import type { KnowledgeAskResponse } from "@/types";
 
 const MAX_QUESTION_LEN = 500;
-const MATCH_COUNT = 5;
+const MATCH_COUNT = 12;
 
 export async function POST(req: NextRequest) {
   // ── 鉴权 ────────────────────────────────────────────────────────────────
@@ -48,16 +48,18 @@ export async function POST(req: NextRequest) {
   // ── Step 2：向量检索相关知识块 ────────────────────────────────────────────
   const admin = createAdminClient();
   const { data: rawChunks, error: rpcErr } = await admin.rpc(
-    "match_knowledge_chunks",
+    "match_knowledge_chunks_v2",
     {
       query_embedding: queryEmbedding,
       match_count: MATCH_COUNT,
       only_approved: true,
+      filter_project_name: projectName,
+      min_similarity: MIN_KNOWLEDGE_SIMILARITY,
     }
   );
 
   if (rpcErr) {
-    console.error("[ask] match_knowledge_chunks error:", rpcErr.message);
+    console.error("[ask] match_knowledge_chunks_v2 error:", rpcErr.message);
     return NextResponse.json({ error: "检索失败，请稍后重试" }, { status: 503 });
   }
 
@@ -65,16 +67,15 @@ export async function POST(req: NextRequest) {
     chunk_id: string;
     article_id: string;
     article_title: string;
-    category: string;
+    module: string | null;
+    project_name: string | null;
+    chunk_index: number;
     chunk_content: string;
-    similarity: number;
   };
 
-  // 过滤低相似度和过短的块
-  // TODO: project_name 过滤需升级 match_knowledge_chunks RPC，在 articles 表 JOIN 时加 project_name 条件；
-  //       当前 RPC 返回字段无 project_name，客户端无法过滤，暂标记此处待处理。
+  // similarity / project_name 已在 RPC 层过滤；客户端保留更严格的最小片段长度保护。
   const chunks = ((rawChunks as RawChunk[]) ?? []).filter(
-    (c) => c.similarity >= MIN_KNOWLEDGE_SIMILARITY && c.chunk_content.trim().length >= 100
+    (c) => c.chunk_content.trim().length >= 100
   );
 
   // ── Step 3：构造 RAG Prompt ───────────────────────────────────────────────
@@ -140,9 +141,13 @@ ${noBasis ? "（知识库中未检索到相关内容，请直接返回 no_basis:
   // 只保留真实出现在检索结果中的 article_id，消除 LLM 伪造引用
   const retrievedArticleIds = new Set(chunks.map((c) => c.article_id));
   const verifiedCitations = (parsed.citations ?? []).filter((c) => retrievedArticleIds.has(c.id));
+  const seenCitationIds = new Set<string>();
+  const dedupedCitations = verifiedCitations.filter((c) =>
+    seenCitationIds.has(c.id) ? false : (seenCitationIds.add(c.id), true)
+  );
 
   // ── Step 5：持久化问答日志 ────────────────────────────────────────────────
-  const citedArticleIds = verifiedCitations.map((c) => c.id).filter(Boolean);
+  const citedArticleIds = dedupedCitations.map((c) => c.id).filter(Boolean);
   const citedChunkIds = chunks.map((c) => c.chunk_id);
 
   await admin.from("knowledge_ai_answers").insert({
@@ -158,7 +163,7 @@ ${noBasis ? "（知识库中未检索到相关内容，请直接返回 no_basis:
   // ── Step 6：返回结构化响应 ────────────────────────────────────────────────
   const response: KnowledgeAskResponse = {
     answer: parsed.answer,
-    citations: verifiedCitations,
+    citations: dedupedCitations,
     confidence: (parsed.confidence as KnowledgeAskResponse["confidence"]) ?? "low",
     no_basis: parsed.no_basis ?? noBasis,
     risk_notes: parsed.risk_notes ?? null,
