@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { canAccessFinanceOps, getUserRoleLabel } from "@/lib/permissions";
+import { canAccessFinanceOps, canAccessSeedance, getUserRoleLabel } from "@/lib/permissions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,7 +22,7 @@ const nav = [
   { href: "/my-tasks",                label: "我的任务",   icon: ClipboardList },
   { href: "/reminders",               label: "待你回应",   icon: Bell },
   { href: "/svn-reports",             label: "研发日报",   icon: GitCommitHorizontal, adminOnly: true },
-  { href: "/seedance",                label: "Seedance 2.0", icon: Sparkles,            adminOnly: true },
+  { href: "/seedance",                label: "Seedance 2.0", icon: Sparkles,            seedanceOnly: true },
   { href: "/tts",                     label: "语音合成",   icon: Mic },
 ];
 
@@ -64,6 +64,7 @@ export function SidebarPanel({
           .filter((item) => {
             if (item.adminOnly && user.role !== "admin") return false;
             if (item.financeOpsOnly && !canAccessFinanceOps(user)) return false;
+            if (item.seedanceOnly && !canAccessSeedance(user)) return false;
             return true;
           })
           .map((item) => {

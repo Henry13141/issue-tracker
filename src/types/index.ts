@@ -81,6 +81,7 @@ export interface User {
   avatar_url: string | null;
   wecom_userid: string | null;
   can_access_finance_ops: boolean;
+  can_access_seedance: boolean;
   created_at: string;
   updated_at: string;
 }
