@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { addIssueUpdate, addUpdateComment } from "@/actions/issues";
+import { addIssueUpdate, addUpdateComment, summarizeIssueDiscussion } from "@/actions/issues";
 import { deleteAttachment } from "@/actions/attachments";
 import type {
   IssueAttachmentWithUrl,
@@ -31,7 +31,7 @@ import { Separator } from "@/components/ui/separator";
 import { UserAvatar } from "@/components/user-avatar";
 import { formatDateTime } from "@/lib/dates";
 import { ISSUE_STATUS_LABELS } from "@/lib/constants";
-import { MessageSquare, Send } from "lucide-react";
+import { ChevronDown, ChevronUp, MessageSquare, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { QuickIssueUpdateDialog } from "@/components/quick-issue-update-dialog";
 
@@ -52,6 +52,9 @@ export function IssueUpdatesClient({
   const [updateClosedReason, setUpdateClosedReason] = useState("");
   const [savingUpdate, setSavingUpdate] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<IssueAttachmentWithUrl[]>([]);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [summaryExpanded, setSummaryExpanded] = useState(true);
   const [updateAttachments, setUpdateAttachments] = useState<Record<string, IssueAttachmentWithUrl[]>>(
     Object.fromEntries(initialUpdates.map((u) => [u.id, (u.attachments ?? []) as IssueAttachmentWithUrl[]]))
   );
@@ -139,18 +142,71 @@ export function IssueUpdatesClient({
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>进度时间线</CardTitle>
-          <QuickIssueUpdateDialog
-            issueId={issue.id}
-            source="issue_detail"
-            trigger={
-              <Button type="button" variant="outline" size="sm" className="w-full shrink-0 sm:w-auto">
-                弹窗快速写一句
+          <div className="flex flex-wrap gap-2">
+            {initialUpdates.filter((u) => !u.is_system_generated).length >= 3 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                disabled={generatingSummary}
+                onClick={async () => {
+                  setGeneratingSummary(true);
+                  try {
+                    const result = await summarizeIssueDiscussion(issue.id);
+                    if ("error" in result) {
+                      toast.error(result.error);
+                    } else {
+                      setAiSummary(result.summary);
+                      setSummaryExpanded(true);
+                    }
+                  } finally {
+                    setGeneratingSummary(false);
+                  }
+                }}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {generatingSummary ? "总结中…" : "AI 总结"}
               </Button>
-            }
-          />
+            )}
+            <QuickIssueUpdateDialog
+              issueId={issue.id}
+              source="issue_detail"
+              trigger={
+                <Button type="button" variant="outline" size="sm" className="w-full shrink-0 sm:w-auto">
+                  弹窗快速写一句
+                </Button>
+              }
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4">
+        {aiSummary && (
+          <div className="rounded-lg border bg-muted/20 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-sm font-medium">
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                AI 总结
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={() => setSummaryExpanded((v) => !v)}
+              >
+                {summaryExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+            {summaryExpanded && (
+              <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                {aiSummary}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="space-y-4">
           {initialUpdates.length === 0 ? (
             <p className="text-sm text-muted-foreground">还没有进度记录，添加第一条进展来启动推进轨迹</p>

@@ -773,3 +773,20 @@ function splitIntoChunks(text: string, maxLen: number): string[] {
 }
 
 // 让非 admin 知道哪些 status 变更是被允许的 — 移至组件内内联定义，避免从 "use server" 导出非异步值
+
+export async function generateArticleSummary(
+  title: string,
+  content: string
+): Promise<{ summary: string } | { error: string }> {
+  if (!isAIConfigured()) return { error: "AI 未配置" };
+  const user = await getCurrentUser();
+  if (!user) return { error: "未登录" };
+  if (!title.trim() && !content.trim()) return { error: "标题和内容不能都为空" };
+
+  const result = await chatCompletion(
+    "你是知识库编辑，用不超过 50 字总结文章核心内容，只返回摘要文本，不要任何解释或标点前缀。",
+    `标题：${title}\n\n正文：${content.slice(0, 3000)}`
+  );
+  if (!result) return { error: "AI 生成失败" };
+  return { summary: result.trim().slice(0, 100) };
+}

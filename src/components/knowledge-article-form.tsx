@@ -24,8 +24,10 @@ import type {
 import {
   createKnowledgeArticle,
   updateKnowledgeArticle,
+  generateArticleSummary,
   type CreateKnowledgeArticleInput,
 } from "@/actions/knowledge";
+import { Sparkles } from "lucide-react";
 import { CATEGORY_LABELS } from "@/components/knowledge-list-client";
 
 interface Props {
@@ -47,6 +49,7 @@ export function KnowledgeArticleForm({ article, members, defaultIssueId: _ }: Pr
   const [version, setVersion] = useState(article?.version ?? "v1.0");
   const [summary, setSummary] = useState(article?.summary ?? "");
   const [content, setContent] = useState(article?.content ?? "");
+  const [generatingSummary, setGeneratingSummary] = useState(false);
   const [ownerId, setOwnerId] = useState(article?.owner_id ?? "");  const [isPinned, setIsPinned] = useState(article?.is_pinned ?? false);
   const [isAiSearchable, setIsAiSearchable] = useState(article?.is_ai_searchable ?? true);
   const [changeNote, setChangeNote] = useState("");
@@ -119,7 +122,33 @@ export function KnowledgeArticleForm({ article, members, defaultIssueId: _ }: Pr
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="summary">摘要</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="summary">摘要</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2 text-xs text-muted-foreground"
+                disabled={!content.trim() || generatingSummary}
+                onClick={async () => {
+                  setGeneratingSummary(true);
+                  try {
+                    const result = await generateArticleSummary(title, content);
+                    if ("error" in result) {
+                      toast.error(result.error);
+                    } else {
+                      setSummary(result.summary);
+                      toast.success("摘要已生成");
+                    }
+                  } finally {
+                    setGeneratingSummary(false);
+                  }
+                }}
+              >
+                <Sparkles className="h-3 w-3" />
+                {generatingSummary ? "生成中…" : "AI 生成"}
+              </Button>
+            </div>
             <Textarea
               id="summary"
               value={summary}

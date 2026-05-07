@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
+import { chatCompletion, isAIConfigured } from "@/lib/ai";
 import { getChinaDayBounds } from "@/lib/dates";
 import { ACTIVE_STATUSES, isIssueCategory, isIssueModule } from "@/lib/constants";
 import { validateTransition, validateTransitionActor, isReopenTransition } from "@/lib/issue-state-machine";
@@ -1847,4 +1848,72 @@ async function getDefaultReviewerId(
     .sort((a, b) => b.score - a.score);
 
   return scored[0]?.id ?? null;
+}
+
+export async function summarizeIssueDiscussion(
+  issueId: string
+): Promise<{ summary: string } | { error: string }> {
+  if (!isAIConfigured()) return { error: "AI 未配置" };
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: "未登录" };
+
+  const [issueRes, updatesRes] = await Promise.all([
+    supabase
+      .from("issues")
+      .select("title, description, status")
+      .eq("id", issueId)
+      .single(),
+    supabase
+      .from("issue_updates")
+      .select(`content, status_from, status_to, created_at, is_system_generated, user:users!issue_updates_user_id_fkey(name)`)
+      .eq("issue_id", issueId)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  if (issueRes.error || !issueRes.data) return { error: "问题不存在" };
+  const issue = issueRes.data;
+
+  const rawUpdates = (updatesRes.data ?? []) as unknown as {
+    content: string;
+    status_from: string | null;
+    status_to: string | null;
+    created_at: string;
+    is_system_generated: boolean;
+    user: { name: string } | { name: string }[] | null;
+  }[];
+
+  const humanUpdates = rawUpdates.filter((u) => !u.is_system_generated && u.content.trim());
+  if (humanUpdates.length === 0) return { error: "暂无可总结的讨论内容" };
+
+  const lines: string[] = [
+    `问题标题：${issue.title}`,
+    `描述：${issue.description || "无"}`,
+    `当前状态：${issue.status}`,
+    "",
+    "讨论记录：",
+  ];
+
+  for (const u of humanUpdates) {
+    const name = Array.isArray(u.user) ? u.user[0]?.name ?? "成员" : (u.user as { name: string } | null)?.name ?? "成员";
+    const date = u.created_at.slice(0, 10);
+    const statusNote =
+      u.status_from && u.status_to && u.status_from !== u.status_to
+        ? ` [${u.status_from}→${u.status_to}]`
+        : "";
+    lines.push(`[${date} ${name}${statusNote}] ${u.content.trim()}`);
+  }
+
+  const result = await chatCompletion(
+    `你是项目管理助手。请根据以下问题的讨论记录，输出简洁的 Markdown 总结。
+格式严格如下，不要添加其他内容：
+**根因**：（一句话说明问题根本原因，若不明确则填"暂未明确"）
+**处理过程**：（2-4 条要点，每条以"- "开头）
+**解决方案**：（一句话或2条以内要点）`,
+    lines.join("\n"),
+    { maxTokens: 512, disableThinking: true }
+  );
+
+  if (!result) return { error: "AI 生成失败" };
+  return { summary: result.trim() };
 }
