@@ -9,6 +9,7 @@ const ARK_EMBEDDING_URL = "https://ark.cn-beijing.volces.com/api/v3/embeddings/m
 const ARK_EMBEDDING_MODEL = "doubao-embedding-vision-251215";
 const MIN_KNOWLEDGE_SIMILARITY = 0.25;
 const MATCH_COUNT = 12;
+const MIN_CHUNK_CONTENT_LEN = 50;
 const USE_HYBRID = process.env.USE_HYBRID === "1";
 const SEARCH_MODE = USE_HYBRID ? "hybrid" : "vector";
 
@@ -256,7 +257,7 @@ async function askDirect(supabase, item) {
   }
 
   const chunks = rawChunkList.filter(
-    (chunk) => String(chunk.chunk_content || "").trim().length >= 100,
+    (chunk) => String(chunk.chunk_content || "").trim().length >= MIN_CHUNK_CONTENT_LEN,
   );
 
   // 召回元信息：过滤前/后 chunk 数 + 按文章聚合（含 top similarity 与 chunk 数）
@@ -429,7 +430,7 @@ function renderResults(results, summary, collectedAt, vectorComparison) {
 | Hybrid source=both chunk 占比 | ${(summary.bothChunkRatio * 100).toFixed(1)}% |
 | Hybrid 比 Vector-only 多召回 distinct articles | ${formatVectorComparison(vectorComparison)} |
 
-> 字段说明：\`retrieved_articles\` 表示按 article_id 聚合后的召回结果，格式 \`<short_id>(<top_score>×<chunk_count>, <source>)\`；source 中 \`both\` 代表向量与 FTS 两路都命中，是更强的相关性信号。\`retrieved_chunks\` 显示 \`过滤前→过滤后\` 的 chunk 总数（过滤条件：SQL 相似度 ≥ ${MIN_KNOWLEDGE_SIMILARITY} 且客户端 chunk 长度 ≥ 100）。
+> 字段说明：\`retrieved_articles\` 表示按 article_id 聚合后的召回结果，格式 \`<short_id>(<top_score>×<chunk_count>, <source>)\`；source 中 \`both\` 代表向量与 FTS 两路都命中，是更强的相关性信号。\`retrieved_chunks\` 显示 \`过滤前→过滤后\` 的 chunk 总数（过滤条件：SQL 相似度 ≥ ${MIN_KNOWLEDGE_SIMILARITY} 且客户端 chunk 长度 ≥ ${MIN_CHUNK_CONTENT_LEN}）。
 
 ### 逐题详情
 

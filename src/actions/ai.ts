@@ -672,7 +672,7 @@ export async function chatWithAssistant(
         });
         if (error || !data) return [];
         return (data as KnowledgeChunk[]).filter(
-          (c) => c.chunk_content.trim().length >= 100,
+          (c) => c.chunk_content.trim().length >= 50,
         );
       } catch {
         return [];

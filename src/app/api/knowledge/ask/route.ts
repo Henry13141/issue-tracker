@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { chatCompletion, createEmbedding, isAIConfigured, MIN_KNOWLEDGE_SIMILARITY } from "@/lib/ai";
+import { hybridSearchChunks, isHybridEnabled } from "@/lib/rag/hybrid-search";
 import type { KnowledgeAskResponse } from "@/types";
 
 const MAX_QUESTION_LEN = 500;
 const MATCH_COUNT = 12;
+const MIN_CHUNK_CONTENT_LEN = 50;
 
 export async function POST(req: NextRequest) {
   // ── 鉴权 ────────────────────────────────────────────────────────────────
@@ -36,33 +38,6 @@ export async function POST(req: NextRequest) {
   }
   const projectName = body.project_name?.trim() || null;
 
-  // ── Step 1：向量化问题 ────────────────────────────────────────────────────
-  const queryEmbedding = await createEmbedding(question);
-  if (!queryEmbedding) {
-    return NextResponse.json(
-      { error: "向量化失败，请稍后重试" },
-      { status: 503 }
-    );
-  }
-
-  // ── Step 2：向量检索相关知识块 ────────────────────────────────────────────
-  const admin = createAdminClient();
-  const { data: rawChunks, error: rpcErr } = await admin.rpc(
-    "match_knowledge_chunks_v2",
-    {
-      query_embedding: queryEmbedding,
-      match_count: MATCH_COUNT,
-      only_approved: true,
-      filter_project_name: projectName,
-      min_similarity: MIN_KNOWLEDGE_SIMILARITY,
-    }
-  );
-
-  if (rpcErr) {
-    console.error("[ask] match_knowledge_chunks_v2 error:", rpcErr.message);
-    return NextResponse.json({ error: "检索失败，请稍后重试" }, { status: 503 });
-  }
-
   type RawChunk = {
     chunk_id: string;
     article_id: string;
@@ -73,9 +48,50 @@ export async function POST(req: NextRequest) {
     chunk_content: string;
   };
 
-  // similarity / project_name 已在 RPC 层过滤；客户端保留更严格的最小片段长度保护。
-  const chunks = ((rawChunks as RawChunk[]) ?? []).filter(
-    (c) => c.chunk_content.trim().length >= 100
+  // ── Step 1/2：检索相关知识块（默认 hybrid，可用 RAG_HYBRID_ENABLED=false 回退）────
+  const admin = createAdminClient();
+  let rawChunks: RawChunk[] = [];
+
+  if (isHybridEnabled()) {
+    rawChunks = await hybridSearchChunks(question, {
+      matchCount: MATCH_COUNT,
+      onlyApproved: true,
+      filterProjectName: projectName,
+      minSimilarity: MIN_KNOWLEDGE_SIMILARITY,
+      adminClient: admin,
+      candidatesPerSource: MATCH_COUNT * 3,
+    });
+  } else {
+    const queryEmbedding = await createEmbedding(question);
+    if (!queryEmbedding) {
+      return NextResponse.json(
+        { error: "向量化失败，请稍后重试" },
+        { status: 503 }
+      );
+    }
+
+    const { data, error: rpcErr } = await admin.rpc(
+      "match_knowledge_chunks_v2",
+      {
+        query_embedding: queryEmbedding,
+        match_count: MATCH_COUNT,
+        only_approved: true,
+        filter_project_name: projectName,
+        min_similarity: MIN_KNOWLEDGE_SIMILARITY,
+      }
+    );
+
+    if (rpcErr) {
+      console.error("[ask] match_knowledge_chunks_v2 error:", rpcErr.message);
+      return NextResponse.json({ error: "检索失败，请稍后重试" }, { status: 503 });
+    }
+
+    rawChunks = (data as RawChunk[]) ?? [];
+  }
+
+  // similarity / project_name 已在 RPC 层过滤；客户端长度保护与 RPC 的 source of truth 保持一致。
+  const chunks = rawChunks.filter(
+    (c) => c.chunk_content.trim().length >= MIN_CHUNK_CONTENT_LEN
   );
 
   // ── Step 3：构造 RAG Prompt ───────────────────────────────────────────────

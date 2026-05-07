@@ -4,6 +4,12 @@ type RpcClient = {
   rpc<T = unknown>(fn: string, args?: Record<string, unknown>): PromiseLike<RpcResult<T>>;
 };
 
+export function isHybridEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.RAG_HYBRID_ENABLED !== "false";
+}
+
 type VectorRow = {
   chunk_id: string;
   article_id: string;
