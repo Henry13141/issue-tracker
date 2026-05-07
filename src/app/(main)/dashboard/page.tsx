@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+
+export const maxDuration = 300;
 import { getCurrentUser } from "@/lib/auth";
 import {
   getOverviewStats,

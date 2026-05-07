@@ -14,6 +14,8 @@ import { NextResponse } from "next/server";
 import { authorizeCronRequest } from "@/lib/cron-auth";
 import { runOrganizationLearning } from "@/lib/ai-learning";
 
+export const maxDuration = 300;
+
 export async function GET(request: Request) {
   const auth = authorizeCronRequest(request);
   if (!auth.ok) {

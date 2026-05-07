@@ -1,6 +1,16 @@
 import OpenAI from "openai";
+import fs from "fs";
 
 let _client: OpenAI | null = null;
+
+// #region agent log
+function _dbgLog(payload: Record<string, unknown>) {
+  try {
+    const line = JSON.stringify({ sessionId: "bfab1b", timestamp: Date.now(), ...payload }) + "\n";
+    fs.appendFileSync("/Users/haoyi/issue-tracker/.cursor/debug-bfab1b.log", line);
+  } catch {}
+}
+// #endregion
 const ARK_EMBEDDING_URL = "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal";
 const ARK_EMBEDDING_MODEL = "doubao-embedding-vision-251215";
 
@@ -36,7 +46,11 @@ function getClient(): OpenAI | null {
 }
 
 export function isAIConfigured(): boolean {
-  return Boolean(process.env.MOONSHOT_API_KEY);
+  const configured = Boolean(process.env.MOONSHOT_API_KEY);
+  // #region agent log
+  _dbgLog({ location: "ai.ts:isAIConfigured", hypothesisId: "H2", message: "AI configured check", data: { configured, keyPrefix: process.env.MOONSHOT_API_KEY?.slice(0, 8) ?? null } });
+  // #endregion
+  return configured;
 }
 
 export async function chatCompletionFromMessages(
@@ -46,6 +60,9 @@ export async function chatCompletionFromMessages(
   const client = getClient();
   if (!client) return null;
 
+  // #region agent log
+  _dbgLog({ location: "ai.ts:chatCompletionFromMessages:start", hypothesisId: "H1,H3", message: "API call starting", data: { model: "kimi-k2.6", maxTokens: opts?.maxTokens ?? 1024, disableThinking: opts?.disableThinking ?? false, messageCount: messages.length } });
+  // #endregion
   try {
     const res = await client.chat.completions.create({
       model: "kimi-k2.6",
@@ -60,11 +77,22 @@ export async function chatCompletionFromMessages(
         (res.choices[0]?.message as { reasoning_content?: string } | undefined)?.reasoning_content,
       );
       console.warn("[ai] empty completion content", { finishReason, hasReasoning });
+      // #region agent log
+      _dbgLog({ location: "ai.ts:chatCompletionFromMessages:empty", hypothesisId: "H1,H5", message: "empty content returned", data: { finishReason, hasReasoning } });
+      // #endregion
       return null;
     }
+    // #region agent log
+    _dbgLog({ location: "ai.ts:chatCompletionFromMessages:success", hypothesisId: "H1", message: "API call success", data: { contentLength: content.length, contentPrefix: content.slice(0, 80) } });
+    // #endregion
     return content;
   } catch (e) {
-    console.error("[ai] chatCompletion failed:", e instanceof Error ? e.message : e);
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const errStatus = (e as { status?: number }).status;
+    console.error("[ai] chatCompletion failed:", errMsg);
+    // #region agent log
+    _dbgLog({ location: "ai.ts:chatCompletionFromMessages:error", hypothesisId: "H1,H3,H4", message: "API call failed", data: { error: errMsg, status: errStatus ?? null, errorType: e instanceof Error ? e.constructor.name : typeof e } });
+    // #endregion
     return null;
   }
 }

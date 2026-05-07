@@ -379,6 +379,9 @@ export async function generateWorkInsightReport(): Promise<WorkInsightReport | n
 
   try {
     const cleaned = result.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    // #region agent log
+    void fetch('http://127.0.0.1:7775/ingest/b31e32e3-9a37-499b-a590-4125b0b07067',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bfab1b'},body:JSON.stringify({sessionId:'bfab1b',location:'ai.ts:generateWorkInsightReport:parse',hypothesisId:'H5',message:'raw AI result before parse',data:{resultLength:result.length,cleanedPrefix:cleaned.slice(0,120)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const parsed = JSON.parse(cleaned) as Partial<WorkInsightReport>;
 
     if (!parsed.summary || !parsed.actionItems) return null;

@@ -4,6 +4,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { AILongTermReport } from "@/components/ai-longterm-report";
 import { ChevronLeft } from "lucide-react";
 
+export const maxDuration = 300;
+
 export default async function AIReportPage() {
   const user = await getCurrentUser();
   if (!user) return null;
