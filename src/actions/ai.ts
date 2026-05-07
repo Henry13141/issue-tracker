@@ -1,7 +1,8 @@
 "use server";
 
-import { chatCompletion, chatCompletionFromMessages, isAIConfigured } from "@/lib/ai";
+import { chatCompletion, chatCompletionFromMessages, createEmbedding, isAIConfigured, MIN_KNOWLEDGE_SIMILARITY } from "@/lib/ai";
 import type { AIChatMessage } from "@/lib/ai";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule, ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
@@ -625,37 +626,81 @@ export async function chatWithAssistant(
   const user = await getCurrentUser();
   if (!user) return { reply: "", error: "请先登录" };
 
-  // ── 1. 拉取组织记忆 ──────────────────────────────────────────────────
-  const memoryContext = await buildMemoryContext();
+  // ── 1. 并行拉取：组织记忆 + 实时数据 + 知识库 RAG ───────────────────
+  type KnowledgeChunk = {
+    chunk_id: string;
+    article_id: string;
+    article_title: string;
+    category: string;
+    chunk_content: string;
+    similarity: number;
+  };
 
-  // ── 2. 拉取当前关键指标（实时数据） ─────────────────────────────────
-  let realtimeContext = "";
-  try {
-    const [overview, positive, memberWorkload] = await Promise.all([
-      getOverviewStats(),
-      getPositiveStats(),
-      getMemberWorkload(),
-    ]);
+  const [memoryContext, realtimeResult, knowledgeChunks] = await Promise.all([
+    buildMemoryContext(),
+    // 实时数据
+    (async () => {
+      try {
+        const [overview, positive, memberWorkload] = await Promise.all([
+          getOverviewStats(),
+          getPositiveStats(),
+          getMemberWorkload(),
+        ]);
+        const today = new Date().toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" });
+        return [
+          `=== 当前实时状态（${today}）===`,
+          `今日更新：${positive.todayProgressUpdates} 条 | 今日完成：${positive.todayClosedResolved} 个 | 今日新增：${positive.todayNewIssues} 个`,
+          `待关注：逾期 ${overview.overdueCount} | 阻塞 ${overview.blockedCount} | 紧急 ${overview.urgentCount} | 今日未更新 ${overview.noUpdateToday}`,
+          `成员当前在办（前5）：${memberWorkload.slice(0, 5).map((m) => `${m.name} ${m.total}个`).join("，")}`,
+        ].join("\n");
+      } catch {
+        return "（实时数据暂时无法获取）";
+      }
+    })(),
+    // 知识库 RAG 检索
+    (async (): Promise<KnowledgeChunk[]> => {
+      try {
+        const embedding = await createEmbedding(message);
+        if (!embedding) return [];
+        const admin = createAdminClient();
+        const { data, error } = await admin.rpc("match_knowledge_chunks", {
+          query_embedding: embedding,
+          match_count: 4,
+          only_approved: true,
+        });
+        if (error || !data) return [];
+        return (data as KnowledgeChunk[]).filter(
+          (c) => c.similarity >= MIN_KNOWLEDGE_SIMILARITY && c.chunk_content.trim().length >= 100,
+        );
+      } catch {
+        return [];
+      }
+    })(),
+  ]);
 
-    const today = new Date().toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" });
-    realtimeContext = [
-      `=== 当前实时状态（${today}）===`,
-      `今日更新：${positive.todayProgressUpdates} 条 | 今日完成：${positive.todayClosedResolved} 个 | 今日新增：${positive.todayNewIssues} 个`,
-      `待关注：逾期 ${overview.overdueCount} | 阻塞 ${overview.blockedCount} | 紧急 ${overview.urgentCount} | 今日未更新 ${overview.noUpdateToday}`,
-      `成员当前在办（前5）：${memberWorkload.slice(0, 5).map((m) => `${m.name} ${m.total}个`).join("，")}`,
-    ].join("\n");
-  } catch {
-    realtimeContext = "（实时数据暂时无法获取）";
-  }
+  const realtimeContext = realtimeResult;
+
+  // ── 2. 构建知识库上下文段落 ──────────────────────────────────────────
+  const knowledgeSection =
+    knowledgeChunks.length > 0
+      ? [
+          "=== 项目知识库（相关片段）===",
+          ...knowledgeChunks.map(
+            (c, i) =>
+              `【知识片段 ${i + 1}】来源：《${c.article_title}》\n${c.chunk_content}`,
+          ),
+        ].join("\n\n")
+      : "";
 
   // ── 3. 构建系统提示 ──────────────────────────────────────────────────
   const systemPrompt = [
     "你是这家游戏公司的专属 AI 管理助理。",
-    "你深度了解公司的研发项目、团队成员工作情况、协作流程和历史规律。",
-    "你会基于积累的组织记忆和实时数据，给出专业、有针对性的分析和建议。",
+    "你深度了解公司的研发项目、团队成员工作情况、协作流程和历史规律，同时可以访问公司知识库（包含 Wiki、PRD、设计文档、会议记录等沉淀的知识）。",
+    "你会基于积累的组织记忆、实时数据和知识库内容，给出专业、有针对性的分析和建议。",
     "",
     "行为准则：",
     "- 使用简体中文，语言直接、有洞察力、专业",
+    "- 如果问题与知识库片段相关，优先基于知识库内容回答，并说明来源",
     "- 回答时优先引用你已知的组织记忆和实时数据，不要泛泛而谈",
     "- 如果问到某个成员，结合ta的画像来回答",
     "- 如果问到模块/项目，结合模块健康度来回答",
@@ -667,6 +712,7 @@ export async function chatWithAssistant(
     memoryContext || "（暂无积累的组织记忆，建议先运行一次学习任务）",
     "",
     realtimeContext,
+    ...(knowledgeSection ? ["", knowledgeSection] : []),
   ].join("\n");
 
   // ── 4. 构建对话历史 ──────────────────────────────────────────────────
@@ -681,10 +727,9 @@ export async function chatWithAssistant(
     metadata: { messageLength: message.length, hasHistory: history.length > 0 },
   });
 
-  // ── 6. 调用 AI ────────────────────────────────────────────────────────
+  // ── 6. 调用 AI（开启思维链，深度分析管理问题）────────────────────────
   const reply = await chatCompletionFromMessages(messages, {
-    maxTokens: 2048,
-    disableThinking: true,
+    maxTokens: 4096,
   });
 
   if (!reply) {

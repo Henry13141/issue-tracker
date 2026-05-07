@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { chatCompletion, createEmbedding, isAIConfigured } from "@/lib/ai";
+import { chatCompletion, createEmbedding, isAIConfigured, MIN_KNOWLEDGE_SIMILARITY } from "@/lib/ai";
 import type { KnowledgeAskResponse } from "@/types";
 
 const MAX_QUESTION_LEN = 500;
 const MATCH_COUNT = 5;
-const MIN_SIMILARITY = 0.3; // 相似度低于此值的块不纳入上下文
 
 export async function POST(req: NextRequest) {
   // ── 鉴权 ────────────────────────────────────────────────────────────────
@@ -71,9 +70,11 @@ export async function POST(req: NextRequest) {
     similarity: number;
   };
 
-  // 过滤低相似度块，并可按 project_name 进一步过滤（knowledge_chunks 表无 project 字段，靠 article JOIN 处理）
+  // 过滤低相似度和过短的块
+  // TODO: project_name 过滤需升级 match_knowledge_chunks RPC，在 articles 表 JOIN 时加 project_name 条件；
+  //       当前 RPC 返回字段无 project_name，客户端无法过滤，暂标记此处待处理。
   const chunks = ((rawChunks as RawChunk[]) ?? []).filter(
-    (c) => c.similarity >= MIN_SIMILARITY
+    (c) => c.similarity >= MIN_KNOWLEDGE_SIMILARITY && c.chunk_content.trim().length >= 100
   );
 
   // ── Step 3：构造 RAG Prompt ───────────────────────────────────────────────
@@ -135,8 +136,13 @@ ${noBasis ? "（知识库中未检索到相关内容，请直接返回 no_basis:
     return NextResponse.json({ error: "AI 返回格式异常，请稍后重试" }, { status: 503 });
   }
 
+  // ── Step 4.5：citations 二次校验（过滤 LLM 幻觉引用）────────────────────
+  // 只保留真实出现在检索结果中的 article_id，消除 LLM 伪造引用
+  const retrievedArticleIds = new Set(chunks.map((c) => c.article_id));
+  const verifiedCitations = (parsed.citations ?? []).filter((c) => retrievedArticleIds.has(c.id));
+
   // ── Step 5：持久化问答日志 ────────────────────────────────────────────────
-  const citedArticleIds = (parsed.citations ?? []).map((c) => c.id).filter(Boolean);
+  const citedArticleIds = verifiedCitations.map((c) => c.id).filter(Boolean);
   const citedChunkIds = chunks.map((c) => c.chunk_id);
 
   await admin.from("knowledge_ai_answers").insert({
@@ -152,7 +158,7 @@ ${noBasis ? "（知识库中未检索到相关内容，请直接返回 no_basis:
   // ── Step 6：返回结构化响应 ────────────────────────────────────────────────
   const response: KnowledgeAskResponse = {
     answer: parsed.answer,
-    citations: parsed.citations ?? [],
+    citations: verifiedCitations,
     confidence: (parsed.confidence as KnowledgeAskResponse["confidence"]) ?? "low",
     no_basis: parsed.no_basis ?? noBasis,
     risk_notes: parsed.risk_notes ?? null,
