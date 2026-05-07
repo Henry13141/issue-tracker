@@ -9,14 +9,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
-import { Home, LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send, Sparkles, Activity, Landmark, Mic, GitCommitHorizontal, BookOpen } from "lucide-react";
+import { Home, LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send, Sparkles, Landmark, Mic, GitCommitHorizontal, BookOpen } from "lucide-react";
 
 const nav = [
   { href: "/home",                    label: "工作台",     icon: Home },
   { href: "/dashboard",               label: "管理驾驶舱", icon: LayoutDashboard, adminOnly: true },
   { href: "/finance-ops",             label: "财务行政待办", icon: Landmark, financeOpsOnly: true },
   { href: "/members",                 label: "成员与企业微信", icon: Users,            adminOnly: true },
-  { href: "/dashboard/wecom-health",  label: "企微接入健康", icon: Activity,         adminOnly: true },
   { href: "/dashboard/notifications", label: "通知日志",   icon: Send,             adminOnly: true },
   { href: "/issues",                  label: "问题列表",   icon: ListTodo },
   { href: "/knowledge",               label: "项目知识库", icon: BookOpen },
@@ -24,7 +23,7 @@ const nav = [
   { href: "/reminders",               label: "待你回应",   icon: Bell },
   { href: "/svn-reports",             label: "研发日报",   icon: GitCommitHorizontal, adminOnly: true },
   { href: "/seedance",                label: "Seedance 2.0", icon: Sparkles,            adminOnly: true },
-  { href: "/tts",                     label: "语音合成",   icon: Mic,                  adminOnly: true },
+  { href: "/tts",                     label: "语音合成",   icon: Mic },
 ];
 
 export function SidebarPanel({
