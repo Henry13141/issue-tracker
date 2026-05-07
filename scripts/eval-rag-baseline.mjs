@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { pathToFileURL } from "node:url";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
@@ -8,6 +9,8 @@ const ARK_EMBEDDING_URL = "https://ark.cn-beijing.volces.com/api/v3/embeddings/m
 const ARK_EMBEDDING_MODEL = "doubao-embedding-vision-251215";
 const MIN_KNOWLEDGE_SIMILARITY = 0.25;
 const MATCH_COUNT = 12;
+const USE_HYBRID = process.env.USE_HYBRID === "1";
+const SEARCH_MODE = USE_HYBRID ? "hybrid" : "vector";
 
 const QUESTIONS = [
   {
@@ -152,39 +155,106 @@ function mdTable(headers, rows) {
   ].join("\n");
 }
 
-/** 把召回的 chunks 按 article 聚合：返回 [{id, top_similarity, chunk_count}]，按相似度降序 */
+let hybridSearchChunksPromise;
+
+async function getHybridSearchChunks() {
+  if (!hybridSearchChunksPromise) {
+    const originalEmitWarning = process.emitWarning;
+    process.emitWarning = (warning, ...args) => {
+      const code =
+        typeof args[0] === "object" && args[0] !== null ? args[0].code : args[1];
+      const message = typeof warning === "string" ? warning : warning?.message;
+      if (code === "MODULE_TYPELESS_PACKAGE_JSON" || message?.includes("Module type of file")) {
+        return;
+      }
+      originalEmitWarning.call(process, warning, ...args);
+    };
+    hybridSearchChunksPromise = import(
+      pathToFileURL(`${REPO}/src/lib/rag/hybrid-search.ts`).href
+    )
+      .then((mod) => mod.hybridSearchChunks)
+      .finally(() => {
+        process.emitWarning = originalEmitWarning;
+      });
+  }
+  return hybridSearchChunksPromise;
+}
+
+function displayScore(chunk) {
+  return Number(
+    chunk.vectorSimilarity ?? chunk.similarity ?? chunk.fts_rank ?? chunk.rank ?? chunk.score ?? 0,
+  );
+}
+
+function sourceLabel(source) {
+  if (source === "both") return "both";
+  if (source === "fts") return "fts";
+  return "vec";
+}
+
+function mergeSource(a, b) {
+  if (!a) return b || "vector";
+  if (!b || a === b) return a;
+  return "both";
+}
+
+/** 把召回的 chunks 按 article 聚合：返回 [{id, top_similarity, chunk_count, source}]，按分数降序 */
 function aggregateRetrievedArticles(chunks) {
   const byArticle = new Map();
   for (const chunk of chunks) {
     const existing = byArticle.get(chunk.article_id);
+    const score = displayScore(chunk);
+    const source = chunk.source || "vector";
     if (!existing) {
       byArticle.set(chunk.article_id, {
         id: chunk.article_id,
         title: chunk.article_title,
-        top_similarity: chunk.similarity,
+        top_similarity: score,
         chunk_count: 1,
+        source,
       });
     } else {
-      existing.top_similarity = Math.max(existing.top_similarity, chunk.similarity);
+      existing.top_similarity = Math.max(existing.top_similarity, score);
       existing.chunk_count += 1;
+      existing.source = mergeSource(existing.source, source);
     }
   }
   return [...byArticle.values()].sort((a, b) => b.top_similarity - a.top_similarity);
 }
 
 async function askDirect(supabase, item) {
-  const queryEmbedding = await createEmbedding(item.question);
-  const { data: rawChunks, error } = await supabase.rpc("match_knowledge_chunks_v2", {
-    query_embedding: queryEmbedding,
-    match_count: MATCH_COUNT,
-    only_approved: true,
-    filter_project_name: item.project_name,
-    min_similarity: MIN_KNOWLEDGE_SIMILARITY,
-  });
+  let rawChunkList;
+  if (USE_HYBRID) {
+    const hybridSearchChunks = await getHybridSearchChunks();
+    rawChunkList = await hybridSearchChunks(item.question, {
+      matchCount: MATCH_COUNT,
+      onlyApproved: true,
+      filterProjectName: item.project_name,
+      minSimilarity: MIN_KNOWLEDGE_SIMILARITY,
+      candidatesPerSource: MATCH_COUNT * 3,
+      adminClient: supabase,
+      createEmbedding,
+      rrfK: 60,
+    });
+  } else {
+    const queryEmbedding = await createEmbedding(item.question);
+    const { data: rawChunks, error } = await supabase.rpc("match_knowledge_chunks_v2", {
+      query_embedding: queryEmbedding,
+      match_count: MATCH_COUNT,
+      only_approved: true,
+      filter_project_name: item.project_name,
+      min_similarity: MIN_KNOWLEDGE_SIMILARITY,
+    });
 
-  if (error) throw new Error(`match_knowledge_chunks_v2 failed: ${error.message}`);
+    if (error) throw new Error(`match_knowledge_chunks_v2 failed: ${error.message}`);
+    rawChunkList = (rawChunks || []).map((chunk) => ({
+      ...chunk,
+      source: "vector",
+      vectorSimilarity: chunk.similarity,
+      score: chunk.similarity,
+    }));
+  }
 
-  const rawChunkList = rawChunks || [];
   const chunks = rawChunkList.filter(
     (chunk) => String(chunk.chunk_content || "").trim().length >= 100,
   );
@@ -206,10 +276,11 @@ async function askDirect(supabase, item) {
       question: item.question,
       project_name: item.project_name,
       cited_article_ids: [],
-      similarity_top1: rawChunks?.[0]?.similarity ?? null,
+      similarity_top1: rawChunkList?.[0] ? displayScore(rawChunkList[0]) : null,
       retrieved_chunks: `${retrievedChunkCountRaw}→${retrievedChunkCountFiltered}`,
       retrieved_articles: retrievedArticles,
       retrieved_articles_filtered: retrievedArticlesFiltered,
+      both_chunk_ratio: calculateBothChunkRatio(chunks),
       confidence: "parse_error",
       no_basis: true,
       answer_preview: `parse_error: ${
@@ -230,10 +301,11 @@ async function askDirect(supabase, item) {
     question: item.question,
     project_name: item.project_name,
     cited_article_ids: dedupedCitations.map((citation) => citation.id),
-    similarity_top1: rawChunks?.[0]?.similarity ?? null,
+    similarity_top1: rawChunkList?.[0] ? displayScore(rawChunkList[0]) : null,
     retrieved_chunks: `${retrievedChunkCountRaw}→${retrievedChunkCountFiltered}`,
     retrieved_articles: retrievedArticles,
     retrieved_articles_filtered: retrievedArticlesFiltered,
+    both_chunk_ratio: calculateBothChunkRatio(chunks),
     confidence: parsed.confidence || "low",
     no_basis: Boolean(parsed.no_basis ?? noBasis),
     answer_preview: previewAnswer(parsed.answer),
@@ -250,7 +322,12 @@ function formatArticles(articles) {
   if (!articles?.length) return "—";
   return articles
     .slice(0, 6)
-    .map((a) => `${shortId(a.id)}(${a.top_similarity.toFixed(2)}×${a.chunk_count})`)
+    .map(
+      (a) =>
+        `${shortId(a.id)}(${a.top_similarity.toFixed(2)}×${a.chunk_count}, ${sourceLabel(
+          a.source,
+        )})`,
+    )
     .join(" ") + (articles.length > 6 ? ` …+${articles.length - 6}` : "");
 }
 
@@ -260,14 +337,12 @@ function formatCitedIds(ids) {
   return ids.map(shortId).join(", ");
 }
 
-function renderResults(results) {
-  const collectedAt = new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "full",
-    timeStyle: "medium",
-    timeZone: "Asia/Shanghai",
-  }).format(new Date());
+function calculateBothChunkRatio(chunks) {
+  if (!chunks.length) return 0;
+  return chunks.filter((chunk) => chunk.source === "both").length / chunks.length;
+}
 
-  // 计算汇总指标，供后续 Phase 1 横向对比
+function summarizeResults(results) {
   const total = results.length;
   const noBasisCount = results.filter((r) => r.no_basis).length;
   const highConf = results.filter((r) => r.confidence === "high").length;
@@ -283,24 +358,78 @@ function renderResults(results) {
   const avgCited =
     results.reduce((sum, r) => sum + (r.cited_article_ids?.length || 0), 0) /
     Math.max(total, 1);
+  const filteredChunkTotal = results.reduce(
+    (sum, r) => sum + Number(String(r.retrieved_chunks).split("→")[1] || 0),
+    0,
+  );
+  const bothChunkTotal = results.reduce(
+    (sum, r) =>
+      sum + Math.round((r.both_chunk_ratio || 0) * Number(String(r.retrieved_chunks).split("→")[1] || 0)),
+    0,
+  );
 
+  return {
+    total,
+    noBasisCount,
+    highConf,
+    avgRetrievedRaw,
+    avgRetrievedFiltered,
+    avgArticlesFiltered,
+    avgCited,
+    filteredChunkTotal,
+    bothChunkTotal,
+    bothChunkRatio: filteredChunkTotal > 0 ? bothChunkTotal / filteredChunkTotal : 0,
+  };
+}
+
+function loadVectorComparison(results) {
+  if (!USE_HYBRID || !fs.existsSync("/tmp/rag-baseline-vector.json")) return null;
+  const vector = JSON.parse(fs.readFileSync("/tmp/rag-baseline-vector.json", "utf8"));
+  const deltas = results.map((result, index) => {
+    const vectorCount = vector.results?.[index]?.retrieved_article_count_filtered ?? 0;
+    const hybridCount = result.retrieved_articles_filtered?.length || 0;
+    return hybridCount - vectorCount;
+  });
+  return {
+    totalDelta: deltas.reduce((sum, delta) => sum + delta, 0),
+    avgDelta: deltas.reduce((sum, delta) => sum + delta, 0) / Math.max(deltas.length, 1),
+    moreCount: deltas.filter((delta) => delta > 0).length,
+    fewerCount: deltas.filter((delta) => delta < 0).length,
+  };
+}
+
+function formatVectorComparison(comparison) {
+  if (!USE_HYBRID) return "—（vector-only）";
+  if (!comparison) return "—（缺少 /tmp/rag-baseline-vector.json）";
+  const totalPrefix = comparison.totalDelta > 0 ? "+" : "";
+  const avgPrefix = comparison.avgDelta > 0 ? "+" : "";
+  return `总计 ${totalPrefix}${comparison.totalDelta}，均值 ${avgPrefix}${comparison.avgDelta.toFixed(
+    1,
+  )}，更多 ${comparison.moreCount}/${QUESTIONS.length}，减少 ${comparison.fewerCount}/${
+    QUESTIONS.length
+  }`;
+}
+
+function renderResults(results, summary, collectedAt, vectorComparison) {
   return `## Phase 0.3 Baseline 评测
 
 采集时间：${collectedAt}
-采集方式：CLI 复刻 \`/api/knowledge/ask\` 的检索、LLM 生成和 citation 校验流程；未写入 \`knowledge_ai_answers\`，避免 baseline 评测污染线上问答统计。
+采集方式：CLI 复刻 \`/api/knowledge/ask\` 的检索、LLM 生成和 citation 校验流程；检索模式：${SEARCH_MODE}；未写入 \`knowledge_ai_answers\`，避免 baseline 评测污染线上问答统计。
 
 ### 汇总指标（Phase 1 改动后用于横向对比）
 
 | 指标 | 数值 |
 | --- | --- |
-| 题目总数 | ${total} |
-| 命中（no_basis = false）| ${total - noBasisCount} / ${total} |
-| LLM 自评 high | ${highConf} / ${total} |
-| 平均召回 chunk 数（过滤前→后）| ${avgRetrievedRaw.toFixed(1)} → ${avgRetrievedFiltered.toFixed(1)} |
-| 平均召回文章数（过滤后） | ${avgArticlesFiltered.toFixed(1)} |
-| 平均引用文章数 | ${avgCited.toFixed(1)} |
+| 题目总数 | ${summary.total} |
+| 命中（no_basis = false）| ${summary.total - summary.noBasisCount} / ${summary.total} |
+| LLM 自评 high | ${summary.highConf} / ${summary.total} |
+| 平均召回 chunk 数（过滤前→后）| ${summary.avgRetrievedRaw.toFixed(1)} → ${summary.avgRetrievedFiltered.toFixed(1)} |
+| 平均召回文章数（过滤后） | ${summary.avgArticlesFiltered.toFixed(1)} |
+| 平均引用文章数 | ${summary.avgCited.toFixed(1)} |
+| Hybrid source=both chunk 占比 | ${(summary.bothChunkRatio * 100).toFixed(1)}% |
+| Hybrid 比 Vector-only 多召回 distinct articles | ${formatVectorComparison(vectorComparison)} |
 
-> 字段说明：\`retrieved_articles\` 表示按 article_id 聚合后的召回结果，格式 \`<short_id>(<top_similarity>×<chunk_count>)\`；\`retrieved_chunks\` 显示 \`过滤前→过滤后\` 的 chunk 总数（过滤条件：similarity ≥ ${MIN_KNOWLEDGE_SIMILARITY} 且 chunk 长度 ≥ 100）。
+> 字段说明：\`retrieved_articles\` 表示按 article_id 聚合后的召回结果，格式 \`<short_id>(<top_score>×<chunk_count>, <source>)\`；source 中 \`both\` 代表向量与 FTS 两路都命中，是更强的相关性信号。\`retrieved_chunks\` 显示 \`过滤前→过滤后\` 的 chunk 总数（过滤条件：SQL 相似度 ≥ ${MIN_KNOWLEDGE_SIMILARITY} 且客户端 chunk 长度 ≥ 100）。
 
 ### 逐题详情
 
@@ -329,6 +458,34 @@ ${mdTable(
   ]),
 )}
 `;
+}
+
+function writeBaselineJson(results, summary, collectedAt, vectorComparison) {
+  fs.writeFileSync(
+    `/tmp/rag-baseline-${SEARCH_MODE}.json`,
+    JSON.stringify(
+      {
+        mode: SEARCH_MODE,
+        collected_at: collectedAt,
+        summary,
+        vector_comparison: vectorComparison,
+        results: results.map((result) => ({
+          question: result.question,
+          project_name: result.project_name,
+          retrieved_chunks: result.retrieved_chunks,
+          retrieved_article_count_filtered: result.retrieved_articles_filtered?.length || 0,
+          retrieved_articles_filtered: result.retrieved_articles_filtered,
+          cited_article_count: result.cited_article_ids?.length || 0,
+          confidence: result.confidence,
+          no_basis: result.no_basis,
+          both_chunk_ratio: result.both_chunk_ratio || 0,
+        })),
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
 }
 
 function upsertSnapshotSection(section) {
@@ -369,5 +526,17 @@ for (const item of QUESTIONS) {
   }
 }
 
-upsertSnapshotSection(renderResults(results));
-console.table(results);
+const collectedAt = new Intl.DateTimeFormat("zh-CN", {
+  dateStyle: "full",
+  timeStyle: "medium",
+  timeZone: "Asia/Shanghai",
+}).format(new Date());
+const summary = summarizeResults(results);
+const vectorComparison = loadVectorComparison(results);
+const rendered = renderResults(results, summary, collectedAt, vectorComparison);
+
+writeBaselineJson(results, summary, collectedAt, vectorComparison);
+if (!USE_HYBRID) {
+  upsertSnapshotSection(rendered);
+}
+console.log(rendered);

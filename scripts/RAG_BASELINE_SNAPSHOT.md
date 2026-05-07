@@ -187,8 +187,8 @@ DELETE FROM knowledge_articles       WHERE id         = '2fc2d998-01a3-40c3-be20
 
 ## Phase 0.3 Baseline 评测
 
-采集时间：2026年5月7日星期四 17:28:24
-采集方式：CLI 复刻 `/api/knowledge/ask` 的检索、LLM 生成和 citation 校验流程；未写入 `knowledge_ai_answers`，避免 baseline 评测污染线上问答统计。
+采集时间：2026年5月7日星期四 18:02:56
+采集方式：CLI 复刻 `/api/knowledge/ask` 的检索、LLM 生成和 citation 校验流程；检索模式：vector；未写入 `knowledge_ai_answers`，避免 baseline 评测污染线上问答统计。
 
 ### 汇总指标（Phase 1 改动后用于横向对比）
 
@@ -198,17 +198,52 @@ DELETE FROM knowledge_articles       WHERE id         = '2fc2d998-01a3-40c3-be20
 | 命中（no_basis = false）| 5 / 5 |
 | LLM 自评 high | 5 / 5 |
 | 平均召回 chunk 数（过滤前→后）| 11.6 → 9.2 |
-| 平均召回文章数（过滤后） | 3.6 |
-| 平均引用文章数 | 2.4 |
+| 平均召回文章数（过滤后） | 3.8 |
+| 平均引用文章数 | 2.8 |
+| Hybrid source=both chunk 占比 | 0.0% |
+| Hybrid 比 Vector-only 多召回 distinct articles | —（vector-only） |
 
-> 字段说明：`retrieved_articles` 表示按 article_id 聚合后的召回结果，格式 `<short_id>(<top_similarity>×<chunk_count>)`；`retrieved_chunks` 显示 `过滤前→过滤后` 的 chunk 总数（过滤条件：similarity ≥ 0.25 且 chunk 长度 ≥ 100）。
+> 字段说明：`retrieved_articles` 表示按 article_id 聚合后的召回结果，格式 `<short_id>(<top_score>×<chunk_count>, <source>)`；source 中 `both` 代表向量与 FTS 两路都命中，是更强的相关性信号。`retrieved_chunks` 显示 `过滤前→过滤后` 的 chunk 总数（过滤条件：SQL 相似度 ≥ 0.25 且客户端 chunk 长度 ≥ 100）。
 
 ### 逐题详情
 
 | question | project_name | retrieved_chunks | retrieved_articles_filtered | cited_article_ids | similarity_top1 | confidence | no_basis | answer_preview |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 问题追踪系统的核心功能和知识库模块是怎么设计的？ | 问题追踪系统 | 10→9 | 71b1e16e(0.40×9) | 71b1e16e | 0.3979 | high | false | ## 核心功能设计 问题追踪系统的核心不是单纯记录工单，而是将**任务创建、责任分配、进展同步、风险暴露、企业微信催办、管理看板**串成闭环。主要覆盖： - **工单协作**：问题 |
-| GameParty 项目的整体架构和部署方式是什么？ | GameParty | 12→9 | 5a39e7aa(0.62×9) | 5a39e7aa | 0.6230 | high | false | GameParty 是一套**多人线下体感派对游戏合集**，部署于游戏厅/娱乐场所，玩家通过手脚传感器（Arduino 串口设备）进行交互。 ## 核心架构 ### 技术栈 - * |
-| 欢乐客栈第一关前堂对掌的核心玩法是什么？ | 欢乐客栈 | 12→8 | 3a2b698a(0.63×2) 5f61c49b(0.41×2) 44ceac48(0.41×2) 3402aee7(0.37×1) 1adba643(0.33×1) | 3a2b698a | 0.6288 | high | false | 第一关「前堂对掌」的核心玩法为**拍巴掌 / 对掌反应玩法**，玩家需要进行以下操作： - **主动出掌**：发起攻击命中对手 - **躲闪**：规避对方的出掌 - **诱敌**： |
-| 金币与声望系统的主要规则有哪些？ | 欢乐客栈 | 12→9 | 5f61c49b(0.58×4) 968c46b4(0.55×2) 1e99b63c(0.53×1) 1adba643(0.53×1) 076328ff(0.50×1) | 5f61c49b, 968c46b4, 1e99b63c | 0.5794 | high | false | ## 金币与声望系统主要规则 ### 核心原则 - **金币决定胜负**：所有关卡统一以金币多少判定输赢 - **声望记录表现**：反映玩家操作质量、判断质量、爆发与稳定表现，但不 |
-| 战报与结算 UI 需要展示哪些关键信息？ | 欢乐客栈 | 12→11 | 328b9b76(0.55×4) 3a2b698a(0.55×1) 44ceac48(0.53×1) 3402aee7(0.51×1) 1e99b63c(0.45×2) 5f61c49b(0.44×2) | 328b9b76, 3a2b698a, 44ceac48, 3402aee7, 1e99b63c, 5f61c49b | 0.5642 | high | false | 根据知识库，战报与结算 UI 需要展示以下关键信息： ## 一、金币信息 - **金币获得：+X**（总获得量） - **金币明细**（最多显示 4-6 条，为 0 的项目不显示） |
+| 问题追踪系统的核心功能和知识库模块是怎么设计的？ | 问题追踪系统 | 10→9 | 71b1e16e(0.40×9, vec) | 71b1e16e | 0.3979 | high | false | ## 核心功能设计 问题追踪系统的核心不是单纯记录工单，而是将**任务创建、责任分配、进展同步、风险暴露、企业微信催办、管理看板**串成闭环。主要模块包括： \| 模块 \| 说明 \| |
+| GameParty 项目的整体架构和部署方式是什么？ | GameParty | 12→9 | 5a39e7aa(0.62×9, vec) | 5a39e7aa | 0.6243 | high | false | ## GameParty 项目整体架构 ### 项目定位 GameParty 是一套**多人线下体感派对游戏合集**，部署于游戏厅/娱乐场所，玩家通过 Arduino 手脚传感器进 |
+| 欢乐客栈第一关前堂对掌的核心玩法是什么？ | 欢乐客栈 | 12→8 | 3a2b698a(0.63×2, vec) 44ceac48(0.41×2, vec) 5f61c49b(0.41×2, vec) 3402aee7(0.37×1, vec) 1adba643(0.33×1, vec) | 3a2b698a | 0.6300 | high | false | 欢乐客栈第一关「前堂对掌」的核心玩法如下： - **玩法类型**：拍巴掌 / 对掌反应玩法 - **核心操作**：主动出掌、躲闪、诱敌、反制 - **核心体验**：我打中了 / 我 |
+| 金币与声望系统的主要规则有哪些？ | 欢乐客栈 | 12→9 | 5f61c49b(0.58×4, vec) 968c46b4(0.55×2, vec) 1e99b63c(0.53×1, vec) 1adba643(0.53×1, vec) 076328ff(0.50×1, vec) | 5f61c49b, 968c46b4, 1e99b63c, 076328ff | 0.5775 | high | false | ## 金币与声望系统主要规则 ### 核心原则 - **金币决定胜负**：所有关卡统一以金币比大小判定胜负 - **声望记录表现**：反映玩家操作质量、判断质量、爆发与稳定表现 - |
+| 战报与结算 UI 需要展示哪些关键信息？ | 欢乐客栈 | 12→11 | 328b9b76(0.55×4, vec) 3a2b698a(0.55×1, vec) 44ceac48(0.53×1, vec) 3402aee7(0.51×1, vec) 1e99b63c(0.45×2, vec) 5f61c49b(0.43×1, vec) …+1 | 328b9b76, 3a2b698a, 44ceac48, 3402aee7, 1e99b63c, 5f61c49b, 968c46b4 | 0.5626 | high | false | 根据知识库，战报与结算 UI 需要展示以下关键信息： ## 一、金币信息 - **金币获得**：+X（总获得金币） - **金币明细**：最多显示 4-6 条，为 0 的项目不显示 |
+
+## Phase 1.3 Hybrid vs Vector 对比
+
+采集时间：
+- Vector-only：2026年5月7日星期四 18:02:56
+- Hybrid：2026年5月7日星期四 18:09:33
+
+### 汇总对比
+
+| 指标 | Vector-only | Hybrid | 变化 |
+| --- | --- | --- | --- |
+| 题目总数 | 5 | 5 | — |
+| 命中（no_basis = false） | 5 / 5 | 5 / 5 | 持平 |
+| LLM 自评 high | 5 / 5 | 5 / 5 | 持平 |
+| 平均召回 chunk 数（过滤前→后） | 11.6 → 9.2 | 11.6 → 9.4 | 过滤后 +0.2 |
+| 平均召回文章数（过滤后） | 3.8 | 3.8 | 持平 |
+| 平均引用文章数 | 2.8 | 2.6 | -0.2（LLM 单次波动） |
+| Hybrid source=both chunk 占比 | 0.0% | 19.1% | +19.1% |
+| Hybrid 比 Vector-only 多召回 distinct articles | — | 总计 0，均值 0.0 | 更多 1/5，减少 1/5 |
+
+### 逐题 distinct articles 对比
+
+| question | project_name | Vector articles | Hybrid articles | Δ | Hybrid both chunk 占比 | 结论 |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| 问题追踪系统的核心功能和知识库模块是怎么设计的？ | 问题追踪系统 | 1 | 1 | 0 | 0.0% | 该项目当前只有 1 篇 approved 文章，无法通过 hybrid 增加 distinct articles |
+| GameParty 项目的整体架构和部署方式是什么？ | GameParty | 1 | 1 | 0 | 22.2% | `GameParty` / `Arduino` FTS 关键词与向量命中同篇文章，形成 both 高置信信号 |
+| 欢乐客栈第一关前堂对掌的核心玩法是什么？ | 欢乐客栈 | 5 | 5 | 0 | 25.0% | `前堂对掌` / `第一关` 命中同批核心文章，提升一致性但未扩展文章面 |
+| 金币与声望系统的主要规则有哪些？ | 欢乐客栈 | 5 | 6 | +1 | 45.5% | FTS 对 `金币` / `声望` 的精确词召回有效，增加 1 篇 distinct article |
+| 战报与结算 UI 需要展示哪些关键信息？ | 欢乐客栈 | 7 | 6 | -1 | 0.0% | `UI` FTS 命中的 70 字符 chunk 被客户端 `length >= 100` 二次过滤移除；本题未收益且 distinct articles 少 1 |
+
+### 判定
+
+本轮 hybrid **不满足切换 ask 路由的闸门**：只有 1/5 题命中更多 distinct articles，且 1/5 题减少 distinct articles；总 distinct article 增量为 0。暂不切换 `/api/knowledge/ask`，后续应先优化 FTS 查询策略（尤其中文和短 chunk 过滤带来的召回损失），再做 Phase 1.3 第二个切换提交。
