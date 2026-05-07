@@ -4,6 +4,9 @@ let _client: OpenAI | null = null;
 const ARK_EMBEDDING_URL = "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal";
 const ARK_EMBEDDING_MODEL = "doubao-embedding-vision-251215";
 
+/** 知识库检索相似度阈值（统一常量，避免各处不一致） */
+export const MIN_KNOWLEDGE_SIMILARITY = 0.25;
+
 export type AIChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -98,7 +101,7 @@ export async function createEmbedding(text: string): Promise<number[] | null> {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${arkKey}`,
       },
-        body: JSON.stringify({
+      body: JSON.stringify({
         model: ARK_EMBEDDING_MODEL,
         input: [{ type: "text", text: text.slice(0, 4000) }],
         dimensions: 1024,
@@ -112,9 +115,13 @@ export async function createEmbedding(text: string): Promise<number[] | null> {
       return null;
     }
 
-    // Ark multimodal embedding returns data as an object, not an array
+    // Ark multimodal embedding returns data as an object, not an array.
+    // The multimodal endpoint ignores the `dimensions` param and may return 2048 dims;
+    // truncate to 1024 to match knowledge_chunks.embedding vector(1024).
     const json = await res.json() as { data?: { embedding?: number[] } };
-    return json.data?.embedding ?? null;
+    const full = json.data?.embedding ?? null;
+    if (!full) return null;
+    return full.length > 1024 ? full.slice(0, 1024) : full;
   } catch (e) {
     console.error("[ai] createEmbedding failed:", e instanceof Error ? e.message : String(e));
     return null;
