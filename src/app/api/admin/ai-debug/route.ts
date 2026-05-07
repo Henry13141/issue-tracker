@@ -10,9 +10,9 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const key = process.env.MOONSHOT_API_KEY;
-  const configured = Boolean(key);
-  const keyPrefix = key ? key.slice(0, 8) + "..." : null;
+  const key = process.env.MOONSHOT_API_KEY ?? "";
+  const configured = key.length > 0;
+  const keyPrefix = configured ? key.slice(0, 8) + "..." : null;
 
   // 测试一次极小的 API 调用
   let apiCallResult: { ok: boolean; elapsed: number; error?: string; model?: string } | null = null;
