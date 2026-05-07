@@ -86,3 +86,39 @@
 | total_questions | 6 |
 | low_confidence | 3 |
 | no_citation | 3 |
+
+## Phase 0.2 当前 RPC 定义核对
+
+原计划 SQL：
+
+```sql
+SELECT pg_get_functiondef(oid)
+FROM pg_proc
+WHERE proname = 'match_knowledge_chunks';
+```
+
+线上原始函数体提取结果：
+
+| 通道 | 结果 |
+| --- | --- |
+| Supabase MCP execute_sql | 失败：当前账号无 SQL 执行权限 |
+| supabase db dump --linked --schema public | 失败：本机 Docker daemon 未运行，CLI 无法启动 dump 依赖 |
+| PostgREST OpenAPI | 成功：发现 `/rpc/match_knowledge_chunks` |
+| RPC runtime probe | 成功：确认存在两个可调用签名/重载 |
+
+PostgREST OpenAPI 暴露的签名：
+
+| 参数 | 类型 |
+| --- | --- |
+| query_embedding | public.vector |
+| match_threshold | double precision |
+| match_count | integer |
+
+RPC runtime probe 结果：
+
+| 调用参数 | 结果 | 返回列 |
+| --- | --- | --- |
+| query_embedding + match_count + only_approved | 成功，返回 1 行 | chunk_id, article_id, article_title, category, chunk_content, similarity |
+| query_embedding + match_count + match_threshold | 成功，返回 1 行 | id, article_id, chunk_index, content, similarity |
+
+结论：线上 `match_knowledge_chunks` 至少存在两个重载版本；当前仓库的 `supabase/migrations/add_knowledge_rag.sql` 只描述 `only_approved` 版本，未记录线上仍可调用的 `match_threshold` 旧签名。Phase 1.1 新增 `_v2` 时需要显式保留旧函数，避免热更新期间调用方打到不同返回列。
