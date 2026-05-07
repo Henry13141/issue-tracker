@@ -573,6 +573,7 @@ export async function generateLongTermReport(): Promise<LongTermReport | null> {
 
   const result = await chatCompletion(systemPrompt, dataContext, {
     maxTokens: 4096,
+    disableThinking: true,
   });
 
   if (!result) return null;
