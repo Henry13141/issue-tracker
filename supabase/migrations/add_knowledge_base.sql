@@ -130,14 +130,14 @@ CREATE TABLE IF NOT EXISTS public.knowledge_chunks (
   status       TEXT,
   version      TEXT,
   metadata     JSONB NOT NULL DEFAULT '{}',
-  embedding    vector(1536),
+  -- 维度 1024：匹配火山方舟 doubao-embedding-vision-251215（截断到 1024 维）。
+  -- 如更换 embedding 模型导致维度变化，需 DROP COLUMN 后 RECREATE，并全量重建 chunks。
+  embedding    vector(1024),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_article ON public.knowledge_chunks (article_id, chunk_index);
--- 向量索引（MVP 建表，待 RAG 正式接入后再启用 ivfflat）
--- CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_embedding
---   ON public.knowledge_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+-- 向量索引在 add_knowledge_rag.sql 中创建（ivfflat + cosine）
 
 -- ---------------------------------------------------------------------------
 -- 6. knowledge_ai_answers：AI 问答日志

@@ -1,0 +1,10 @@
+-- Phase 0.3: document the canonical RAG embedding dimension.
+--
+-- The live knowledge base uses 1024-dimensional embeddings:
+-- - src/lib/ai.ts truncates doubao-embedding-vision-251215 output to 1024.
+-- - scripts/embed-article.mjs imports 1024-dimensional vectors.
+-- - existing migration docs now declare knowledge_chunks.embedding and
+--   match_knowledge_chunks.query_embedding as vector(1024).
+--
+-- No DDL is required here. This migration intentionally records the dimension
+-- decision so historical migration readers do not reintroduce vector(1536).

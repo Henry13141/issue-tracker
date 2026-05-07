@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_embedding
 -- 返回：chunk_id, article_id, article_title, category, content, similarity
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.match_knowledge_chunks(
-  query_embedding  vector(1536),
+  query_embedding  vector(1024),
   match_count      int     DEFAULT 5,
   only_approved    boolean DEFAULT true
 )

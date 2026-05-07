@@ -608,7 +608,7 @@ export interface KnowledgeChunk {
   status: string | null;
   version: string | null;
   metadata: Record<string, unknown>;
-  /** embedding 在客户端不暴露，DB 存储为 vector(1536) */
+  /** embedding 在客户端不暴露，DB 存储为 vector(1024) */
   created_at: string;
 }
 
