@@ -106,6 +106,16 @@ WHERE proname = 'match_knowledge_chunks';
 
 ## Phase 1 · 检索质量与项目隔离（最高优先级，2-3 天）
 
+> **状态：✅ 已完成（2026-05-07）**
+>
+> Phase 1.1 → 1.4 全部 commit 在 main，验证细节见 `RAG_BASELINE_SNAPSHOT.md` 的 Phase 1.3 / 1.4 / Phase 1 整体收尾章节。
+>
+> 累计能力：项目/分类/模块严格过滤、向量+全文 hybrid (RRF)、邻居 chunk 扩展、citation 二次校验、`RAG_HYBRID_ENABLED` + `RAG_NEIGHBOR_EXPAND_ENABLED` 双独立回退开关。
+>
+> 关键不变量：citation 校验集和 `cited_chunk_ids` 持久化都只用 primary chunks，邻居仅作 LLM 上下文增强；过滤口径全链路统一到 `length>=50 + is_ai_searchable + approved`。
+>
+> 下一步：Phase 2 索引健康与可观测。
+
 ### 1.1 升级 `match_knowledge_chunks` RPC（带过滤）
 
 > **Phase 0.4 已完成**：旧重载 `(vector, double precision, integer)` 已通过 `reconcile_match_knowledge_chunks_overloads.sql` 从线上 DROP 掉。当前线上只剩唯一签名 `(vector, integer, boolean)`。本节不需要再考虑命中错误重载的问题。

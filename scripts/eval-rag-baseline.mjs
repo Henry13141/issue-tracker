@@ -11,7 +11,9 @@ const MIN_KNOWLEDGE_SIMILARITY = 0.25;
 const MATCH_COUNT = 12;
 const MIN_CHUNK_CONTENT_LEN = 50;
 const USE_HYBRID = process.env.USE_HYBRID === "1";
-const SEARCH_MODE = USE_HYBRID ? "hybrid" : "vector";
+const USE_NEIGHBOR_EXPAND = process.env.USE_NEIGHBOR_EXPAND === "1";
+const NEIGHBOR_WINDOW_SIZE = Number(process.env.NEIGHBOR_WINDOW_SIZE || 1);
+const SEARCH_MODE = `${USE_HYBRID ? "hybrid" : "vector"}${USE_NEIGHBOR_EXPAND ? "+nbr" : ""}`;
 
 const QUESTIONS = [
   {
@@ -111,7 +113,7 @@ function buildSystemPrompt(chunks, noBasis) {
     : chunks
         .map(
           (chunk, index) =>
-            `【知识片段 ${index + 1}】来源：《${chunk.article_title}》（ID: ${chunk.article_id}）\n${chunk.chunk_content}`,
+            `【知识片段 ${index + 1}${chunk.is_primary === false ? "·上下文" : ""}】来源：《${chunk.article_title}》（ID: ${chunk.article_id}）\n${chunk.chunk_content}`,
         )
         .join("\n\n---\n\n");
 
@@ -157,28 +159,46 @@ function mdTable(headers, rows) {
 }
 
 let hybridSearchChunksPromise;
+let neighborExpansionPromise;
+
+function silenceModuleWarnings() {
+  const original = process.emitWarning;
+  process.emitWarning = (warning, ...args) => {
+    const code =
+      typeof args[0] === "object" && args[0] !== null ? args[0].code : args[1];
+    const message = typeof warning === "string" ? warning : warning?.message;
+    if (code === "MODULE_TYPELESS_PACKAGE_JSON" || message?.includes("Module type of file")) {
+      return;
+    }
+    original.call(process, warning, ...args);
+  };
+  return () => {
+    process.emitWarning = original;
+  };
+}
 
 async function getHybridSearchChunks() {
   if (!hybridSearchChunksPromise) {
-    const originalEmitWarning = process.emitWarning;
-    process.emitWarning = (warning, ...args) => {
-      const code =
-        typeof args[0] === "object" && args[0] !== null ? args[0].code : args[1];
-      const message = typeof warning === "string" ? warning : warning?.message;
-      if (code === "MODULE_TYPELESS_PACKAGE_JSON" || message?.includes("Module type of file")) {
-        return;
-      }
-      originalEmitWarning.call(process, warning, ...args);
-    };
+    const restore = silenceModuleWarnings();
     hybridSearchChunksPromise = import(
       pathToFileURL(`${REPO}/src/lib/rag/hybrid-search.ts`).href
     )
       .then((mod) => mod.hybridSearchChunks)
-      .finally(() => {
-        process.emitWarning = originalEmitWarning;
-      });
+      .finally(restore);
   }
   return hybridSearchChunksPromise;
+}
+
+async function getExpandWithNeighbors() {
+  if (!neighborExpansionPromise) {
+    const restore = silenceModuleWarnings();
+    neighborExpansionPromise = import(
+      pathToFileURL(`${REPO}/src/lib/rag/neighbor-expansion.ts`).href
+    )
+      .then((mod) => mod.expandWithNeighbors)
+      .finally(restore);
+  }
+  return neighborExpansionPromise;
 }
 
 function displayScore(chunk) {
@@ -256,19 +276,37 @@ async function askDirect(supabase, item) {
     }));
   }
 
-  const chunks = rawChunkList.filter(
+  const primaryChunks = rawChunkList.filter(
     (chunk) => String(chunk.chunk_content || "").trim().length >= MIN_CHUNK_CONTENT_LEN,
   );
 
   // 召回元信息：过滤前/后 chunk 数 + 按文章聚合（含 top similarity 与 chunk 数）
   const retrievedChunkCountRaw = rawChunkList.length;
-  const retrievedChunkCountFiltered = chunks.length;
+  const retrievedChunkCountFiltered = primaryChunks.length;
   const retrievedArticles = aggregateRetrievedArticles(rawChunkList);
-  const retrievedArticlesFiltered = aggregateRetrievedArticles(chunks);
+  const retrievedArticlesFiltered = aggregateRetrievedArticles(primaryChunks);
 
-  const noBasis = chunks.length === 0;
-  const systemPrompt = buildSystemPrompt(chunks, noBasis);
+  // 邻居扩展（仅当 USE_NEIGHBOR_EXPAND=1 且有命中），promptChunks 是 LLM 实际看到的素材
+  let promptChunks = primaryChunks.map((c) => ({ ...c, is_primary: true }));
+  let neighborChunkCount = 0;
+  if (USE_NEIGHBOR_EXPAND && primaryChunks.length > 0) {
+    const expandWithNeighbors = await getExpandWithNeighbors();
+    const expanded = await expandWithNeighbors(primaryChunks, {
+      windowSize: NEIGHBOR_WINDOW_SIZE,
+      onlyApproved: true,
+      adminClient: supabase,
+    });
+    promptChunks = expanded;
+    neighborChunkCount = expanded.filter((c) => !c.is_primary).length;
+  }
+
+  const noBasis = primaryChunks.length === 0;
+  const systemPrompt = buildSystemPrompt(promptChunks, noBasis);
   const completion = await chatCompletion(systemPrompt, `用户问题：${item.question}`);
+  const promptChunkLabel = USE_NEIGHBOR_EXPAND
+    ? `${retrievedChunkCountFiltered}+${neighborChunkCount}`
+    : `${retrievedChunkCountFiltered}`;
+
   let parsed;
   try {
     parsed = parseJsonCompletion(completion);
@@ -279,9 +317,11 @@ async function askDirect(supabase, item) {
       cited_article_ids: [],
       similarity_top1: rawChunkList?.[0] ? displayScore(rawChunkList[0]) : null,
       retrieved_chunks: `${retrievedChunkCountRaw}→${retrievedChunkCountFiltered}`,
+      prompt_chunks: promptChunkLabel,
+      neighbor_chunk_count: neighborChunkCount,
       retrieved_articles: retrievedArticles,
       retrieved_articles_filtered: retrievedArticlesFiltered,
-      both_chunk_ratio: calculateBothChunkRatio(chunks),
+      both_chunk_ratio: calculateBothChunkRatio(primaryChunks),
       confidence: "parse_error",
       no_basis: true,
       answer_preview: `parse_error: ${
@@ -289,7 +329,7 @@ async function askDirect(supabase, item) {
       }`,
     };
   }
-  const retrievedArticleIdsSet = new Set(chunks.map((chunk) => chunk.article_id));
+  const retrievedArticleIdsSet = new Set(primaryChunks.map((chunk) => chunk.article_id));
   const verifiedCitations = (parsed.citations || []).filter((citation) =>
     retrievedArticleIdsSet.has(citation.id),
   );
@@ -304,9 +344,11 @@ async function askDirect(supabase, item) {
     cited_article_ids: dedupedCitations.map((citation) => citation.id),
     similarity_top1: rawChunkList?.[0] ? displayScore(rawChunkList[0]) : null,
     retrieved_chunks: `${retrievedChunkCountRaw}→${retrievedChunkCountFiltered}`,
+    prompt_chunks: promptChunkLabel,
+    neighbor_chunk_count: neighborChunkCount,
     retrieved_articles: retrievedArticles,
     retrieved_articles_filtered: retrievedArticlesFiltered,
-    both_chunk_ratio: calculateBothChunkRatio(chunks),
+    both_chunk_ratio: calculateBothChunkRatio(primaryChunks),
     confidence: parsed.confidence || "low",
     no_basis: Boolean(parsed.no_basis ?? noBasis),
     answer_preview: previewAnswer(parsed.answer),
@@ -368,6 +410,8 @@ function summarizeResults(results) {
       sum + Math.round((r.both_chunk_ratio || 0) * Number(String(r.retrieved_chunks).split("→")[1] || 0)),
     0,
   );
+  const avgNeighborChunks =
+    results.reduce((sum, r) => sum + (r.neighbor_chunk_count || 0), 0) / Math.max(total, 1);
 
   return {
     total,
@@ -380,6 +424,7 @@ function summarizeResults(results) {
     filteredChunkTotal,
     bothChunkTotal,
     bothChunkRatio: filteredChunkTotal > 0 ? bothChunkTotal / filteredChunkTotal : 0,
+    avgNeighborChunks,
   };
 }
 
@@ -428,9 +473,13 @@ function renderResults(results, summary, collectedAt, vectorComparison) {
 | 平均召回文章数（过滤后） | ${summary.avgArticlesFiltered.toFixed(1)} |
 | 平均引用文章数 | ${summary.avgCited.toFixed(1)} |
 | Hybrid source=both chunk 占比 | ${(summary.bothChunkRatio * 100).toFixed(1)}% |
-| Hybrid 比 Vector-only 多召回 distinct articles | ${formatVectorComparison(vectorComparison)} |
+| Hybrid 比 Vector-only 多召回 distinct articles | ${formatVectorComparison(vectorComparison)} |${
+  USE_NEIGHBOR_EXPAND
+    ? `\n| 邻居扩展平均补充 chunk 数（window=${NEIGHBOR_WINDOW_SIZE}） | ${summary.avgNeighborChunks.toFixed(1)} |`
+    : ""
+}
 
-> 字段说明：\`retrieved_articles\` 表示按 article_id 聚合后的召回结果，格式 \`<short_id>(<top_score>×<chunk_count>, <source>)\`；source 中 \`both\` 代表向量与 FTS 两路都命中，是更强的相关性信号。\`retrieved_chunks\` 显示 \`过滤前→过滤后\` 的 chunk 总数（过滤条件：SQL 相似度 ≥ ${MIN_KNOWLEDGE_SIMILARITY} 且客户端 chunk 长度 ≥ ${MIN_CHUNK_CONTENT_LEN}）。
+> 字段说明：\`retrieved_articles\` 表示按 article_id 聚合后的召回结果，格式 \`<short_id>(<top_score>×<chunk_count>, <source>)\`；source 中 \`both\` 代表向量与 FTS 两路都命中，是更强的相关性信号。\`retrieved_chunks\` 显示 \`过滤前→过滤后\` 的 chunk 总数（过滤条件：SQL 相似度 ≥ ${MIN_KNOWLEDGE_SIMILARITY} 且客户端 chunk 长度 ≥ ${MIN_CHUNK_CONTENT_LEN}）。\`prompt_chunks\` 列在邻居扩展开启时显示 \`<primary>+<neighbors>\`，表示 LLM 实际看到的素材数；citation 校验仍只用 primary，不受邻居影响。
 
 ### 逐题详情
 
@@ -439,6 +488,7 @@ ${mdTable(
     "question",
     "project_name",
     "retrieved_chunks",
+    "prompt_chunks",
     "retrieved_articles_filtered",
     "cited_article_ids",
     "similarity_top1",
@@ -450,6 +500,7 @@ ${mdTable(
     result.question,
     result.project_name,
     result.retrieved_chunks ?? "",
+    result.prompt_chunks ?? "",
     formatArticles(result.retrieved_articles_filtered),
     formatCitedIds(result.cited_article_ids),
     result.similarity_top1 == null ? "" : Number(result.similarity_top1).toFixed(4),
@@ -474,6 +525,8 @@ function writeBaselineJson(results, summary, collectedAt, vectorComparison) {
           question: result.question,
           project_name: result.project_name,
           retrieved_chunks: result.retrieved_chunks,
+          prompt_chunks: result.prompt_chunks ?? null,
+          neighbor_chunk_count: result.neighbor_chunk_count ?? 0,
           retrieved_article_count_filtered: result.retrieved_articles_filtered?.length || 0,
           retrieved_articles_filtered: result.retrieved_articles_filtered,
           cited_article_count: result.cited_article_ids?.length || 0,

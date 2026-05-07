@@ -3,11 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { chatCompletion, createEmbedding, isAIConfigured, MIN_KNOWLEDGE_SIMILARITY } from "@/lib/ai";
 import { hybridSearchChunks, isHybridEnabled } from "@/lib/rag/hybrid-search";
+import { expandWithNeighbors, isNeighborExpandEnabled } from "@/lib/rag/neighbor-expansion";
 import type { KnowledgeAskResponse } from "@/types";
 
 const MAX_QUESTION_LEN = 500;
 const MATCH_COUNT = 12;
 const MIN_CHUNK_CONTENT_LEN = 50;
+const NEIGHBOR_WINDOW_SIZE = 1;
 
 export async function POST(req: NextRequest) {
   // ── 鉴权 ────────────────────────────────────────────────────────────────
@@ -42,6 +44,7 @@ export async function POST(req: NextRequest) {
     chunk_id: string;
     article_id: string;
     article_title: string;
+    category: string;
     module: string | null;
     project_name: string | null;
     chunk_index: number;
@@ -90,19 +93,29 @@ export async function POST(req: NextRequest) {
   }
 
   // similarity / project_name 已在 RPC 层过滤；客户端长度保护与 RPC 的 source of truth 保持一致。
-  const chunks = rawChunks.filter(
+  const primaryChunks = rawChunks.filter(
     (c) => c.chunk_content.trim().length >= MIN_CHUNK_CONTENT_LEN
   );
 
+  // ── Step 2.5：邻居扩展（默认 on，RAG_NEIGHBOR_EXPAND_ENABLED=false 可关闭）
+  // 主 chunks 仍是 citation 校验和持久化的唯一来源；邻居只为 LLM 提供连贯上下文。
+  const expandedChunks = isNeighborExpandEnabled()
+    ? await expandWithNeighbors(primaryChunks, {
+        windowSize: NEIGHBOR_WINDOW_SIZE,
+        onlyApproved: true,
+        adminClient: admin,
+      })
+    : primaryChunks.map((c) => ({ ...c, is_primary: true as const }));
+
   // ── Step 3：构造 RAG Prompt ───────────────────────────────────────────────
-  const noBasis = chunks.length === 0;
+  const noBasis = primaryChunks.length === 0;
 
   let contextSection = "";
   if (!noBasis) {
-    contextSection = chunks
+    contextSection = expandedChunks
       .map(
         (c, i) =>
-          `【知识片段 ${i + 1}】来源：《${c.article_title}》（ID: ${c.article_id}）\n${c.chunk_content}`
+          `【知识片段 ${i + 1}${c.is_primary ? "" : "·上下文"}】来源：《${c.article_title}》（ID: ${c.article_id}）\n${c.chunk_content}`
       )
       .join("\n\n---\n\n");
   }
@@ -154,8 +167,9 @@ ${noBasis ? "（知识库中未检索到相关内容，请直接返回 no_basis:
   }
 
   // ── Step 4.5：citations 二次校验（过滤 LLM 幻觉引用）────────────────────
-  // 只保留真实出现在检索结果中的 article_id，消除 LLM 伪造引用
-  const retrievedArticleIds = new Set(chunks.map((c) => c.article_id));
+  // 校验集只用 primary chunks 对应的 article_id；邻居扩展不参与 citation 计算，
+  // 这样能精确反映"我们检索/打分认可的来源"，避免邻居把弱相关文章误纳入引用。
+  const retrievedArticleIds = new Set(primaryChunks.map((c) => c.article_id));
   const verifiedCitations = (parsed.citations ?? []).filter((c) => retrievedArticleIds.has(c.id));
   const seenCitationIds = new Set<string>();
   const dedupedCitations = verifiedCitations.filter((c) =>
@@ -164,7 +178,9 @@ ${noBasis ? "（知识库中未检索到相关内容，请直接返回 no_basis:
 
   // ── Step 5：持久化问答日志 ────────────────────────────────────────────────
   const citedArticleIds = dedupedCitations.map((c) => c.id).filter(Boolean);
-  const citedChunkIds = chunks.map((c) => c.chunk_id);
+  // cited_chunk_ids 只记录主召回 chunks，保持检索质量分析口径稳定；
+  // 邻居 chunk 只是上下文增强，不应污染"哪些 chunk 被命中过"的统计。
+  const citedChunkIds = primaryChunks.map((c) => c.chunk_id);
 
   await admin.from("knowledge_ai_answers").insert({
     question,
