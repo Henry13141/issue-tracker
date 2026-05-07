@@ -15,7 +15,7 @@ const QUESTIONS = [
     question: "问题追踪系统的核心功能和知识库模块是怎么设计的？",
   },
   {
-    project_name: "GameParty / 欢乐客栈",
+    project_name: "GameParty",
     question: "GameParty 项目的整体架构和部署方式是什么？",
   },
   {

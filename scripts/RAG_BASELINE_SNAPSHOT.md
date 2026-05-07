@@ -148,9 +148,46 @@ RPC runtime probe 结果：
 - 但要注意：参数类型保持 polymorphic `vector` 而非 `vector(1024)`（与线上一致，pgvector 接受任意维度，维度由列定义强制）
 - 维度仍由 `knowledge_chunks.embedding vector(1024)` 这一列定义保证
 
+## Phase 1.2.5 project_name 数据治理（2026-05-07 补做）
+
+Phase 1.2 切换到 `_v2` 严格 project 过滤后，立即暴露线上 `project_name` 脏数据：
+
+| project_name | 治理前 | 治理后 | 处理 |
+| --- | --- | --- | --- |
+| 欢乐客栈 | 9 | 9 | 不变 |
+| GameParty | 3 | **4** | 合并 |
+| `GameParty / 欢乐客栈` | 1 | 0 | UPDATE → `GameParty`（标题/内容/SVN 路径全部指向 GameParty 主项目，混合命名属于早期录入错误） |
+| 问题追踪系统 | 1 | 1 | 不变 |
+| `null` | 1 | 0 | DELETE（《UI 主色调规范 v1.0》仅 64 字符，疑似测试数据；同时删除 3 个对应 chunks、1 条 issue_link、1 条 review_request） |
+| **总计 approved** | 15 | **14** | -1（删 UI 测试数据） |
+
+**操作记录**（直接 SQL，未用 migration 文件——因为不是 schema 变更而是一次性数据修正，记录于此作为审计痕迹）：
+
+```sql
+-- 1. 合并 GameParty 项目命名
+UPDATE knowledge_articles
+SET project_name = 'GameParty'
+WHERE id = '5a39e7aa-8604-4033-9453-64a776118b40';
+
+-- 2. 删除空内容测试数据 + 联级清理
+DELETE FROM knowledge_chunks         WHERE article_id = '2fc2d998-01a3-40c3-be20-abc3b32b326a';
+DELETE FROM knowledge_issue_links    WHERE article_id = '2fc2d998-01a3-40c3-be20-abc3b32b326a';
+DELETE FROM knowledge_review_requests WHERE article_id = '2fc2d998-01a3-40c3-be20-abc3b32b326a';
+DELETE FROM knowledge_articles       WHERE id         = '2fc2d998-01a3-40c3-be20-abc3b32b326a';
+```
+
+**长期治理建议**（写入 Phase 4 待办）：
+- 知识库录入 UI 把 `project_name` 改为 select 下拉（限定 enum），杜绝 free text 漂移
+- 加 schema 约束：`project_name` 强制非空 + CHECK IN (...)
+- 定期跑 `SELECT DISTINCT project_name` 监控异常值
+
+**对 baseline 的影响**：
+- baseline fixture 第 2 题 `project_name` 从 `'GameParty / 欢乐客栈'` 改回 canonical `'GameParty'`
+- 5/5 题命中保持不变，平均引用文章数从 2.2 → 2.4 略升（治理后 GameParty 命中策略更直接）
+
 ## Phase 0.3 Baseline 评测
 
-采集时间：2026年5月7日星期四 17:21:30
+采集时间：2026年5月7日星期四 17:28:24
 采集方式：CLI 复刻 `/api/knowledge/ask` 的检索、LLM 生成和 citation 校验流程；未写入 `knowledge_ai_answers`，避免 baseline 评测污染线上问答统计。
 
 ### 汇总指标（Phase 1 改动后用于横向对比）
@@ -162,7 +199,7 @@ RPC runtime probe 结果：
 | LLM 自评 high | 5 / 5 |
 | 平均召回 chunk 数（过滤前→后）| 11.6 → 9.2 |
 | 平均召回文章数（过滤后） | 3.6 |
-| 平均引用文章数 | 2.2 |
+| 平均引用文章数 | 2.4 |
 
 > 字段说明：`retrieved_articles` 表示按 article_id 聚合后的召回结果，格式 `<short_id>(<top_similarity>×<chunk_count>)`；`retrieved_chunks` 显示 `过滤前→过滤后` 的 chunk 总数（过滤条件：similarity ≥ 0.25 且 chunk 长度 ≥ 100）。
 
@@ -170,8 +207,8 @@ RPC runtime probe 结果：
 
 | question | project_name | retrieved_chunks | retrieved_articles_filtered | cited_article_ids | similarity_top1 | confidence | no_basis | answer_preview |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 问题追踪系统的核心功能和知识库模块是怎么设计的？ | 问题追踪系统 | 10→9 | 71b1e16e(0.40×9) | 71b1e16e | 0.3974 | high | false | ## 核心功能设计 问题追踪系统的核心不是单纯记录工单，而是将以下环节串成闭环： - **任务创建、责任分配、进展同步、风险暴露** - **企业微信催办** - **管理看板** |
-| GameParty 项目的整体架构和部署方式是什么？ | GameParty / 欢乐客栈 | 12→9 | 5a39e7aa(0.62×9) | 5a39e7aa | 0.6230 | high | false | ## 项目整体定位 GameParty 是一套**多人线下体感派对游戏合集**，部署于**游戏厅/娱乐场所**，玩家通过**手脚传感器（Arduino 串口设备）**进行交互。 # |
-| 欢乐客栈第一关前堂对掌的核心玩法是什么？ | 欢乐客栈 | 12→8 | 3a2b698a(0.63×2) 5f61c49b(0.41×2) 44ceac48(0.41×2) 3402aee7(0.37×1) 1adba643(0.33×1) | 3a2b698a | 0.6288 | high | false | 欢乐客栈第一关「前堂对掌」的核心玩法为**拍巴掌 / 对掌反应玩法**，核心操作包括： - **主动出掌** - **躲闪** - **诱敌** - **反制** 核心体验围绕：我 |
-| 金币与声望系统的主要规则有哪些？ | 欢乐客栈 | 12→9 | 5f61c49b(0.58×4) 968c46b4(0.55×2) 1e99b63c(0.53×1) 1adba643(0.53×1) 076328ff(0.50×1) | 5f61c49b, 968c46b4 | 0.5775 | high | false | 金币与声望系统的主要规则如下： ## 核心原则 - **金币决定胜负**：所有关卡统一以金币多少判定输赢 - **声望记录表现**：反映玩家操作质量、判断质量、爆发与稳定表现 -  |
-| 战报与结算 UI 需要展示哪些关键信息？ | 欢乐客栈 | 12→11 | 328b9b76(0.55×4) 3a2b698a(0.55×1) 44ceac48(0.53×1) 3402aee7(0.51×1) 1e99b63c(0.45×2) 5f61c49b(0.44×2) | 328b9b76, 3a2b698a, 44ceac48, 3402aee7, 5f61c49b, 1e99b63c | 0.5626 | high | false | 根据知识库，战报与结算 UI 需要展示以下关键信息： ## 一、金币信息 - **金币获得**：+X（总获得金币） - **金币明细**：最多显示 4-6 条，为 0 的项目不显示 |
+| 问题追踪系统的核心功能和知识库模块是怎么设计的？ | 问题追踪系统 | 10→9 | 71b1e16e(0.40×9) | 71b1e16e | 0.3979 | high | false | ## 核心功能设计 问题追踪系统的核心不是单纯记录工单，而是将**任务创建、责任分配、进展同步、风险暴露、企业微信催办、管理看板**串成闭环。主要覆盖： - **工单协作**：问题 |
+| GameParty 项目的整体架构和部署方式是什么？ | GameParty | 12→9 | 5a39e7aa(0.62×9) | 5a39e7aa | 0.6230 | high | false | GameParty 是一套**多人线下体感派对游戏合集**，部署于游戏厅/娱乐场所，玩家通过手脚传感器（Arduino 串口设备）进行交互。 ## 核心架构 ### 技术栈 - * |
+| 欢乐客栈第一关前堂对掌的核心玩法是什么？ | 欢乐客栈 | 12→8 | 3a2b698a(0.63×2) 5f61c49b(0.41×2) 44ceac48(0.41×2) 3402aee7(0.37×1) 1adba643(0.33×1) | 3a2b698a | 0.6288 | high | false | 第一关「前堂对掌」的核心玩法为**拍巴掌 / 对掌反应玩法**，玩家需要进行以下操作： - **主动出掌**：发起攻击命中对手 - **躲闪**：规避对方的出掌 - **诱敌**： |
+| 金币与声望系统的主要规则有哪些？ | 欢乐客栈 | 12→9 | 5f61c49b(0.58×4) 968c46b4(0.55×2) 1e99b63c(0.53×1) 1adba643(0.53×1) 076328ff(0.50×1) | 5f61c49b, 968c46b4, 1e99b63c | 0.5794 | high | false | ## 金币与声望系统主要规则 ### 核心原则 - **金币决定胜负**：所有关卡统一以金币多少判定输赢 - **声望记录表现**：反映玩家操作质量、判断质量、爆发与稳定表现，但不 |
+| 战报与结算 UI 需要展示哪些关键信息？ | 欢乐客栈 | 12→11 | 328b9b76(0.55×4) 3a2b698a(0.55×1) 44ceac48(0.53×1) 3402aee7(0.51×1) 1e99b63c(0.45×2) 5f61c49b(0.44×2) | 328b9b76, 3a2b698a, 44ceac48, 3402aee7, 1e99b63c, 5f61c49b | 0.5642 | high | false | 根据知识库，战报与结算 UI 需要展示以下关键信息： ## 一、金币信息 - **金币获得：+X**（总获得量） - **金币明细**（最多显示 4-6 条，为 0 的项目不显示） |
