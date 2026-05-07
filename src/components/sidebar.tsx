@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
-import { Home, LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send, Sparkles, Activity, Landmark, Mic, GitCommitHorizontal } from "lucide-react";
+import { Home, LayoutDashboard, ListTodo, Bell, LogOut, ClipboardList, Users, Send, Sparkles, Activity, Landmark, Mic, GitCommitHorizontal, BookOpen } from "lucide-react";
 
 const nav = [
   { href: "/home",                    label: "工作台",     icon: Home },
@@ -19,6 +19,7 @@ const nav = [
   { href: "/dashboard/wecom-health",  label: "企微接入健康", icon: Activity,         adminOnly: true },
   { href: "/dashboard/notifications", label: "通知日志",   icon: Send,             adminOnly: true },
   { href: "/issues",                  label: "问题列表",   icon: ListTodo },
+  { href: "/knowledge",               label: "项目知识库", icon: BookOpen },
   { href: "/my-tasks",                label: "我的任务",   icon: ClipboardList },
   { href: "/reminders",               label: "待你回应",   icon: Bell },
   { href: "/svn-reports",             label: "研发日报",   icon: GitCommitHorizontal, adminOnly: true },

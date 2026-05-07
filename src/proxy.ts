@@ -6,6 +6,7 @@ const PROTECTED_PREFIXES = [
   "/finance-ops",
   "/home",
   "/issues",
+  "/knowledge",
   "/members",
   "/my-tasks",
   "/reminders",

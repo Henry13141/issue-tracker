@@ -459,3 +459,137 @@ export interface NotificationDeliveryWithRelations extends NotificationDelivery 
   target_user?: Pick<User, "id" | "name"> | null;
   issue?: Pick<Issue, "id" | "title"> | null;
 }
+
+// ---------------------------------------------------------------------------
+// 知识库 / AI 项目大脑
+// ---------------------------------------------------------------------------
+
+export type KnowledgeCategory =
+  | "project_overview"
+  | "gameplay_rule"
+  | "numeric_system"
+  | "ui_spec"
+  | "technical_spec"
+  | "hardware_protocol"
+  | "decision_record"
+  | "test_acceptance"
+  | "troubleshooting"
+  | "operation_guide"
+  | "finance_ops"
+  | "ai_workflow";
+
+export type KnowledgeStatus = "draft" | "reviewing" | "approved" | "deprecated" | "archived";
+
+export type KnowledgeRelationType =
+  | "reference"
+  | "spec_for"
+  | "acceptance_for"
+  | "implements"
+  | "blocks"
+  | "result_from";
+
+export type KnowledgeDecisionStatus = "draft" | "confirmed" | "superseded";
+
+export type KnowledgeReviewStatus = "pending" | "approved" | "rejected";
+
+export type KnowledgeSourceType = "manual" | "ai_generated" | "issue_derived";
+
+export interface KnowledgeArticle {
+  id: string;
+  title: string;
+  slug: string | null;
+  project_name: string | null;
+  category: KnowledgeCategory;
+  module: string | null;
+  status: KnowledgeStatus;
+  version: string;
+  summary: string | null;
+  content: string;
+  owner_id: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  is_pinned: boolean;
+  is_ai_searchable: boolean;
+  source_type: KnowledgeSourceType;
+  source_ref_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeArticleWithRelations extends KnowledgeArticle {
+  owner?: Pick<User, "id" | "name" | "avatar_url"> | null;
+  creator?: Pick<User, "id" | "name"> | null;
+  approver?: Pick<User, "id" | "name"> | null;
+  issue_links?: KnowledgeIssueLinkWithRelations[];
+  linked_issue_count?: number;
+}
+
+export interface KnowledgeVersion {
+  id: string;
+  article_id: string;
+  version: string;
+  title: string;
+  summary: string | null;
+  content: string;
+  change_note: string | null;
+  created_by: string | null;
+  created_at: string;
+  creator?: Pick<User, "id" | "name"> | null;
+}
+
+export interface KnowledgeIssueLink {
+  id: string;
+  article_id: string;
+  issue_id: string;
+  relation_type: KnowledgeRelationType;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface KnowledgeIssueLinkWithRelations extends KnowledgeIssueLink {
+  issue?: Pick<Issue, "id" | "title" | "status" | "priority"> | null;
+  article?: Pick<KnowledgeArticle, "id" | "title" | "status" | "category"> | null;
+}
+
+export interface KnowledgeDecision {
+  id: string;
+  title: string;
+  project_name: string | null;
+  module: string | null;
+  background: string | null;
+  decision: string;
+  reason: string | null;
+  impact: string | null;
+  status: KnowledgeDecisionStatus;
+  article_id: string | null;
+  issue_id: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDecisionWithRelations extends KnowledgeDecision {
+  article?: Pick<KnowledgeArticle, "id" | "title"> | null;
+  issue?: Pick<Issue, "id" | "title"> | null;
+  decider?: Pick<User, "id" | "name"> | null;
+  creator?: Pick<User, "id" | "name"> | null;
+}
+
+export interface KnowledgeReviewRequest {
+  id: string;
+  article_id: string;
+  requester_id: string | null;
+  reviewer_id: string | null;
+  status: KnowledgeReviewStatus;
+  review_note: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+  updated_at: string;
+  article?: Pick<KnowledgeArticle, "id" | "title" | "status" | "category"> | null;
+  requester?: Pick<User, "id" | "name"> | null;
+  reviewer?: Pick<User, "id" | "name"> | null;
+}

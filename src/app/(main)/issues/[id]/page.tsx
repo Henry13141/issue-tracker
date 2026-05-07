@@ -3,11 +3,13 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { getIssueBasic } from "@/actions/issues";
 import { getMembers } from "@/actions/members";
+import { getIssueKnowledgeLinks } from "@/actions/knowledge";
 import { getCurrentUser } from "@/lib/auth";
 import { IssueDetailClient } from "@/components/issue-detail-client";
 import { IssueSubtasksClient } from "@/components/issue-subtasks-client";
 import { IssueUpdatesSection } from "@/components/issue-updates-section";
 import { IssueEventsSection } from "@/components/issue-events-section";
+import { IssueKnowledgeSection } from "@/components/issue-knowledge-section";
 import { SkeletonLine } from "@/components/skeleton-page";
 import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
@@ -30,9 +32,11 @@ export default async function IssueDetailPage({
     notFound();
   }
 
-  const members = await getMembers();
+  const [members, knowledgeLinks] = await Promise.all([
+    getMembers(),
+    getIssueKnowledgeLinks(id),
+  ]);
   const sp = await searchParams;
-
   // 优先使用列表页传来的 from 参数（保留分页/筛选状态），否则 fallback 到 /issues
   // 只允许跳回 /issues 路径，防止开放重定向
   const rawFrom = typeof sp.from === "string" ? sp.from : undefined;
@@ -77,6 +81,14 @@ export default async function IssueDetailPage({
             <IssueEventsSection issueId={id} />
           </Suspense>
         </div>
+
+        {/* 关联知识库 */}
+        <IssueKnowledgeSection
+          issueId={id}
+          initialLinks={knowledgeLinks}
+          currentUser={user}
+          issueStatus={issue.status}
+        />
       </div>
     </div>
   );
