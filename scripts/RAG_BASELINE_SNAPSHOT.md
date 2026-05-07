@@ -122,3 +122,28 @@ RPC runtime probe 结果：
 | query_embedding + match_count + match_threshold | 成功，返回 1 行 | id, article_id, chunk_index, content, similarity |
 
 结论：线上 `match_knowledge_chunks` 至少存在两个重载版本；当前仓库的 `supabase/migrations/add_knowledge_rag.sql` 只描述 `only_approved` 版本，未记录线上仍可调用的 `match_threshold` 旧签名。Phase 1.1 新增 `_v2` 时需要显式保留旧函数，避免热更新期间调用方打到不同返回列。
+
+## Phase 0.4 RPC 漂移收口（2026-05-07 补做）
+
+通过 Supabase MCP `execute_sql` 拿到两个重载函数的完整原文体后，做了如下三件事：
+
+1. **确认旧重载是真实安全漏洞**
+   - 旧签名：`match_knowledge_chunks(vector, double precision, integer)`
+   - 函数体内**只有** `WHERE 1 - (kc.embedding <=> query_embedding) > match_threshold`，**没有** `is_ai_searchable` / `status = 'approved'` 过滤
+   - 任何调用方都可以拿到 draft / archived / 不可搜索文章的 chunks
+   - 仓库 grep（`rg match_threshold` 全工程）：0 处应用代码使用 → 安全可删
+
+2. **发现主函数还有第二个 mismatch**
+   - 线上主函数实际带 `AND length(kc.content) >= 50`，仓库 migration 没记录
+   - 应用层在 `route.ts` / `actions/ai.ts` 还各自做了 `chunk_content.trim().length >= 100` 的客户端过滤；服务端 50 + 客户端 100 的双层过滤是**有意冗余**，不影响功能但容易误以为只需改一处
+   - 处理方式：把线上主函数原文写回 migration（仅文档化，零行为变化）
+
+3. **新增 migration 并应用到线上**
+   - 文件：`supabase/migrations/reconcile_match_knowledge_chunks_overloads.sql`
+   - 通过 `apply_migration` MCP 应用，apply 后 `pg_proc` 验证：仅剩唯一签名 `(vector, integer, boolean)`，旧重载已消失
+   - migration 文件内含完整回滚 SQL（如有人需要恢复旧重载可直接复制）
+
+**对 Phase 1.1 的影响**：
+- 升级到 `_v2` 时不再需要担心命中错误重载
+- 但要注意：参数类型保持 polymorphic `vector` 而非 `vector(1024)`（与线上一致，pgvector 接受任意维度，维度由列定义强制）
+- 维度仍由 `knowledge_chunks.embedding vector(1024)` 这一列定义保证
