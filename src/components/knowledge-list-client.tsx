@@ -157,7 +157,7 @@ export function KnowledgeListClient({
         </form>
 
         <Select
-          defaultValue={sp("category")}
+          value={sp("category") ?? "all"}
           onValueChange={(v) => handleFilter("category", v)}
         >
           <SelectTrigger className="w-36">
@@ -172,7 +172,7 @@ export function KnowledgeListClient({
         </Select>
 
         <Select
-          defaultValue={sp("status")}
+          value={sp("status") ?? "all"}
           onValueChange={(v) => handleFilter("status", v)}
         >
           <SelectTrigger className="w-28">
@@ -188,8 +188,8 @@ export function KnowledgeListClient({
 
         {modules.length > 0 && (
           <Select
-            defaultValue={sp("module")}
-            onValueChange={(v) => handleFilter("module", v)}
+          value={sp("module") ?? "all"}
+          onValueChange={(v) => handleFilter("module", v)}
           >
             <SelectTrigger className="w-32">
               <SelectValue placeholder="全部模块" />
@@ -205,8 +205,8 @@ export function KnowledgeListClient({
 
         {projects.length > 0 && (
           <Select
-            defaultValue={sp("project_name")}
-            onValueChange={(v) => handleFilter("project_name", v)}
+          value={sp("project_name") ?? "all"}
+          onValueChange={(v) => handleFilter("project_name", v)}
           >
             <SelectTrigger className="w-32">
               <SelectValue placeholder="全部项目" />
