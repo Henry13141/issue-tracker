@@ -152,6 +152,26 @@ function mdTable(headers, rows) {
   ].join("\n");
 }
 
+/** 把召回的 chunks 按 article 聚合：返回 [{id, top_similarity, chunk_count}]，按相似度降序 */
+function aggregateRetrievedArticles(chunks) {
+  const byArticle = new Map();
+  for (const chunk of chunks) {
+    const existing = byArticle.get(chunk.article_id);
+    if (!existing) {
+      byArticle.set(chunk.article_id, {
+        id: chunk.article_id,
+        title: chunk.article_title,
+        top_similarity: chunk.similarity,
+        chunk_count: 1,
+      });
+    } else {
+      existing.top_similarity = Math.max(existing.top_similarity, chunk.similarity);
+      existing.chunk_count += 1;
+    }
+  }
+  return [...byArticle.values()].sort((a, b) => b.top_similarity - a.top_similarity);
+}
+
 async function askDirect(supabase, item) {
   const queryEmbedding = await createEmbedding(item.question);
   const { data: rawChunks, error } = await supabase.rpc("match_knowledge_chunks", {
@@ -162,11 +182,19 @@ async function askDirect(supabase, item) {
 
   if (error) throw new Error(`match_knowledge_chunks failed: ${error.message}`);
 
-  const chunks = (rawChunks || []).filter(
+  const rawChunkList = rawChunks || [];
+  const chunks = rawChunkList.filter(
     (chunk) =>
       chunk.similarity >= MIN_KNOWLEDGE_SIMILARITY &&
       String(chunk.chunk_content || "").trim().length >= 100,
   );
+
+  // 召回元信息：过滤前/后 chunk 数 + 按文章聚合（含 top similarity 与 chunk 数）
+  const retrievedChunkCountRaw = rawChunkList.length;
+  const retrievedChunkCountFiltered = chunks.length;
+  const retrievedArticles = aggregateRetrievedArticles(rawChunkList);
+  const retrievedArticlesFiltered = aggregateRetrievedArticles(chunks);
+
   const noBasis = chunks.length === 0;
   const systemPrompt = buildSystemPrompt(chunks, noBasis);
   const completion = await chatCompletion(systemPrompt, `用户问题：${item.question}`);
@@ -179,6 +207,9 @@ async function askDirect(supabase, item) {
       project_name: item.project_name,
       cited_article_ids: [],
       similarity_top1: rawChunks?.[0]?.similarity ?? null,
+      retrieved_chunks: `${retrievedChunkCountRaw}→${retrievedChunkCountFiltered}`,
+      retrieved_articles: retrievedArticles,
+      retrieved_articles_filtered: retrievedArticlesFiltered,
       confidence: "parse_error",
       no_basis: true,
       answer_preview: `parse_error: ${
@@ -186,9 +217,9 @@ async function askDirect(supabase, item) {
       }`,
     };
   }
-  const retrievedArticleIds = new Set(chunks.map((chunk) => chunk.article_id));
+  const retrievedArticleIdsSet = new Set(chunks.map((chunk) => chunk.article_id));
   const verifiedCitations = (parsed.citations || []).filter((citation) =>
-    retrievedArticleIds.has(citation.id),
+    retrievedArticleIdsSet.has(citation.id),
   );
 
   return {
@@ -196,10 +227,33 @@ async function askDirect(supabase, item) {
     project_name: item.project_name,
     cited_article_ids: verifiedCitations.map((citation) => citation.id),
     similarity_top1: rawChunks?.[0]?.similarity ?? null,
+    retrieved_chunks: `${retrievedChunkCountRaw}→${retrievedChunkCountFiltered}`,
+    retrieved_articles: retrievedArticles,
+    retrieved_articles_filtered: retrievedArticlesFiltered,
     confidence: parsed.confidence || "low",
     no_basis: Boolean(parsed.no_basis ?? noBasis),
     answer_preview: previewAnswer(parsed.answer),
   };
+}
+
+/** UUID 缩写：取前 8 位，方便表格阅读 */
+function shortId(id) {
+  return String(id || "").slice(0, 8);
+}
+
+/** 把召回文章列表渲染为紧凑字符串：a1b2c3d4(0.66×3) e5f6g7h8(0.55×2) */
+function formatArticles(articles) {
+  if (!articles?.length) return "—";
+  return articles
+    .slice(0, 6)
+    .map((a) => `${shortId(a.id)}(${a.top_similarity.toFixed(2)}×${a.chunk_count})`)
+    .join(" ") + (articles.length > 6 ? ` …+${articles.length - 6}` : "");
+}
+
+/** 短 ID 列表 */
+function formatCitedIds(ids) {
+  if (!ids?.length) return "—";
+  return ids.map(shortId).join(", ");
 }
 
 function renderResults(results) {
@@ -209,15 +263,49 @@ function renderResults(results) {
     timeZone: "Asia/Shanghai",
   }).format(new Date());
 
+  // 计算汇总指标，供后续 Phase 1 横向对比
+  const total = results.length;
+  const noBasisCount = results.filter((r) => r.no_basis).length;
+  const highConf = results.filter((r) => r.confidence === "high").length;
+  const avgRetrievedRaw =
+    results.reduce((sum, r) => sum + Number(String(r.retrieved_chunks).split("→")[0] || 0), 0) /
+    Math.max(total, 1);
+  const avgRetrievedFiltered =
+    results.reduce((sum, r) => sum + Number(String(r.retrieved_chunks).split("→")[1] || 0), 0) /
+    Math.max(total, 1);
+  const avgArticlesFiltered =
+    results.reduce((sum, r) => sum + (r.retrieved_articles_filtered?.length || 0), 0) /
+    Math.max(total, 1);
+  const avgCited =
+    results.reduce((sum, r) => sum + (r.cited_article_ids?.length || 0), 0) /
+    Math.max(total, 1);
+
   return `## Phase 0.3 Baseline 评测
 
 采集时间：${collectedAt}
 采集方式：CLI 复刻 \`/api/knowledge/ask\` 的检索、LLM 生成和 citation 校验流程；未写入 \`knowledge_ai_answers\`，避免 baseline 评测污染线上问答统计。
 
+### 汇总指标（Phase 1 改动后用于横向对比）
+
+| 指标 | 数值 |
+| --- | --- |
+| 题目总数 | ${total} |
+| 命中（no_basis = false）| ${total - noBasisCount} / ${total} |
+| LLM 自评 high | ${highConf} / ${total} |
+| 平均召回 chunk 数（过滤前→后）| ${avgRetrievedRaw.toFixed(1)} → ${avgRetrievedFiltered.toFixed(1)} |
+| 平均召回文章数（过滤后） | ${avgArticlesFiltered.toFixed(1)} |
+| 平均引用文章数 | ${avgCited.toFixed(1)} |
+
+> 字段说明：\`retrieved_articles\` 表示按 article_id 聚合后的召回结果，格式 \`<short_id>(<top_similarity>×<chunk_count>)\`；\`retrieved_chunks\` 显示 \`过滤前→过滤后\` 的 chunk 总数（过滤条件：similarity ≥ ${MIN_KNOWLEDGE_SIMILARITY} 且 chunk 长度 ≥ 100）。
+
+### 逐题详情
+
 ${mdTable(
   [
     "question",
     "project_name",
+    "retrieved_chunks",
+    "retrieved_articles_filtered",
     "cited_article_ids",
     "similarity_top1",
     "confidence",
@@ -227,7 +315,9 @@ ${mdTable(
   results.map((result) => [
     result.question,
     result.project_name,
-    result.cited_article_ids.join(", "),
+    result.retrieved_chunks ?? "",
+    formatArticles(result.retrieved_articles_filtered),
+    formatCitedIds(result.cited_article_ids),
     result.similarity_top1 == null ? "" : Number(result.similarity_top1).toFixed(4),
     result.confidence,
     result.no_basis ? "true" : "false",
