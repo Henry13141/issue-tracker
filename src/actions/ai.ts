@@ -3,6 +3,7 @@
 import { chatCompletion, chatCompletionFromMessages, createEmbedding, isAIConfigured, MIN_KNOWLEDGE_SIMILARITY } from "@/lib/ai";
 import type { AIChatMessage } from "@/lib/ai";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { hybridSearchChunks, isHybridEnabled } from "@/lib/rag/hybrid-search";
 import { ISSUE_CATEGORIES, ISSUE_MODULES, isIssueCategory, isIssueModule, ISSUE_STATUS_LABELS, ISSUE_PRIORITY_LABELS } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
@@ -657,15 +658,31 @@ export async function chatWithAssistant(
         return "（实时数据暂时无法获取）";
       }
     })(),
-    // 知识库 RAG 检索
+    // 知识库 RAG 检索（默认 hybrid，可用 RAG_HYBRID_ENABLED=false 回退到纯向量）
     (async (): Promise<KnowledgeChunk[]> => {
       try {
+        const admin = createAdminClient();
+        const ASSISTANT_MATCH_COUNT = 6;
+
+        if (isHybridEnabled()) {
+          const hybridChunks = await hybridSearchChunks(message, {
+            matchCount: ASSISTANT_MATCH_COUNT,
+            onlyApproved: true,
+            filterProjectName: null,
+            minSimilarity: MIN_KNOWLEDGE_SIMILARITY,
+            adminClient: admin,
+            candidatesPerSource: ASSISTANT_MATCH_COUNT * 3,
+          });
+          return hybridChunks.filter(
+            (c) => c.chunk_content.trim().length >= 50,
+          );
+        }
+
         const embedding = await createEmbedding(message);
         if (!embedding) return [];
-        const admin = createAdminClient();
         const { data, error } = await admin.rpc("match_knowledge_chunks_v2", {
           query_embedding: embedding,
-          match_count: 6,
+          match_count: ASSISTANT_MATCH_COUNT,
           only_approved: true,
           filter_project_name: null,
           min_similarity: MIN_KNOWLEDGE_SIMILARITY,
