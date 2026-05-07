@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 
 let _client: OpenAI | null = null;
+const ARK_EMBEDDING_URL = "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal";
+const ARK_EMBEDDING_MODEL = "doubao-embedding-vision-251215";
 
 export type AIChatMessage = {
   role: "system" | "user" | "assistant";
@@ -76,4 +78,45 @@ export async function chatCompletion(
     ],
     opts
   );
+}
+
+/**
+ * 生成文本的向量嵌入（1024 维）。
+ * 使用火山方舟 doubao-embedding-vision-251215，输出维度与 knowledge_chunks.embedding vector(1024) 匹配。
+ * 需要配置环境变量 ARK_API_KEY。
+ */
+export async function createEmbedding(text: string): Promise<number[] | null> {
+  const arkKey = process.env.ARK_API_KEY;
+  if (!arkKey) {
+    console.error("[ai] createEmbedding: ARK_API_KEY not configured");
+    return null;
+  }
+  try {
+    const res = await fetch(ARK_EMBEDDING_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${arkKey}`,
+      },
+        body: JSON.stringify({
+        model: ARK_EMBEDDING_MODEL,
+        input: [{ type: "text", text: text.slice(0, 4000) }],
+        dimensions: 1024,
+        encoding_format: "float",
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "(no body)");
+      console.error(`[ai] Ark embedding ${res.status}:`, errText);
+      return null;
+    }
+
+    // Ark multimodal embedding returns data as an object, not an array
+    const json = await res.json() as { data?: { embedding?: number[] } };
+    return json.data?.embedding ?? null;
+  } catch (e) {
+    console.error("[ai] createEmbedding failed:", e instanceof Error ? e.message : String(e));
+    return null;
+  }
 }

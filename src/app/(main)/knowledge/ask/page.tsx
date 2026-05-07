@@ -1,14 +1,16 @@
 import { getCurrentUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { Sparkles, BookOpen, MessageSquare, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Sparkles, BookOpen, Search, MessageSquare, AlertTriangle } from "lucide-react";
+import KnowledgeAskClient from "@/components/knowledge-ask-client";
+import { isAIConfigured } from "@/lib/ai";
 
 export default async function KnowledgeAskPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  const aiReady = isAIConfigured();
 
   return (
     <div className="space-y-6">
@@ -22,35 +24,26 @@ export default async function KnowledgeAskPage() {
         </p>
       </div>
 
-      {/* 即将上线提示 */}
-      <Card className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20">
-        <CardContent className="flex items-start gap-3 p-4">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-          <div>
-            <p className="font-medium text-amber-800 dark:text-amber-400">功能开发中</p>
-            <p className="mt-0.5 text-sm text-amber-700 dark:text-amber-500">
-              AI 问答功能正在建设中，后续将接入 RAG 检索，所有回答将附带知识来源引用。
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* AI 未配置时提示 */}
+      {!aiReady && (
+        <Card className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20">
+          <CardContent className="flex items-start gap-3 p-4">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div>
+              <p className="font-medium text-amber-800 dark:text-amber-400">AI 服务未配置</p>
+              <p className="mt-0.5 text-sm text-amber-700 dark:text-amber-500">
+                请在环境变量中配置 <code className="font-mono text-xs">MOONSHOT_API_KEY</code> 后重启服务。
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* 占位搜索框（不可用）*/}
-      <div className="relative opacity-50 pointer-events-none">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          className="pl-9 pr-24"
-          placeholder="提问，例如：这个项目的 UI 规范是什么？"
-          disabled
-        />
-        <Button className="absolute right-1.5 top-1/2 -translate-y-1/2 h-7" disabled>
-          <Sparkles className="mr-1.5 h-4 w-4" />
-          提问
-        </Button>
-      </div>
+      {/* 问答交互区 */}
+      {aiReady && <KnowledgeAskClient />}
 
       {/* 功能说明 */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-3">
         <FeatureCard
           icon={<BookOpen className="h-5 w-5" />}
           title="优先引用已确认知识"
@@ -64,7 +57,7 @@ export default async function KnowledgeAskPage() {
         <FeatureCard
           icon={<AlertTriangle className="h-5 w-5" />}
           title="未知时明确告知"
-          description="如知识库中无依据，AI 将明确回答「知识库中没有找到可靠依据」，不猜测"
+          description="如知识库中无依据，AI 将明确告知，不猜测、不编造"
         />
       </div>
 
@@ -77,9 +70,9 @@ export default async function KnowledgeAskPage() {
           {[
             ["答案", "基于知识库的直接回答"],
             ["引用知识", "引用的知识条目列表（可跳转）"],
-            ["关联任务", "相关的 Issue 任务"],
+            ["置信度", "high / medium / low，基于检索相关性判断"],
             ["风险提示", "使用该知识时需注意的风险"],
-            ["是否可作为执行依据", "明确标注是否可直接执行"],
+            ["可执行性", "明确标注是否可直接执行"],
           ].map(([label, desc]) => (
             <div key={label} className="flex gap-2">
               <Badge variant="outline" className="shrink-0">{label}</Badge>

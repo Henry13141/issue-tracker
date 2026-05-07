@@ -593,3 +593,43 @@ export interface KnowledgeReviewRequest {
   requester?: Pick<User, "id" | "name"> | null;
   reviewer?: Pick<User, "id" | "name"> | null;
 }
+
+// ---------------------------------------------------------------------------
+// RAG 相关类型
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeChunk {
+  id: string;
+  article_id: string;
+  chunk_index: number;
+  content: string;
+  category: string | null;
+  module: string | null;
+  status: string | null;
+  version: string | null;
+  metadata: Record<string, unknown>;
+  /** embedding 在客户端不暴露，DB 存储为 vector(1536) */
+  created_at: string;
+}
+
+export interface KnowledgeAiAnswer {
+  id: string;
+  question: string;
+  answer: string;
+  project_name: string | null;
+  cited_article_ids: string[];
+  cited_chunk_ids: string[];
+  confidence: string | null;
+  user_id: string | null;
+  created_at: string;
+}
+
+/** AI 问答 API 的响应结构（/api/knowledge/ask） */
+export interface KnowledgeAskResponse {
+  answer: string;
+  citations: { id: string; title: string }[];
+  confidence: "high" | "medium" | "low";
+  no_basis: boolean;
+  risk_notes: string | null;
+  actionable: boolean;
+}

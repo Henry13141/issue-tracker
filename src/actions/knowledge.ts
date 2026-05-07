@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth";
-import { chatCompletion, isAIConfigured } from "@/lib/ai";
+import { chatCompletion, createEmbedding, isAIConfigured } from "@/lib/ai";
 import type {
   KnowledgeArticle,
   KnowledgeArticleWithRelations,
@@ -280,6 +281,13 @@ export async function updateKnowledgeStatus(
     .eq("id", id);
 
   if (error) return { error: error.message };
+
+  // approved 时异步触发向量化（非阻塞，失败不影响状态更新结果）
+  if (status === "approved") {
+    embedKnowledgeArticle(id).catch((e) =>
+      console.error("[knowledge] embedKnowledgeArticle failed:", e)
+    );
+  }
 
   revalidatePath("/knowledge");
   revalidatePath(`/knowledge/${id}`);
@@ -653,6 +661,115 @@ export async function getKnowledgeModules(): Promise<string[]> {
     if (row.module) names.add(row.module);
   });
   return Array.from(names);
+}
+
+// ---------------------------------------------------------------------------
+// 知识文章向量化入库（RAG embedding 准备）
+// 读取文章正文，按标题/段落分块，逐块生成 embedding，upsert 到 knowledge_chunks。
+// 使用 service_role client 绕过 knowledge_chunks 的 RLS（INSERT 策略仅限 service_role）。
+// ---------------------------------------------------------------------------
+export async function embedKnowledgeArticle(
+  articleId: string
+): Promise<{ ok: true; chunks: number } | { error: string }> {
+  if (!isAIConfigured()) return { error: "AI 未配置" };
+
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: "未登录" };
+
+  const { data: article, error: fetchErr } = await supabase
+    .from("knowledge_articles")
+    .select("id, title, summary, content, category, module, status, version")
+    .eq("id", articleId)
+    .single();
+
+  if (fetchErr || !article) return { error: "知识条目不存在" };
+
+  // 分块：以 Markdown 标题（##）或空行分隔，每块上限 600 字
+  const chunks = splitIntoChunks(
+    [article.summary ? `摘要：${article.summary}` : "", article.content]
+      .filter(Boolean)
+      .join("\n\n"),
+    600
+  );
+
+  if (chunks.length === 0) return { error: "文章内容为空，无法向量化" };
+
+  const admin = createAdminClient();
+
+  // 先清除该文章旧有的 chunks，再重新写入（保证幂等）
+  await admin.from("knowledge_chunks").delete().eq("article_id", articleId);
+
+  let successCount = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkText = chunks[i].trim();
+    if (!chunkText) continue;
+
+    const embedding = await createEmbedding(chunkText);
+    if (!embedding) {
+      console.warn(`[embed] article=${articleId} chunk=${i} embedding failed, skipping`);
+      continue;
+    }
+
+    const { error: insertErr } = await admin.from("knowledge_chunks").insert({
+      article_id: articleId,
+      chunk_index: i,
+      content: chunkText,
+      category: article.category,
+      module: article.module ?? null,
+      status: article.status,
+      version: article.version,
+      metadata: { title: article.title, chunk_index: i, total_chunks: chunks.length },
+      embedding,
+    });
+
+    if (insertErr) {
+      console.error(`[embed] article=${articleId} chunk=${i} insert error:`, insertErr.message);
+    } else {
+      successCount++;
+    }
+  }
+
+  return { ok: true, chunks: successCount };
+}
+
+/**
+ * 将长文本按 Markdown 标题（##/###）和空行分块。
+ * 每块不超过 maxLen 字符；若单段超长则按 maxLen 截断。
+ */
+function splitIntoChunks(text: string, maxLen: number): string[] {
+  // 先按 Markdown 二级/三级标题拆分
+  const sections = text.split(/(?=^#{2,3} )/m).filter(Boolean);
+  const result: string[] = [];
+
+  for (const section of sections) {
+    if (section.length <= maxLen) {
+      result.push(section);
+      continue;
+    }
+    // 段落太长时再按连续空行拆
+    const paragraphs = section.split(/\n{2,}/);
+    let current = "";
+    for (const para of paragraphs) {
+      if ((current + "\n\n" + para).length > maxLen && current) {
+        result.push(current.trim());
+        current = para;
+      } else {
+        current = current ? `${current}\n\n${para}` : para;
+      }
+    }
+    if (current.trim()) result.push(current.trim());
+  }
+
+  // 兜底：对超长块强制截断
+  return result.flatMap((chunk) => {
+    if (chunk.length <= maxLen) return [chunk];
+    const parts: string[] = [];
+    for (let i = 0; i < chunk.length; i += maxLen) {
+      parts.push(chunk.slice(i, i + maxLen));
+    }
+    return parts;
+  });
 }
 
 // 让非 admin 知道哪些 status 变更是被允许的 — 移至组件内内联定义，避免从 "use server" 导出非异步值
