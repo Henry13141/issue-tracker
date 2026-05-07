@@ -803,3 +803,26 @@ export async function clearMyChatHistory(): Promise<void> {
   if (!user) return;
   await clearChatHistory(user.id);
 }
+
+// ---------------------------------------------------------------------------
+// 手动触发 AI 组织学习（管理员 Server Action，绕过 CRON_SECRET）
+// ---------------------------------------------------------------------------
+
+import { runOrganizationLearning } from "@/lib/ai-learning";
+import type { LearningResult } from "@/lib/ai-learning";
+
+export async function triggerOrganizationLearning(): Promise<
+  { ok: true; learned: LearningResult } | { ok: false; error: string }
+> {
+  const user = await getCurrentUser();
+  if (!user || user.role !== "admin") {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  try {
+    const result = await runOrganizationLearning();
+    return { ok: true, learned: result };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Learning failed" };
+  }
+}

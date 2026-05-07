@@ -5,6 +5,7 @@ import { BrainCircuit, RefreshCw, User, Boxes, Building2, GitBranch, Clock, Chev
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { AIMemoryEntry, MemoryCategory } from "@/lib/ai-memory";
+import { triggerOrganizationLearning } from "@/actions/ai";
 
 // ---------------------------------------------------------------------------
 // 分类元数据
@@ -123,17 +124,7 @@ function MemoryCard({ entry }: { entry: AIMemoryEntry }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// 触发学习的 Server Action 包装
-// ---------------------------------------------------------------------------
-
-async function triggerLearning() {
-  const res = await fetch("/api/cron/ai-learning", {
-    method: "GET",
-    headers: { authorization: `Bearer ${process.env.NEXT_PUBLIC_CRON_SECRET ?? ""}` },
-  });
-  return res.json();
-}
+// triggerLearning 已替换为直接调用 Server Action（见下方 handleRunLearning）
 
 // ---------------------------------------------------------------------------
 // 主客户端组件
@@ -165,7 +156,7 @@ export function AIMemoryClient({ initialMemories }: { initialMemories: AIMemoryE
     startTransition(async () => {
       try {
         setLastRunResult(null);
-        const result = await triggerLearning();
+        const result = await triggerOrganizationLearning();
 
         if (result.ok) {
           const { learned } = result;

@@ -5,6 +5,8 @@ import { getAllMemories } from "@/lib/ai-memory";
 import { AIMemoryClient } from "@/components/ai-memory-client";
 import type { AIMemoryEntry } from "@/lib/ai-memory";
 
+export const maxDuration = 300;
+
 export default async function AIMemoryPage() {
   const user = await getCurrentUser();
   if (!user) return null;
